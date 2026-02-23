@@ -340,7 +340,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* ── Revenue Split (ganti Collection Rate) ── */}
+          {/* ── Revenue Split ── */}
           <div className="a-up-5">
             <Card className="hv-card">
               <CardHeader>
@@ -365,8 +365,8 @@ export default function AnalyticsPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {/* ↓ h-[180px] — lebih compact dari sebelumnya */}
-                <ChartContainer config={splitConfig} className="h-[180px] w-full">
+                {/* ↑ DIBESARKAN: h-[180px] → h-[260px] */}
+                <ChartContainer config={splitConfig} className="h-[260px] w-full">
                   <BarChart data={stats.splitMonthly} barCategoryGap="28%" margin={{left:8,right:8,top:4,bottom:0}}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border"/>
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{fontSize:11}}/>
@@ -412,8 +412,8 @@ export default function AnalyticsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {/* ↓ h-[200px] — lebih compact */}
-                <ChartContainer config={revenueConfig} className="h-[200px] w-full">
+                {/* ↑ DIBESARKAN: h-[200px] → h-[340px] — ini chart utama yg dibesarkan */}
+                <ChartContainer config={revenueConfig} className="h-[340px] w-full">
                   <BarChart data={stats.monthly} barCategoryGap="30%" margin={{left:8,right:8,top:4,bottom:0}}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border"/>
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{fontSize:12}}/>
@@ -435,10 +435,9 @@ export default function AnalyticsPage() {
                         />
                       }
                     />
-                    <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[4,4,0,0]} isAnimationActive animationDuration={900} animationEasing="ease-out"/>
+                    <Bar dataKey="revenue" fill="var(--color-revenue)" radius={[5,5,0,0]} isAnimationActive animationDuration={900} animationEasing="ease-out"/>
                   </BarChart>
                 </ChartContainer>
-                {/* Insight ringkas, jelas, to the point */}
                 <div className="mt-3">
                   <div className="insight-box flex items-start gap-2">
                     <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary"/>

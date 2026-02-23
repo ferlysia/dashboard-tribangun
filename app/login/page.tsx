@@ -23,6 +23,11 @@ function LogoImage({ size = 56 }: { size?: number }) {
 const LOGIN_STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&display=swap');
 
+/* MENGUNCI TAMPILAN AGAR TETAP LIGHT MODE */
+:root {
+  color-scheme: light !important;
+}
+
 /* ================== ANIMATIONS (TIDAK DIUBAH) ================== */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(16px); }
@@ -46,12 +51,15 @@ const LOGIN_STYLES = `
   0%,100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
 }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ================== PAGE ================== */
 .login-page {
   min-height: 100vh;
   display: flex;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #ffffff !important;
+  color: #000000 !important;
 }
 
 /* ================== LEFT ================== */
@@ -98,20 +106,20 @@ const LOGIN_STYLES = `
   width:48px;
   height:48px;
   border-radius:14px;
-  background:#fff;
+  background:#fff !important;
   display:flex;
   align-items:center;
   justify-content:center;
   box-shadow:0 4px 20px rgba(0,0,0,.25);
   animation: floatUp 3s ease-in-out infinite 1s;
 }
-.left-logo-text { color:#fff; font-size:13px; font-weight:700 }
-.left-logo-sub { color:rgba(255,255,255,.65); font-size:10px }
+.left-logo-text { color:#fff !important; font-size:13px; font-weight:700 }
+.left-logo-sub { color:rgba(255,255,255,.65) !important; font-size:10px }
 
 .login-left-content {
   margin-top:auto;
   padding:48px;
-  color:#fff;
+  color:#fff !important;
 }
 
 .left-glass-card {
@@ -124,14 +132,13 @@ const LOGIN_STYLES = `
   animation: fadeIn .9s ease both .4s;
 }
 
-/* NAMA PERUSAHAAN — SATU BARIS (TETAP) */
 .left-company-name {
   font-family:'Playfair Display', Georgia, serif;
   font-weight:900;
   font-size:2rem;
   line-height:1.2;
   letter-spacing:-0.02em;
-  color:#fff;
+  color:#fff !important;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -143,6 +150,7 @@ const LOGIN_STYLES = `
   opacity:.7;
   text-transform:uppercase;
   margin-bottom:20px;
+  color: #fff !important;
 }
 
 .left-stat-row {
@@ -157,17 +165,17 @@ const LOGIN_STYLES = `
   padding:10px 16px;
   text-align:center;
 }
-.left-stat-val { font-size:1.25rem; font-weight:800 }
-.left-stat-label { font-size:10px; opacity:.6 }
+.left-stat-val { font-size:1.25rem; font-weight:800; color: #fff !important; }
+.left-stat-label { font-size:10px; opacity:.6; color: #fff !important; }
 
 /* ================== RIGHT ================== */
 .login-right {
   flex:0 0 440px;
   display:flex;
-  justify-content:center;
+  justify(content):center;
   align-items:center;
   padding:48px 40px;
-  background:#fff;
+  background:#fff !important;
 }
 @media(max-width:959px){ .login-right{flex:1} }
 
@@ -185,7 +193,7 @@ const LOGIN_STYLES = `
   width:72px;
   height:72px;
   border-radius:20px;
-  background:#fff;
+  background:#fff !important;
   border:1px solid #e5e7eb;
   display:flex;
   align-items:center;
@@ -193,47 +201,55 @@ const LOGIN_STYLES = `
   margin:0 auto 16px;
   animation: pulse-ring 2.5s ease-in-out infinite 1.5s;
 }
-.right-company-name { font-weight:800 }
-.right-company-sub { font-size:11px; opacity:.6 }
+.right-company-name { font-weight:800; color: #000 !important; font-family: 'Playfair Display', serif; }
+.right-company-sub { font-size:11px; opacity:.6; color: #000 !important; }
 
-/* ================== FORM ================== */
+/* ================== FORM (TAKEN FROM YOUR CODE) ================== */
 .login-card {
-  background:#fff;
-  border:1px solid #e5e7eb;
+  background:#fff !important;
+  border:1.5px solid #e5e7eb;
   border-radius:20px;
   padding:28px 24px;
   animation: fadeIn .55s ease both .2s;
+  box-shadow: 0 4px 20px rgba(0,0,0,.07);
 }
+
+.login-card-title { font-size: 15px; font-weight: 700; color: #111827 !important; margin-bottom: 4px; font-family: 'Playfair Display', serif; }
+.login-card-sub { font-size: 12px; color: #6b7280 !important; margin-bottom: 18px; line-height: 1.5; }
 
 .login-label {
   font-size:12px;
   font-weight:600;
   margin-bottom:6px;
   display:block;
+  color: #374151 !important;
 }
 
 .login-input {
   width:100%;
-  padding:12px 14px;
-  border-radius:12px;
+  padding:11px 14px;
+  border-radius:11px;
   border:1.5px solid #d1d5db;
-  background:linear-gradient(180deg,#ffffff,#f9fafb);
+  background:#f9fafb !important;
+  color: #000 !important;
   font-size:14px;
+  outline: none;
   transition:.15s;
 }
 .login-input:focus {
   border-color:#3B4BA8;
+  background: #ffffff !important;
   box-shadow:0 0 0 3px rgba(59,75,168,.12);
-  outline:none;
 }
+
+.login-divider { height: 1px; background: #e5e7eb; margin: 16px 0; }
 
 .login-btn {
   width:100%;
-  margin-top:14px;
-  padding:12px;
+  padding:12px 20px;
   border-radius:12px;
-  background:#3B4BA8;
-  color:#fff;
+  background:#3B4BA8 !important;
+  color:#fff !important;
   font-weight:700;
   border:none;
   cursor:pointer;
@@ -242,8 +258,19 @@ const LOGIN_STYLES = `
   align-items:center;
   gap:8px;
   transition:.15s;
+  box-shadow: 0 4px 14px rgba(59,75,168,.35);
 }
-.login-btn:hover { transform:translateY(-2px) }
+.login-btn:disabled { opacity: .65; cursor: not-allowed; }
+
+.login-error {
+  background: #fef2f2; border: 1px solid #fca5a5;
+  color: #dc2626 !important; border-radius: 9px;
+  padding: 10px 12px; font-size: 12px;
+  margin-bottom: 12px;
+  animation: fadeIn .2s ease both;
+}
+
+.login-forgot { font-size: 11px; color: #3B4BA8 !important; background: none; border: none; cursor: pointer; padding: 0; }
 
 .login-secure-badge {
   margin-top:20px;
@@ -252,33 +279,26 @@ const LOGIN_STYLES = `
   display:flex;
   justify-content:center;
   gap:6px;
+  color: #9ca3af !important;
 }
 `
 
 export default function LoginPage() {
   const router = useRouter()
   const [showPw, setShowPw] = React.useState(false)
-  
-  // State untuk menyimpan input
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
+  const [error, setError] = React.useState("")
+  const [loading, setLoading] = React.useState(false)
 
-  // Fungsi Login dengan Validasi
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    // Validasi Sederhana
-    if (!email || !password) {
-      alert("Harap isi email dan password terlebih dahulu!")
-      return
-    }
-
-    if (password.length < 6) {
-      alert("Password harus minimal 6 karakter!")
-      return
-    }
-
-    // Jika validasi lolos, baru pindah halaman
+    setError("")
+    if (!email || !password) { setError("Harap isi email dan password terlebih dahulu."); return }
+    if (password.length < 6) { setError("Password harus minimal 6 karakter."); return }
+    
+    setLoading(true)
+    await new Promise(r => setTimeout(r, 1000))
     router.push("/dashboard")
   }
 
@@ -287,30 +307,21 @@ export default function LoginPage() {
       <style dangerouslySetInnerHTML={{ __html: LOGIN_STYLES }} />
 
       <div className="login-page">
-
-        {/* LEFT */}
+        {/* LEFT (PROSE/PHOTOS - RETAINED) */}
         <div className="login-left">
           <div className="login-office-bg" />
           <img src="/office-bg.jpg" className="login-office-photo" />
-
           <div className="left-logo-wrap">
-            <div className="left-logo-circle">
-              <LogoImage size={28} />
-            </div>
+            <div className="left-logo-circle"><LogoImage size={28} /></div>
             <div>
               <div className="left-logo-text">TUP Dashboard</div>
               <div className="left-logo-sub">Internal Business System</div>
             </div>
           </div>
-
           <div className="login-left-content">
             <div className="left-glass-card">
-              <h2 className="left-company-name">
-                PT Tri Bangun Usaha Persada
-              </h2>
-              <p className="left-tagline">
-                Distributor PAC · Automation & Control
-              </p>
+              <h2 className="left-company-name">PT Tri Bangun Usaha Persada</h2>
+              <p className="left-tagline">Distributor PAC · Automation & Control</p>
               <div className="left-stat-row">
                 <div className="left-stat">
                   <div className="left-stat-val">2025</div>
@@ -329,68 +340,73 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* RIGHT */}
+        {/* RIGHT (FORM FILL - FROM YOUR CODE) */}
         <div className="login-right">
           <div className="login-right-inner">
-
             <div className="right-logo-section">
-              <div className="right-logo-wrap">
-                <LogoImage size={44} />
-              </div>
-              <div className="right-company-name">
-                PT TRI BANGUN<br />USAHA PERSADA
-              </div>
-              <div className="right-company-sub">
-                Business Dashboard · 2025
-              </div>
+              <div className="right-logo-wrap"><LogoImage size={48} /></div>
+              <div className="right-company-name">PT TRI BANGUN<br />USAHA PERSADA</div>
+              <div className="right-company-sub">Business Dashboard · 2025</div>
             </div>
 
             <div className="login-card">
-              <form onSubmit={handleLogin}>
-                <label className="login-label">Email Perusahaan</label>
-                <input 
-                  className="login-input" 
-                  placeholder="nama@tup.id" 
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+              <p className="login-card-title">Masuk ke Dashboard</p>
+              <p className="login-card-sub">Gunakan akun perusahaan kamu untuk masuk</p>
 
-                <label className="login-label" style={{ marginTop: 14 }}>
-                  Password
-                </label>
-                <div style={{ position: "relative" }}>
+              {error && <div className="login-error">{error}</div>}
+
+              <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label className="login-label">Email Perusahaan</label>
                   <input
                     className="login-input"
-                    type={showPw ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="nama@tup.id"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    disabled={loading}
+                    autoComplete="email"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(!showPw)}
-                    style={{
-                      position: "absolute",
-                      right: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer"
-                    }}
-                  >
-                    {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
                 </div>
 
-                <button
-                  type="submit"
-                  className="login-btn"
-                >
-                  <LogIn size={16} />
-                  Masuk ke Dashboard
-                  <ArrowRight size={14} />
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label className="login-label" style={{ marginBottom: 0 }}>Password</label>
+                    <button type="button" className="login-forgot">Lupa password?</button>
+                  </div>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      className="login-input"
+                      style={{ paddingRight: '42px' }}
+                      type={showPw ? "text" : "password"}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      disabled={loading}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw(!showPw)}
+                      style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}
+                    >
+                      {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="login-divider" />
+
+                <button type="submit" className="login-btn" disabled={loading}>
+                  {loading ? (
+                    <div style={{ width: 16, height: 16, border: '2px solid #fff', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin .7s linear infinite' }} />
+                  ) : (
+                    <>
+                      <LogIn size={15} />
+                      Masuk ke Dashboard
+                      <ArrowRight size={14} />
+                    </>
+                  )}
                 </button>
               </form>
             </div>
@@ -399,10 +415,8 @@ export default function LoginPage() {
               <Shield size={12} />
               Akses terbatas · Karyawan PT Tri Bangun Usaha Persada
             </div>
-
           </div>
         </div>
-
       </div>
     </>
   )
