@@ -1,0 +1,132 @@
+{
+  "summary": {
+    "totalInvoices": 387,
+    "totalRevenue": 137507363284.65002,
+    "paidRevenue": 76811997438.84,
+    "unpaidRevenue": 60695365845.80999,
+    "paidCount": 237,
+    "unpaidCount": 150
+  },
+  "monthlyRevenue": [
+    {
+      "month": 1,
+      "revenue": 12066804148.08
+    },
+    {
+      "month": 2,
+      "revenue": 18388275373.5
+    },
+    {
+      "month": 3,
+      "revenue": 15103506861.79
+    },
+    {
+      "month": 4,
+      "revenue": 16602979358.82
+    },
+    {
+      "month": 5,
+      "revenue": 12834308863.480001
+    },
+    {
+      "month": 6,
+      "revenue": 11666288841.580002
+    },
+    {
+      "month": 7,
+      "revenue": 7440203840.7300005
+    },
+    {
+      "month": 8,
+      "revenue": 6827586434.7
+    },
+    {
+      "month": 9,
+      "revenue": 3353316951.9300003
+    },
+    {
+      "month": 10,
+      "revenue": 3446331898.3199997
+    },
+    {
+      "month": 11,
+      "revenue": 8461568079.659999
+    },
+    {
+      "month": 12,
+      "revenue": 21316192632.06
+    }
+  ],
+  "monthlyGrowth": [
+    {
+      "month": 1,
+      "growth": 0
+    },
+    {
+      "month": 2,
+      "growth": 52.39
+    },
+    {
+      "month": 3,
+      "growth": -17.86
+    },
+    {
+      "month": 4,
+      "growth": 9.93
+    },
+    {
+      "month": 5,
+      "growth": -22.7
+    },
+    {
+      "month": 6,
+      "growth": -9.1
+    },
+    {
+      "month": 7,
+      "growth": -36.22
+    },
+    {
+      "month": 8,
+      "growth": -8.23
+    },
+    {
+      "month": 9,
+      "growth": -50.89
+    },
+    {
+      "month": 10,
+      "growth": 2.77
+    },
+    {
+      "month": 11,
+      "growth": 145.52
+    },
+    {
+      "month": 12,
+      "growth": 151.92
+    }
+  ],
+  "topCustomers": [
+    {
+      "customer": "Eaton Industries ( Digital Edge 2 Phase 2 )",
+      "total": 17215020591.6
+    },
+    {
+      "customer": "Eaton Industries ( Edge 2 Phase 3 )",
+      "total": 12751680000
+    },
+    {
+      "customer": "Eaton Industries ( Dakota Batam )",
+      "total": 11786471319.300001
+    },
+    {
+      "customer": "Eaton Industries ( STT Phase 3 )",
+      "total": 11740676446.68
+    },
+    {
+      "customer": "Eaton Industries ( Digital Edge 2 Phase 2 - Loadbank Only )",
+      "total": 5272500000
+    }
+  ]
+}
