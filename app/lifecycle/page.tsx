@@ -156,7 +156,7 @@ async function exportPDF(
   y+=30
 
   doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.setTextColor(30,30,30)
-  doc.text("Prioritas Follow-up After Sales",mg,y); y+=5
+  doc.text("Prioritas Follow-up",mg,y); y+=5
   priority.forEach((c,i)=>{
     const pct=G>0?(c.total/G*100):0
     doc.setFillColor(i%2===0?248:255,249,250); doc.rect(mg,y,W-mg*2,11,"F")
