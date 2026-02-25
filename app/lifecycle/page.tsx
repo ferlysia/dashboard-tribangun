@@ -419,7 +419,7 @@ export default function LifecyclePage() {
             <div>
               <h1 className="text-xl font-semibold">Lifecycle & Aging</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Monitoring piutang · Outstanding tracker · After Sales Follow-up 2025
+                Monitoring piutang · Outstanding tracker · Follow-up 2025
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -587,7 +587,7 @@ export default function LifecyclePage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <Bell className="h-4 w-4 text-amber-500"/>
-                      <CardTitle>Prioritas Follow-up After Sales</CardTitle>
+                      <CardTitle>Prioritas Follow-up</CardTitle>
                     </div>
                     <CardDescription className="mt-1">
                       Klik nama klien untuk melihat daftar invoice yang harus dikejar
