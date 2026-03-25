@@ -104,6 +104,7 @@ type InvoiceFormState = {
   customer: string
   description: string
   date: string
+  invoice_sent_date: string
   po_number: string
   po_date: string
   po_value: string
@@ -123,6 +124,7 @@ const EMPTY_FORM: InvoiceFormState = {
   customer: "",
   description: "",
   date: "",
+  invoice_sent_date: "",
   po_number: "",
   po_date: "",
   po_value: "",
@@ -143,6 +145,7 @@ function mapInvoiceToForm(invoice: InvoiceRecord): InvoiceFormState {
     customer: invoice.customer,
     description: invoice.description,
     date: invoice.date || "",
+    invoice_sent_date: invoice.invoice_sent_date || "",
     po_number: invoice.po_number,
     po_date: invoice.po_date || "",
     po_value: String(invoice.po_value || ""),
@@ -262,6 +265,7 @@ export default function ExcelDataPage() {
       customer: form.customer.trim(),
       description: form.description.trim(),
       date: normalizedDate,
+      invoice_sent_date: normalizeDateString(form.invoice_sent_date),
       po_number: form.po_number.trim(),
       po_date: normalizeDateString(form.po_date),
       payment_date: form.payment_date.trim(),
@@ -504,12 +508,12 @@ export default function ExcelDataPage() {
             </Card>
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
-            <Card>
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start">
+            <Card className="self-start">
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div>
-                  <CardTitle>{editingInvoice ? "Edit Invoice Live" : "Tambah Invoice Live"}</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">Perubahan di sini akan tersimpan ke database Supabase.</p>
+                  <CardTitle>{editingInvoice ? "Edit Invoice Record" : "Invoice Entry Studio"}</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">Perubahan di sini akan tersimpan ke database Tribangun.</p>
                 </div>
                 {editingInvoice ? (
                   <Badge variant="secondary">Editing {editingInvoice.invoice_no}</Badge>
@@ -517,7 +521,7 @@ export default function ExcelDataPage() {
                   <Badge className="bg-primary/12 text-primary hover:bg-primary/12">Create</Badge>
                 )}
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-5">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="invoice_no">Invoice No</Label>
@@ -532,13 +536,27 @@ export default function ExcelDataPage() {
                       onChange={(event) => handleInputChange("date", event.target.value)}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="invoice_sent_date">Invoice Sent Date</Label>
+                    <Input
+                      id="invoice_sent_date"
+                      placeholder="YYYY-MM-DD atau DD/MM/YYYY"
+                      value={form.invoice_sent_date}
+                      onChange={(event) => handleInputChange("invoice_sent_date", event.target.value)}
+                    />
+                  </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="customer">Customer</Label>
                     <Input id="customer" value={form.customer} onChange={(event) => handleInputChange("customer", event.target.value)} />
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="description">Description</Label>
-                    <Input id="description" value={form.description} onChange={(event) => handleInputChange("description", event.target.value)} />
+                    <textarea
+                      id="description"
+                      className="min-h-28 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none"
+                      value={form.description}
+                      onChange={(event) => handleInputChange("description", event.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="po_number">PO Number</Label>
@@ -590,7 +608,7 @@ export default function ExcelDataPage() {
                     <Input id="payment_date" value={form.payment_date} onChange={(event) => handleInputChange("payment_date", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="selisih">Selisih</Label>
+                    <Label htmlFor="selisih">Variance</Label>
                     <Input id="selisih" type="number" value={form.selisih} onChange={(event) => handleInputChange("selisih", event.target.value)} />
                   </div>
                   <div className="space-y-2">
@@ -623,7 +641,7 @@ export default function ExcelDataPage() {
                 <div className="flex flex-wrap gap-3">
                   <Button onClick={handleSubmit} disabled={submitting}>
                     {editingInvoice ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                    {submitting ? "Memproses..." : editingInvoice ? "Simpan Perubahan" : "Tambah Invoice"}
+                    {submitting ? "Memproses..." : editingInvoice ? "Save Changes" : "Create Invoice"}
                   </Button>
                   <Button variant="outline" onClick={resetForm} disabled={submitting}>
                     Reset Form
@@ -636,7 +654,7 @@ export default function ExcelDataPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="self-start">
               <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
                 <div>
                   <CardTitle>Live Invoice List</CardTitle>
