@@ -1,28 +1,22 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import {
   Building2, MapPin, TrendingUp, TrendingDown,
   CircleCheckBig, CircleX, Search, ChevronRight,
   ArrowUpDown, Wrench, Package, FolderKanban,
-  X, FileText, BarChart3, Users,
+  X, BarChart3, Users,
 } from "lucide-react"
 import {
-  Card, CardContent, CardHeader, CardTitle, CardDescription,
+  Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import invoicesRaw from "@/data/invoices-2025.json"
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Invoice = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
+import type { InvoiceRecord as Invoice } from "@/types/invoice"
 type Client = {
   id: string; name: string; locations: string[]
   totalRevenue: number; totalDPP: number; totalPPN: number
@@ -142,7 +136,14 @@ const STYLES = `
     white-space: nowrap;
   }
   .chip:hover { border-color: hsl(var(--primary)/.5); color: hsl(var(--foreground)); }
-  .chip.on { background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 600; }
+  .chip.on {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary)/.82));
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-weight: 800;
+    box-shadow: 0 10px 20px -12px hsl(var(--primary)/.7), inset 0 1px 0 hsl(0 0% 100%/.18);
+    transform: translateY(-1px) scale(1.02);
+  }
 
   /* Sort button */
   .sort-btn { transition: color 0.12s; }
@@ -422,8 +423,7 @@ function DetailPanel({ client, onClose }: { client: Client; onClose: () => void 
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ClientsPage() {
-  const raw = invoicesRaw as Invoice[]
-  const router = useRouter()
+  const { invoices: raw, periodLabel } = useFilteredInvoices()
   const allClients = React.useMemo(() => buildClients(raw), [raw])
 
   const grandStats = React.useMemo(() => ({
@@ -470,8 +470,8 @@ export default function ClientsPage() {
     else { setSortKey(k); setSortAsc(false) }
   }
 
-  const SortIcon = ({ k }: { k: typeof sortKey }) => (
-    <ArrowUpDown className={`h-3 w-3 inline-block ml-1 transition-opacity ${sortKey === k ? "opacity-100 text-primary" : "opacity-30"}`} />
+  const renderSortIcon = (key: typeof sortKey) => (
+    <ArrowUpDown className={`h-3 w-3 inline-block ml-1 transition-opacity ${sortKey === key ? "opacity-100 text-primary" : "opacity-30"}`} />
   )
 
   return (
@@ -488,7 +488,7 @@ export default function ClientsPage() {
             <div>
               <h1 className="text-xl font-semibold">Klien</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                {allClients.length} klien · {raw.length} invoice · 2025
+                {allClients.length} klien · {raw.length} invoice · {periodLabel}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -512,7 +512,7 @@ export default function ClientsPage() {
               {
                 cls:"c-sc-2 kpi-card",
                 title:"Klien Aktif", icon:<Users className="h-4 w-4 text-muted-foreground"/>,
-                val: String(grandStats.totalClients), sub:"semua terdaftar 2025",
+                val: String(grandStats.totalClients), sub:`semua terdaftar ${periodLabel}`,
               },
               {
                 cls:"c-sc-3 kpi-card",
@@ -608,18 +608,18 @@ export default function ClientsPage() {
                         <th className="px-5 py-3.5 text-left font-medium text-muted-foreground w-10">#</th>
                         <th className="px-5 py-3.5 text-left font-medium text-muted-foreground">Klien</th>
                         <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn" onClick={() => toggleSort("revenue")}>
-                          Revenue <SortIcon k="revenue" />
+                          Revenue {renderSortIcon("revenue")}
                         </th>
                         {!selected && <>
                           <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn hidden lg:table-cell" onClick={() => toggleSort("rate")}>
-                            Rate <SortIcon k="rate" />
+                            Rate {renderSortIcon("rate")}
                           </th>
                           <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn hidden xl:table-cell" onClick={() => toggleSort("invoice")}>
-                            Inv <SortIcon k="invoice" />
+                            Inv {renderSortIcon("invoice")}
                           </th>
                         </>}
                         <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn" onClick={() => toggleSort("outstanding")}>
-                          Outstanding <SortIcon k="outstanding" />
+                          Outstanding {renderSortIcon("outstanding")}
                         </th>
                         <th className="px-5 py-3.5 w-8" />
                       </tr>

@@ -3,6 +3,9 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { ActiveThemeProvider } from "@/components/ui/active-theme";
+import { CurrentUserProvider } from "@/components/providers/current-user-provider";
+import { YearFilterProvider } from "@/components/providers/year-filter-provider";
+import { InvoicesProvider } from "@/components/providers/invoices-provider";
 import { cn } from "@/lib/utils"; 
 import { cookies } from "next/headers"; 
 
@@ -42,6 +45,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning> 
       <body
+        suppressHydrationWarning
         className={cn(
           "bg-background overscroll-none font-sans antialiased",
           activeThemeValue ? `theme-${activeThemeValue}` : "",
@@ -58,7 +62,11 @@ export default async function RootLayout({
           enableColorScheme
         >
           <ActiveThemeProvider initialTheme={activeThemeValue}>
-           {children}
+            <CurrentUserProvider>
+              <InvoicesProvider>
+                <YearFilterProvider>{children}</YearFilterProvider>
+              </InvoicesProvider>
+            </CurrentUserProvider>
           </ActiveThemeProvider>
         </ThemeProvider>
       </body>

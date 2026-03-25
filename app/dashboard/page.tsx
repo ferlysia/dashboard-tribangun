@@ -15,14 +15,9 @@ import {
 } from "@/components/ui/chart"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, Award, Building2 } from "lucide-react"
-import invoicesRaw from "@/data/invoices-2025.json"
-
-type InvoiceRaw = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
+import { useCurrentUser } from "@/components/providers/current-user-provider"
+import type { InvoiceRecord } from "@/types/invoice"
 
 const trendConfig  = { revenue: { label: "Revenue", color: "var(--primary)" } } satisfies ChartConfig
 const volumeConfig = {
@@ -37,6 +32,15 @@ const statusConfig = {
 const fIDR   = (n: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n)
 const fShort = (n: number) => n >= 1e9 ? `Rp ${(n/1e9).toFixed(1)} B` : n >= 1e6 ? `Rp ${(n/1e6).toFixed(0)} M` : `Rp ${(n/1e3).toFixed(0)} K`
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+function classifyCategory(description: string) {
+  const value = description.toLowerCase()
+  if (value.includes("pemeliharaan") || value.includes("perbaikan") || value.includes("maintenance")) return "Maintenance"
+  if (value.includes("material") || value.includes("supply") || value.includes("dp 30%") || value.includes("dp 50%")) return "Material/PAC"
+  if (value.includes("instalasi") || value.includes("pemasangan") || value.includes("termin") || value.includes("project")) return "Project"
+  if (value.includes("jasa")) return "Jasa"
+  return "Umum"
+}
 
 const DASHBOARD_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=DM+Sans:wght@400;500;600&display=swap');
@@ -230,6 +234,8 @@ const DASHBOARD_STYLES = `
 export default function DashboardPage() {
   const [filterStatus, setFilterStatus] = React.useState<string | null>(null)
   const tableRef = React.useRef<HTMLDivElement>(null)
+  const { invoices: activeInvoices, periodLabel } = useFilteredInvoices()
+  const { user } = useCurrentUser()
 
   const now      = new Date()
   const hour     = now.getHours()
@@ -237,9 +243,8 @@ export default function DashboardPage() {
   const emoji    = hour < 12 ? "🌅" : hour < 17 ? "☀️" : "🌙"
 
   const { invoices, stats } = React.useMemo(() => {
-    const raw  = invoicesRaw as InvoiceRaw[]
     const seen = new Set<string>()
-    const invoices = raw.filter(inv => {
+    const invoices = (activeInvoices as InvoiceRecord[]).filter(inv => {
       if (seen.has(inv.invoice_no)) return false
       seen.add(inv.invoice_no)
       return true
@@ -264,12 +269,15 @@ export default function DashboardPage() {
     const collectionRate = totalRevenue > 0 ? (totalCollected / totalRevenue) * 100 : 0
 
     return { invoices, stats: { totalRevenue, totalCollected, paidCount, unpaidCount, collectionRate, monthly, pieData } }
-  }, [])
+  }, [activeInvoices])
 
   const tableInvoices = React.useMemo(() =>
     invoices.map(inv => ({
+      id: inv.id,
       invoice_no: inv.invoice_no, date: inv.date,
       amount: inv.total, status: inv.status, customer: inv.customer,
+      total: inv.total,
+      category: classifyCategory(inv.description),
     }))
   , [invoices])
 
@@ -321,7 +329,7 @@ export default function DashboardPage() {
                   />
                 </div>
 
-                <p className="hero-greeting">{greeting}, Kane Chen {emoji}</p>
+                <p className="hero-greeting">{greeting}, {user.firstName} {emoji}</p>
 
                 <h1 className="hero-company-name">
                   PT TRI BANGUN<br />
@@ -362,15 +370,15 @@ export default function DashboardPage() {
           </div>
 
           {/* ── Section Cards ── */}
-          <SectionCards invoices={tableInvoices} onFilter={handleFilter} />
+          <SectionCards invoices={tableInvoices} onFilter={handleFilter} periodLabel={periodLabel} />
 
           {/* ── Revenue Trend ── */}
           <div className="rounded-xl border bg-card p-6">
             <div className="mb-4">
-              <h3 className="text-lg font-semibold">Revenue Trend 2025</h3>
+              <h3 className="text-lg font-semibold">Revenue Trend {periodLabel}</h3>
               <p className="text-sm text-muted-foreground">Total pendapatan bulanan · {fIDR(stats.totalRevenue)}</p>
             </div>
-            <ChartContainer config={trendConfig} className="h-[300px] w-full">
+            <ChartContainer config={trendConfig} className="h-[360px] w-full">
               <AreaChart data={stats.monthly} margin={{ top: 10, left: 20, right: 20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillRevenueDash" x1="0" y1="0" x2="0" y2="1">
@@ -391,7 +399,7 @@ export default function DashboardPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Invoice Volume 2025</CardTitle>
+                <CardTitle>Invoice Volume {periodLabel}</CardTitle>
                 <p className="text-sm text-muted-foreground">Paid vs Outstanding per bulan</p>
               </CardHeader>
               <CardContent className="h-[320px]">

@@ -12,15 +12,10 @@ import {
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import invoicesRaw from "@/data/invoices-2025.json"
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Invoice = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
+import type { InvoiceRecord as Invoice } from "@/types/invoice"
 type AgingInvoice = Invoice & {
   daysOutstanding: number
   clientName: string
@@ -106,7 +101,8 @@ async function exportPDF(
   aging: AgingInvoice[],
   stats: { totalOutstanding:number; criticalValue:number; avgDays:number; paidCount:number; totalInvoices:number; buckets:Record<string,AgingInvoice[]> },
   priority: PriorityClient[],
-  G: number
+  G: number,
+  periodLabel: string
 ) {
   const { default: jsPDF } = await import("jspdf")
   const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" })
@@ -114,7 +110,7 @@ async function exportPDF(
 
   doc.setFillColor(30,64,175); doc.rect(0,0,W,30,"F")
   doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold")
-  doc.text("LIFECYCLE & AGING REPORT 2025", mg, 13)
+  doc.text(`LIFECYCLE & AGING REPORT ${periodLabel}`, mg, 13)
   doc.setFontSize(8); doc.setFont("helvetica","normal")
   doc.text("PT TRI BANGUN UP  ·  Laporan Piutang & Penagihan Invoice", mg, 21)
   doc.text(`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`, W-mg, 21, {align:"right"})
@@ -204,7 +200,7 @@ async function exportPDF(
     doc.text("Dokumen ini dibuat otomatis dari sistem Dashboard PT Tri Bangun Up",mg,292)
     doc.text(`KONFIDENSIAL  ·  Halaman ${p} / ${pages}`,W-mg,292,{align:"right"})
   }
-  doc.save(`Lifecycle-Aging-${TODAY.toISOString().slice(0,10)}.pdf`)
+  doc.save(`Lifecycle-Aging-${periodLabel.replace(/\s+/g, "-")}-${TODAY.toISOString().slice(0,10)}.pdf`)
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -320,7 +316,14 @@ const STYLES = `
     transition:all .13s;white-space:nowrap;
   }
   .lc-chip:hover{border-color:hsl(var(--primary)/.5);color:hsl(var(--foreground))}
-  .lc-chip.on{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground));font-weight:700}
+  .lc-chip.on{
+    background:linear-gradient(135deg,hsl(var(--primary)),hsl(var(--primary)/.82));
+    border-color:hsl(var(--primary));
+    color:hsl(var(--primary-foreground));
+    font-weight:800;
+    box-shadow:0 10px 20px -12px hsl(var(--primary)/.7), inset 0 1px 0 hsl(0 0% 100%/.18);
+    transform:translateY(-1px) scale(1.02);
+  }
 
   .pill{
     display:inline-flex;align-items:center;gap:4px;
@@ -341,7 +344,7 @@ const STYLES = `
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function LifecyclePage() {
-  const raw      = invoicesRaw as Invoice[]
+  const { invoices: raw, periodLabel } = useFilteredInvoices()
   const aging    = React.useMemo(() => calcAging(raw), [raw])
   const priority = React.useMemo(() => buildPriority(aging), [aging])
   const [pdfLoad, setPdfLoad] = React.useState(false)
@@ -392,7 +395,7 @@ export default function LifecyclePage() {
 
   const handlePDF = async () => {
     setPdfLoad(true)
-    try { await exportPDF(aging, stats, priority, G) }
+    try { await exportPDF(aging, stats, priority, G, periodLabel) }
     catch { alert("Gagal export PDF. Jalankan: npm install jspdf") }
     finally { setPdfLoad(false) }
   }
@@ -419,7 +422,7 @@ export default function LifecyclePage() {
             <div>
               <h1 className="text-xl font-semibold">Lifecycle & Aging</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Monitoring piutang · Outstanding tracker · Follow-up 2025
+                Monitoring piutang · Outstanding tracker · Follow-up {periodLabel}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">

@@ -14,15 +14,10 @@ import {
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import invoicesRaw from "@/data/invoices-2025.json"
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Invoice = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
+import type { InvoiceRecord as Invoice } from "@/types/invoice"
 
 type Project = {
   id: string
@@ -50,15 +45,60 @@ const fIDR = (n: number) =>
 
 function classifyCategory(desc: string): Project["category"] {
   const d = desc.toLowerCase()
-  if (d.includes("pemeliharaan") || d.includes("pemeliaharan") || d.includes("perbaikan") || d.includes("maintenance"))
+  if (
+    d.includes("pemeliharaan") ||
+    d.includes("pemeliaharan") ||
+    d.includes("perbaikan") ||
+    d.includes("maintenance") ||
+    d.includes("inspection") ||
+    d.includes("service") ||
+    d.includes("recovery work") ||
+    d.includes("refrigerant") ||
+    d.includes("teknisi")
+  )
     return "Maintenance"
-  if (d.includes("material") || d.includes("supply") || d.includes("dp 30%") || d.includes("dp 50%"))
+  if (
+    d.includes("material") ||
+    d.includes("supply") ||
+    d.includes("dp 20%") ||
+    d.includes("dp 30%") ||
+    d.includes("dp 50%") ||
+    d.includes("sensor") ||
+    d.includes("panel") ||
+    d.includes("battery") ||
+    d.includes("baterai") ||
+    d.includes("compressor") ||
+    d.includes("module") ||
+    d.includes("kit") ||
+    d.includes("frame") ||
+    d.includes("ups") ||
+    d.includes("bcb") ||
+    d.includes("dau") ||
+    d.includes("sau")
+  )
     return "Material/PAC"
-  if (d.includes("instalasi") || d.includes("pemasangan") || d.includes("termin") || d.includes("project"))
+  if (
+    d.includes("instalasi") ||
+    d.includes("installation") ||
+    d.includes("install ") ||
+    d.includes("pemasangan") ||
+    d.includes("termin") ||
+    d.includes("project") ||
+    d.includes("delivery") ||
+    d.includes("unloading") ||
+    d.includes("assembly") ||
+    d.includes("positioning") ||
+    d.includes("cabling") ||
+    d.includes("transportation") ||
+    d.includes("transportasi") ||
+    d.includes("akomodasi")
+  )
+    return "Project/Instalasi"
+  if (d.includes("pelunasan"))
     return "Project/Instalasi"
   if (d.includes("jasa"))
     return "Jasa"
-  return "Lainnya"
+  return "Jasa"
 }
 
 function extractTerminLabel(desc: string, index: number): string {
@@ -131,7 +171,7 @@ const CAT_ICON: Record<Project["category"], React.ReactNode> = {
 }
 const STATUS_STYLE: Record<Project["status"], string> = {
   SELESAI:    "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/30 dark:text-green-400 dark:border-green-800",
-  BERJALAN:   "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800",
+  BERJALAN:   "bg-primary/10 text-primary border-primary/25 dark:bg-primary/15 dark:text-primary dark:border-primary/30",
   TERTUNGGAK: "bg-destructive/10 text-destructive border-destructive/30",
 }
 const STATUS_ICON: Record<Project["status"], React.ReactNode> = {
@@ -305,7 +345,14 @@ const STYLES = `
     color: hsl(var(--muted-foreground)); white-space: nowrap;
   }
   .chip:hover { border-color: hsl(var(--primary)/.5); color: hsl(var(--foreground)); }
-  .chip.on { background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: hsl(var(--primary-foreground)); font-weight: 600; }
+  .chip.on {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary)/.82));
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-weight: 800;
+    box-shadow: 0 10px 20px -12px hsl(var(--primary)/.7), inset 0 1px 0 hsl(0 0% 100%/.18);
+    transform: translateY(-1px) scale(1.02);
+  }
 
   /* ── Grid: gap is the "gutter" separator between cards ──────────────── */
   .proj-grid { display: grid; gap: 20px; grid-template-columns: 1fr; }
@@ -319,9 +366,9 @@ function ProjectCard({ project }: { project: Project }) {
 
   const progressPct  = Math.round(project.progress)
   const progressColor =
-    progressPct >= 100 ? "bg-green-500" :
-    progressPct >= 50  ? "bg-primary"   :
-    progressPct > 0    ? "bg-amber-500" : "bg-destructive/60"
+    project.status === "SELESAI" ? "bg-green-500" :
+    project.status === "BERJALAN" ? "bg-primary" :
+    progressPct > 0 ? "bg-amber-500" : "bg-destructive/60"
 
   const MAX_TL = 8
 
@@ -473,7 +520,7 @@ function ProjectCard({ project }: { project: Project }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProjectsPage() {
-  const raw         = invoicesRaw as Invoice[]
+  const { invoices: raw, periodLabel } = useFilteredInvoices()
   const allProjects = React.useMemo(() => buildProjects(raw), [raw])
 
   const stats = React.useMemo(() => {
@@ -520,7 +567,7 @@ export default function ProjectsPage() {
             <div>
               <h1 className="text-xl font-semibold">Projects</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Kontrak & proyek berdasarkan PO · {allProjects.length} proyek · 2025
+                Kontrak & proyek berdasarkan PO · {allProjects.length} proyek · {periodLabel}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -528,7 +575,7 @@ export default function ProjectsPage() {
                 <button
                   onClick={() => setFilterStatus(p => p === "TERTUNGGAK" ? "Semua" : "TERTUNGGAK")}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all
-                    ${filterStatus === "TERTUNGGAK" ? "bg-destructive text-white border-destructive" : "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20"}`}
+                    ${filterStatus === "TERTUNGGAK" ? "bg-primary text-primary-foreground border-primary shadow-[0_10px_24px_-12px_hsl(var(--primary)/0.9)] scale-[1.03]" : "bg-destructive/10 text-destructive border-destructive/30 hover:bg-destructive/20"}`}
                 >
                   <AlertTriangle className="h-3 w-3" /> {stats.tertunggak} tertunggak
                 </button>
@@ -536,14 +583,14 @@ export default function ProjectsPage() {
               <button
                 onClick={() => setFilterStatus(p => p === "BERJALAN" ? "Semua" : "BERJALAN")}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all
-                  ${filterStatus === "BERJALAN" ? "bg-blue-600 text-white border-blue-600" : "bg-blue-500/10 text-blue-600 border-blue-500/20 hover:bg-blue-500/20"}`}
+                  ${filterStatus === "BERJALAN" ? "bg-primary text-primary-foreground border-primary shadow-[0_10px_24px_-12px_hsl(var(--primary)/0.9)] scale-[1.03]" : "bg-primary/10 text-primary border-primary/20 hover:bg-primary/15"}`}
               >
                 <CircleDot className="h-3 w-3" /> {stats.berjalan} berjalan
               </button>
               <button
                 onClick={() => setFilterStatus(p => p === "SELESAI" ? "Semua" : "SELESAI")}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all
-                  ${filterStatus === "SELESAI" ? "bg-green-600 text-white border-green-600" : "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"}`}
+                  ${filterStatus === "SELESAI" ? "bg-primary text-primary-foreground border-primary shadow-[0_10px_24px_-12px_hsl(var(--primary)/0.9)] scale-[1.03]" : "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"}`}
               >
                 <CheckCircle2 className="h-3 w-3" /> {stats.selesai} selesai
               </button>
@@ -554,7 +601,7 @@ export default function ProjectsPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {([
               { sc:"pj-sc-1", title:"Total Proyek",  val:String(stats.total),    sub:`${raw.length} invoice terkait`,         icon:<FolderKanban className="h-4 w-4 text-muted-foreground"/>,  valCls:"" },
-              { sc:"pj-sc-2", title:"Nilai Kontrak", val:fIDR(stats.totalValue), sub:"gross semua proyek 2025",                icon:<Receipt className="h-4 w-4 text-muted-foreground"/>,        valCls:"" },
+              { sc:"pj-sc-2", title:"Nilai Kontrak", val:fIDR(stats.totalValue), sub:`gross semua proyek ${periodLabel}`,     icon:<Receipt className="h-4 w-4 text-muted-foreground"/>,        valCls:"" },
               { sc:"pj-sc-3", title:"Selesai",       val:String(stats.selesai),  sub:`${stats.total>0?((stats.selesai/stats.total)*100).toFixed(0):0}% dari total`, icon:<CheckCircle2 className="h-4 w-4 text-green-600"/>, valCls:"text-green-600" },
               { sc:"pj-sc-4", title:"Outstanding",   val:fIDR(stats.totalOut),   sub:`${stats.tertunggak+stats.berjalan} proyek belum lunas`, icon:<AlertTriangle className="h-4 w-4 text-destructive"/>, valCls:stats.totalOut>0?"text-destructive":"text-green-600" },
             ] as const).map(c => (
@@ -604,7 +651,7 @@ export default function ProjectsPage() {
                     ].map(s => (
                       <button key={s.label}
                         onClick={() => setFilterStatus(p => p === s.s ? "Semua" : s.s)}
-                        className={`flex items-center gap-1.5 text-xs transition-colors ${filterStatus===s.s ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground"}`}
+                        className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs transition-all ${filterStatus===s.s ? "bg-primary/12 text-primary font-bold ring-1 ring-primary/30 shadow-[0_8px_20px_-14px_hsl(var(--primary)/0.8)]" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         <span className={`h-2 w-2 rounded-full ${s.cls}`} />
                         {s.label} <span className="font-semibold text-foreground ml-0.5">{s.count}</span>

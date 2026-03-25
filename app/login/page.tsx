@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { Eye, EyeOff, LogIn, ArrowRight, Shield } from "lucide-react"
+import { useCurrentUser } from "@/components/providers/current-user-provider"
 
 /* ───────────────── LOGO IMAGE ───────────────── */
 function LogoImage({ size = 56 }: { size?: number }) {
@@ -285,7 +286,9 @@ const LOGIN_STYLES = `
 
 export default function LoginPage() {
   const router = useRouter()
+  const { setUser } = useCurrentUser()
   const [showPw, setShowPw] = React.useState(false)
+  const [fullName, setFullName] = React.useState("")
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState("")
@@ -294,11 +297,17 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    if (!email || !password) { setError("Harap isi email dan password terlebih dahulu."); return }
+    if (!fullName || !email || !password) { setError("Harap isi nama, email dan password terlebih dahulu."); return }
     if (password.length < 6) { setError("Password harus minimal 6 karakter."); return }
     
     setLoading(true)
     await new Promise(r => setTimeout(r, 1000))
+    const cleanName = fullName.trim().replace(/\s+/g, " ")
+    setUser({
+      name: cleanName,
+      firstName: cleanName.split(" ")[0],
+      email: email.trim().toLowerCase(),
+    })
     router.push("/dashboard")
   }
 
@@ -324,7 +333,7 @@ export default function LoginPage() {
               <p className="left-tagline">Distributor PAC · Automation & Control</p>
               <div className="left-stat-row">
                 <div className="left-stat">
-                  <div className="left-stat-val">2025</div>
+                  <div className="left-stat-val">2025-2026</div>
                   <div className="left-stat-label">Fiscal Year</div>
                 </div>
                 <div className="left-stat">
@@ -346,7 +355,7 @@ export default function LoginPage() {
             <div className="right-logo-section">
               <div className="right-logo-wrap"><LogoImage size={48} /></div>
               <div className="right-company-name">PT TRI BANGUN<br />USAHA PERSADA</div>
-              <div className="right-company-sub">Business Dashboard · 2025</div>
+              <div className="right-company-sub">Business Dashboard · 2025-2026</div>
             </div>
 
             <div className="login-card">
@@ -356,6 +365,19 @@ export default function LoginPage() {
               {error && <div className="login-error">{error}</div>}
 
               <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label className="login-label">Nama Lengkap</label>
+                  <input
+                    className="login-input"
+                    placeholder="nama lengkap"
+                    type="text"
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    disabled={loading}
+                    autoComplete="name"
+                  />
+                </div>
+
                 <div>
                   <label className="login-label">Email Perusahaan</label>
                   <input

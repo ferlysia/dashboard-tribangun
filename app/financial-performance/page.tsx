@@ -17,15 +17,10 @@ import {
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import invoicesRaw from "@/data/invoices-2025.json"
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Invoice = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
+import type { InvoiceRecord as Invoice } from "@/types/invoice"
 
 // ─── Cost Category ────────────────────────────────────────────────────────────
 type CostCategory = {
@@ -149,7 +144,13 @@ const STYLES = `
     transition:all .14s; background:transparent; color:hsl(var(--muted-foreground));
   }
   .cat-chip:hover { border-color:hsl(var(--primary)/.5); color:hsl(var(--foreground)) }
-  .cat-chip.on { background:hsl(var(--primary)); border-color:hsl(var(--primary)); color:hsl(var(--primary-foreground)) }
+  .cat-chip.on {
+    background:linear-gradient(135deg,hsl(var(--primary)),hsl(var(--primary)/.82));
+    border-color:hsl(var(--primary));
+    color:hsl(var(--primary-foreground));
+    box-shadow:0 10px 20px -12px hsl(var(--primary)/.7), inset 0 1px 0 hsl(0 0% 100%/.18);
+    transform:translateY(-1px) scale(1.02);
+  }
 
   /* Insight box */
   .insight-box {
@@ -271,7 +272,7 @@ function ROIGauge({ roi, hasData }: { roi: number; hasData: boolean }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FinancialPerformancePage() {
-  const raw = invoicesRaw as Invoice[]
+  const { invoices: raw, periodLabel } = useFilteredInvoices()
   const primaryColor = useThemeColor("--primary")
 
   // ── Cost state — persisted in sessionStorage ──────────────────────────────
@@ -464,7 +465,7 @@ export default function FinancialPerformancePage() {
                 </span>
               </div>
               <p className="text-sm text-muted-foreground">
-                Analisis profitabilitas, margin, dan Return on Investment · 2025
+                Analisis profitabilitas, margin, dan Return on Investment · {periodLabel}
               </p>
             </div>
             {!costData.hasData && (
@@ -720,7 +721,7 @@ export default function FinancialPerformancePage() {
             <div className="fp-u3">
               <Card className="hv-card">
                 <CardHeader>
-                  <CardTitle>ROI Trend Kumulatif 2025</CardTitle>
+                  <CardTitle>ROI Trend Kumulatif {periodLabel}</CardTitle>
                   <CardDescription>Akumulasi uang terkumpul vs biaya operasional per bulan · titik ROI positif = break-even tercapai</CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -736,7 +737,7 @@ export default function FinancialPerformancePage() {
                             const d = payload[0]?.payload
                             return (
                               <div className="rounded-lg border bg-card px-3 py-2.5 shadow-md text-xs min-w-[200px]">
-                                <p className="font-semibold mb-2">{label} 2025 (Kumulatif)</p>
+                                <p className="font-semibold mb-2">{label} {periodLabel} (Kumulatif)</p>
                                 <p className="text-green-600">Terkumpul: <span className="font-mono font-bold">{fIDR(d?.collected || 0)}</span></p>
                                 <p className="text-destructive">Biaya: <span className="font-mono font-bold">{fIDR(d?.cost || 0)}</span></p>
                                 <p className={d?.profit >= 0 ? "text-primary" : "text-destructive"}>
@@ -858,7 +859,7 @@ export default function FinancialPerformancePage() {
                           const d = payload[0]?.payload
                           return (
                             <div className="rounded-lg border bg-card px-3 py-2.5 shadow-md text-xs min-w-[160px]">
-                              <p className="font-semibold mb-1">{label} 2025</p>
+                              <p className="font-semibold mb-1">{label} {periodLabel}</p>
                               <p>Margin DPP: <span className="font-bold">{d?.margin?.toFixed(1)}%</span></p>
                               <p className="text-muted-foreground">Revenue: {fIDR(d?.revenue)}</p>
                               <p className="text-green-600">DPP: {fIDR(d?.dpp)}</p>

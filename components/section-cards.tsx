@@ -8,10 +8,19 @@ type Invoice = {
 }
 
 // Tambahkan onFilter di sini biar bisa "ngomong" ke Page
-export function SectionCards({ invoices, onFilter }: { invoices: Invoice[], onFilter: (status: string | null) => void }) {
+export function SectionCards({
+  invoices,
+  onFilter,
+  periodLabel,
+}: {
+  invoices: Invoice[]
+  onFilter: (status: string | null) => void
+  periodLabel: string
+}) {
   const totalRevenue = invoices.reduce((sum, i) => sum + i.amount, 0)
   const paidInvoices = invoices.filter(i => i.status === "PAID").length
   const unpaidInvoices = invoices.filter(i => i.status === "UNPAID").length
+  const totalRevenueDisplay = Math.round(totalRevenue).toLocaleString("id-ID")
 
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -22,8 +31,8 @@ export function SectionCards({ invoices, onFilter }: { invoices: Invoice[], onFi
           <DollarSign className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">Rp {totalRevenue.toLocaleString("id-ID")}</div>
-          <p className="text-xs text-muted-foreground">Invoice 2025</p>
+          <div className="text-2xl font-bold leading-tight">Rp {totalRevenueDisplay}</div>
+          <p className="text-xs text-muted-foreground">Invoice {periodLabel}</p>
         </CardContent>
       </Card>
 

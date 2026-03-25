@@ -12,7 +12,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } f
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
-import invoicesRaw from "@/data/invoices-2025.json"
+import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 
 // ─── Chart Configs ────────────────────────────────────────────────────────────
 const revenueConfig = {
@@ -88,13 +88,6 @@ const STYLES = `
   .insight-box strong{color:hsl(var(--foreground))}
 `
 
-type Invoice = {
-  no: number; invoice_no: string; customer: string; description: string
-  date: string; year: number; month: number; dpp: number; ppn: number
-  total: number; payment_date: string; payment_value: number
-  selisih: number; keterangan: string; status: "PAID" | "UNPAID"
-}
-
 const fIDR = (n: number) =>
   new Intl.NumberFormat("id-ID", { style:"currency", currency:"IDR", maximumFractionDigits:0 }).format(n)
 const fShort = (n: number) =>
@@ -102,7 +95,7 @@ const fShort = (n: number) =>
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
 export default function AnalyticsPage() {
-  const raw    = invoicesRaw as Invoice[]
+  const { invoices: raw, periodLabel } = useFilteredInvoices()
   const router = useRouter()
   const [isPdfLoading, setIsPdfLoading] = React.useState(false)
 
@@ -133,11 +126,13 @@ export default function AnalyticsPage() {
     })
 
     const activeMonths = monthlyWithGrowth.filter(m=>m.revenue>0)
-    const bestMonth    = [...monthly].sort((a,b)=>b.revenue-a.revenue)[0]
-    const worstMonth   = [...activeMonths].sort((a,b)=>a.revenue-b.revenue)[0]
+    const bestMonth    = [...monthly].sort((a,b)=>b.revenue-a.revenue)[0] ?? { month: "-", revenue: 0, count: 0 }
+    const worstMonth   = [...activeMonths].sort((a,b)=>a.revenue-b.revenue)[0] ?? bestMonth
     const avgMonthly   = activeMonths.length>0?totalRevenue/activeMonths.length:0
-    const first3       = activeMonths.slice(0,3).reduce((s,m)=>s+m.revenue,0)/3
-    const last3        = activeMonths.slice(-3).reduce((s,m)=>s+m.revenue,0)/3
+    const firstWindow  = activeMonths.slice(0,3)
+    const lastWindow   = activeMonths.slice(-3)
+    const first3       = firstWindow.length>0 ? firstWindow.reduce((s,m)=>s+m.revenue,0)/firstWindow.length : 0
+    const last3        = lastWindow.length>0 ? lastWindow.reduce((s,m)=>s+m.revenue,0)/lastWindow.length : 0
     const trend        = first3>0?((last3-first3)/first3)*100:0
 
     const clientMap: Record<string,number> = {}
@@ -178,7 +173,7 @@ export default function AnalyticsPage() {
 
       doc.setFillColor(30,64,175); doc.rect(0,0,W,28,"F")
       doc.setTextColor(255,255,255); doc.setFontSize(15); doc.setFont("helvetica","bold")
-      doc.text("ANALYTICS REPORT 2025",mg,12)
+      doc.text(`ANALYTICS REPORT ${periodLabel}`,mg,12)
       doc.setFontSize(8); doc.setFont("helvetica","normal")
       doc.text("PT TRI BANGUN UP  ·  Rekap Invoice Strategis",mg,20)
       doc.text(`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`,W-mg,20,{align:"right"})
@@ -248,7 +243,7 @@ export default function AnalyticsPage() {
       doc.setTextColor(130,130,130); doc.setFontSize(6.5); doc.setFont("helvetica","normal")
       doc.text("Dokumen ini dibuat otomatis dari sistem Dashboard PT Tri Bangun Up",mg,292)
       doc.text("KONFIDENSIAL",W-mg,292,{align:"right"})
-      doc.save(`Analytics-Report-2025-${new Date().toISOString().split("T")[0]}.pdf`)
+      doc.save(`Analytics-Report-${periodLabel.replace(/\s+/g, "-")}-${new Date().toISOString().split("T")[0]}.pdf`)
     } catch {
       alert("Gagal export PDF. Jalankan: npm install jspdf")
     } finally {
@@ -270,7 +265,7 @@ export default function AnalyticsPage() {
             <div>
               <h1 className="text-xl font-semibold">Analytics</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Analisis keuangan strategis · Rekap Invoice 2025
+                Analisis keuangan strategis · Rekap Invoice {periodLabel}
               </p>
             </div>
             <button
@@ -294,7 +289,7 @@ export default function AnalyticsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{fIDR(stats.totalRevenue)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">{stats.totalInvoices} invoice · 2025</p>
+                  <p className="text-xs text-muted-foreground mt-1">{stats.totalInvoices} invoice · {periodLabel}</p>
                 </CardContent>
               </Card>
             </div>
@@ -408,12 +403,12 @@ export default function AnalyticsPage() {
               <CardHeader>
                 <CardTitle>Revenue per Bulan</CardTitle>
                 <CardDescription>
-                  Pendapatan gross tiap bulan 2025 — termasuk PPN dan diskon
+                  Pendapatan gross tiap bulan {periodLabel} — termasuk PPN dan diskon
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {/* ↑ DIBESARKAN: h-[200px] → h-[340px] — ini chart utama yg dibesarkan */}
-                <ChartContainer config={revenueConfig} className="h-[340px] w-full">
+                <ChartContainer config={revenueConfig} className="h-[430px] w-full">
                   <BarChart data={stats.monthly} barCategoryGap="30%" margin={{left:8,right:8,top:4,bottom:0}}>
                     <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border"/>
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{fontSize:12}}/>
@@ -566,7 +561,7 @@ export default function AnalyticsPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>Top 5 Clients</CardTitle>
-                    <CardDescription>Berdasarkan total nilai invoice 2025</CardDescription>
+                    <CardDescription>Berdasarkan total nilai invoice {periodLabel}</CardDescription>
                   </div>
                   <button onClick={()=>router.push("/clients")} className="arrow-parent flex items-center gap-1 text-xs text-primary hover:underline font-medium">
                     Lihat semua <ArrowRight className="arrow-nudge h-3 w-3"/>
@@ -608,7 +603,7 @@ export default function AnalyticsPage() {
                   <Sparkles className="h-4 w-4 text-primary"/>
                   <CardTitle>Executive Summary</CardTitle>
                 </div>
-                <CardDescription>Ringkasan performa keuangan otomatis dari data invoice 2025</CardDescription>
+                <CardDescription>Ringkasan performa keuangan otomatis dari data invoice {periodLabel}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-3">

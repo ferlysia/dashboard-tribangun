@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-03-25T16:23:17.512Z",
+  "total_records": 461,
+  "records_by_year": [
+    {
+      "year": 2025,
+      "count": 390,
+      "paid": 237,
+      "unpaid": 153
+    },
+    {
+      "year": 2026,
+      "count": 71,
+      "paid": 10,
+      "unpaid": 61
+    }
+  ],
+  "duplicates": [
+    {
+      "invoice_no": "004/TUP-INV/VII/2025",
+      "hits": [
+        {
+          "workbook_year": 2025,
+          "sheet_name": "NON PPN 2025",
+          "source_file": "REKAP INVOICE 2025.xlsx"
+        },
+        {
+          "workbook_year": 2026,
+          "sheet_name": "NON PPN 2026",
+          "source_file": "REKAP INVOICE 2026.xlsx"
+        }
+      ]
+    },
+    {
+      "invoice_no": "005/TUP-INV/VII/2025",
+      "hits": [
+        {
+          "workbook_year": 2025,
+          "sheet_name": "NON PPN 2025",
+          "source_file": "REKAP INVOICE 2025.xlsx"
+        },
+        {
+          "workbook_year": 2026,
+          "sheet_name": "NON PPN 2026",
+          "source_file": "REKAP INVOICE 2026.xlsx"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "type": "year_mismatch",
+      "invoice_no": "004/TUP-INV/VII/2025",
+      "workbook_year": 2026,
+      "record_year": 2025,
+      "sheet_name": "NON PPN 2026"
+    },
+    {
+      "type": "placeholder_row",
+      "invoice_no": "004/TUP-INV/VII/2025",
+      "workbook_year": 2026,
+      "sheet_name": "NON PPN 2026"
+    },
+    {
+      "type": "year_mismatch",
+      "invoice_no": "005/TUP-INV/VII/2025",
+      "workbook_year": 2026,
+      "record_year": 2025,
+      "sheet_name": "NON PPN 2026"
+    },
+    {
+      "type": "placeholder_row",
+      "invoice_no": "005/TUP-INV/VII/2025",
+      "workbook_year": 2026,
+      "sheet_name": "NON PPN 2026"
+    }
+  ]
+}

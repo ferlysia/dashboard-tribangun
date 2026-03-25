@@ -42,6 +42,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useCurrentUser } from "@/components/providers/current-user-provider"
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 const NAV_MAIN = [
@@ -53,29 +54,35 @@ const NAV_MAIN = [
 ]
 
 const NAV_DOCS = [
-  { title: "Excel Data 2025", url: "#", icon: Database },
-  { title: "Reports",         url: "#", icon: FileText },
+  { title: "Excel Data", url: "/excel-data", icon: Database },
+  { title: "Reports",    url: "/reports", icon: FileText },
 ]
 
 const APP_SIDEBAR_STYLES = `
   /* ── Active nav item: bold + colored bg + left accent bar ── */
   [data-sidebar="menu-button"][data-active="true"] {
-    background: hsl(var(--primary) / 0.12) !important;
+    background: linear-gradient(90deg, hsl(var(--primary) / 0.22), hsl(var(--primary) / 0.10)) !important;
     color: hsl(var(--primary)) !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     position: relative;
+    border: 1px solid hsl(var(--primary) / 0.24) !important;
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.06), 0 8px 20px -12px hsl(var(--primary) / 0.45);
   }
   [data-sidebar="menu-button"][data-active="true"]::before {
     content: '';
     position: absolute;
-    left: 0; top: 20%; bottom: 20%;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
+    left: 0; top: 16%; bottom: 16%;
+    width: 4px;
+    border-radius: 0 6px 6px 0;
     background: hsl(var(--primary));
+    box-shadow: 0 0 18px hsl(var(--primary) / 0.55);
   }
   [data-sidebar="menu-button"][data-active="true"] svg {
     color: hsl(var(--primary)) !important;
     opacity: 1 !important;
+  }
+  [data-sidebar="menu-button"][data-active="true"] span {
+    color: hsl(var(--primary)) !important;
   }
 
   /* ── All icons always visible ── */
@@ -93,9 +100,23 @@ const APP_SIDEBAR_STYLES = `
     50%       { opacity: 0.6; transform: scale(0.85); }
   }
   .nav-active-dot {
-    width: 6px; height: 6px; border-radius: 50%;
+    width: 7px; height: 7px; border-radius: 50%;
     background: hsl(var(--primary));
     margin-left: auto; flex-shrink: 0;
+    animation: activePulse 2s ease-in-out infinite;
+    box-shadow: 0 0 14px hsl(var(--primary) / 0.6);
+  }
+  .nav-active-pill {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    box-shadow: 0 0 14px hsl(var(--primary) / 0.45);
     animation: activePulse 2s ease-in-out infinite;
   }
 
@@ -103,26 +124,102 @@ const APP_SIDEBAR_STYLES = `
   .quick-create-btn {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
-    padding: 9px 12px;
-    border-radius: 10px;
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
+    padding: 14px 15px;
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.88) 55%, hsl(var(--primary) / 0.74) 100%) !important;
+    color: hsl(var(--primary-foreground)) !important;
     font-size: 13px;
-    font-weight: 600;
-    border: none;
+    font-weight: 800;
+    border: 1px solid hsl(var(--primary) / 0.34) !important;
     cursor: pointer;
-    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
-    box-shadow: 0 2px 10px -2px hsl(var(--primary) / 0.4);
+    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s, filter 0.15s;
+    box-shadow:
+      0 18px 38px -18px hsl(var(--primary) / 0.72),
+      inset 0 1px 0 hsl(0 0% 100% / 0.28),
+      inset 0 -1px 0 hsl(0 0% 0% / 0.08) !important;
     letter-spacing: 0.01em;
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .quick-create-btn::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: 15px;
+    background: linear-gradient(180deg, hsl(0 0% 100% / 0.12), transparent 42%, hsl(0 0% 0% / 0.08));
+    pointer-events: none;
+    z-index: -1;
   }
   .quick-create-btn:hover {
-    opacity: 0.92;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px -4px hsl(var(--primary) / 0.45);
+    opacity: 1;
+    transform: translateY(-1px) scale(1.012);
+    filter: saturate(1.04);
+    box-shadow:
+      0 22px 40px -18px hsl(var(--primary) / 0.82),
+      inset 0 1px 0 hsl(0 0% 100% / 0.32),
+      inset 0 -1px 0 hsl(0 0% 0% / 0.1);
   }
   .quick-create-btn:active { transform: scale(0.97); }
+  .quick-create-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: hsl(0 0% 100% / 0.18);
+    color: hsl(var(--primary-foreground)) !important;
+    border: 1px solid hsl(0 0% 100% / 0.28);
+    flex-shrink: 0;
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.26);
+  }
+  .quick-create-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+  }
+  .quick-create-title {
+    line-height: 1.1;
+    color: hsl(var(--primary-foreground)) !important;
+    font-size: 14px;
+    font-weight: 900;
+  }
+  .quick-create-note {
+    font-size: 11px;
+    color: hsl(var(--primary-foreground) / 0.9) !important;
+    line-height: 1.25;
+    margin-top: 4px;
+    text-align: left;
+    font-weight: 600;
+  }
+  .quick-create-sub {
+    display: none;
+  }
+  .quick-actions-menu {
+    border: 1px solid hsl(var(--primary) / 0.18) !important;
+    background:
+      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--primary) / 0.05) 100%) !important;
+    box-shadow: 0 18px 40px -20px hsl(var(--primary) / 0.55) !important;
+    overflow: hidden;
+  }
+  .quick-actions-item {
+    font-size: 13px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .quick-actions-item:hover,
+  .quick-actions-item:focus {
+    background: hsl(var(--primary) / 0.12) !important;
+    color: hsl(var(--primary)) !important;
+  }
+  .quick-actions-item:hover svg,
+  .quick-actions-item:focus svg {
+    color: hsl(var(--primary)) !important;
+  }
 
   /* ── Search modal ── */
   @keyframes searchFadeIn {
@@ -167,49 +264,97 @@ const APP_SIDEBAR_STYLES = `
   /* ── Email modal ── */
   .email-modal {
     position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.52); backdrop-filter: blur(7px);
     display: flex; align-items: center; justify-content: center;
     padding: 24px;
   }
   .email-card {
-    background: hsl(var(--background));
-    border: 1px solid hsl(var(--border));
-    border-radius: 16px; width: 100%; max-width: 480px;
-    box-shadow: 0 24px 60px -12px rgba(0,0,0,0.3);
+    background:
+      linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--card)) 72%, hsl(var(--primary) / 0.06) 100%);
+    border: 1px solid hsl(var(--primary) / 0.18);
+    border-radius: 22px; width: 100%; max-width: 620px;
+    box-shadow: 0 34px 90px -18px rgba(0,0,0,0.4);
     overflow: hidden; animation: searchFadeIn 0.18s ease both;
   }
   .email-header {
-    padding: 16px 20px; border-bottom: 1px solid hsl(var(--border));
-    font-size: 14px; font-weight: 600;
+    padding: 20px 22px; border-bottom: 1px solid hsl(var(--primary) / 0.12);
+    font-size: 15px; font-weight: 800;
+    color: hsl(var(--foreground));
     display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(90deg, hsl(var(--primary) / 0.14), transparent 70%);
   }
   .email-field {
-    width: 100%; border: none; border-bottom: 1px solid hsl(var(--border));
-    padding: 10px 20px; font-size: 13px;
-    background: transparent; color: hsl(var(--foreground));
-    outline: none; box-sizing: border-box;
+    width: calc(100% - 40px);
+    margin: 16px 20px 0;
+    border: 1px solid hsl(var(--border));
+    padding: 13px 14px; font-size: 14px;
+    background: hsl(var(--background)); color: hsl(var(--foreground));
+    outline: none; box-sizing: border-box; border-radius: 12px;
+    transition: border-color .15s, box-shadow .15s, background .15s;
   }
   .email-field::placeholder { color: hsl(var(--muted-foreground)); }
+  .email-field:focus {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.10);
+    background: hsl(var(--card));
+  }
   .email-body {
-    width: 100%; border: none; padding: 12px 20px;
-    font-size: 13px; background: transparent; color: hsl(var(--foreground));
-    outline: none; resize: none; min-height: 120px;
-    box-sizing: border-box; font-family: inherit;
+    width: calc(100% - 40px);
+    margin: 16px 20px 0;
+    border: 1px solid hsl(var(--border));
+    padding: 14px;
+    font-size: 14px; background: hsl(var(--background)); color: hsl(var(--foreground));
+    outline: none; resize: none; min-height: 180px;
+    box-sizing: border-box; font-family: inherit; border-radius: 14px;
+    transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .email-body::placeholder { color: hsl(var(--muted-foreground)); }
+  .email-body:focus {
+    border-color: hsl(var(--primary) / 0.55);
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.10);
+    background: hsl(var(--card));
   }
   .email-footer {
-    padding: 12px 20px; border-top: 1px solid hsl(var(--border));
+    padding: 18px 20px; border-top: 1px solid hsl(var(--primary) / 0.10);
     display: flex; justify-content: flex-end; gap: 8px;
   }
   .email-btn-send {
-    background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
-    border: none; border-radius: 8px; padding: 8px 16px;
-    font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.84));
+    color: hsl(var(--primary-foreground));
+    border: none; border-radius: 10px; padding: 10px 18px;
+    font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity 0.15s, transform .15s, box-shadow .15s;
+    box-shadow: 0 14px 28px -16px hsl(var(--primary) / 0.75);
   }
-  .email-btn-send:hover { opacity: 0.9; }
+  .email-btn-send:hover { opacity: 0.96; transform: translateY(-1px); }
   .email-btn-cancel {
     background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
-    border: none; border-radius: 8px; padding: 8px 16px;
+    border: none; border-radius: 10px; padding: 10px 16px;
     font-size: 13px; cursor: pointer;
+  }
+  .sidebar-action-btn {
+    border-radius: 12px;
+    transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease, box-shadow .15s ease;
+  }
+  .sidebar-action-btn:hover {
+    background: hsl(var(--primary) / 0.08) !important;
+    color: hsl(var(--primary)) !important;
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.12);
+    transform: translateX(1px);
+  }
+  .sidebar-action-btn:hover svg {
+    color: hsl(var(--primary)) !important;
+  }
+  .sidebar-action-kbd {
+    transition: background .15s ease, color .15s ease;
+  }
+  .sidebar-action-btn:hover .sidebar-action-kbd {
+    background: hsl(var(--primary) / 0.12) !important;
+    color: hsl(var(--primary)) !important;
+  }
+  .sidebar-action-btn[data-state="active"] {
+    background: hsl(var(--primary) / 0.1) !important;
+    color: hsl(var(--primary)) !important;
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.14);
   }
 `
 
@@ -227,7 +372,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
 
   const ALL_PAGES = [
     { title: "Dashboard",  url: "/dashboard",  icon: LayoutDashboard, desc: "Overview & revenue trend" },
-    { title: "Analytics",  url: "/analytics",  icon: BarChart3,       desc: "Analisis invoice 2025" },
+    { title: "Analytics",  url: "/analytics",  icon: BarChart3,       desc: "Analisis invoice multi-year" },
     { title: "Clients",    url: "/clients",    icon: Users,           desc: "Daftar klien & riwayat" },
     { title: "Lifecycle",  url: "/lifecycle",  icon: Clock,           desc: "Aging & follow-up" },
     { title: "Projects",   url: "/projects",   icon: FolderKanban,    desc: "Proyek & kontrak" },
@@ -303,6 +448,9 @@ function EmailModal({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           <>
+            <div style={{ padding: '14px 20px 0', fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>
+              Kirim pesan cepat ke tim internal langsung dari sidebar.
+            </div>
             <input className="email-field" placeholder="Kepada:" value={to} onChange={e => setTo(e.target.value)} />
             <input className="email-field" placeholder="Subjek:" value={subject} onChange={e => setSubject(e.target.value)} />
             <textarea className="email-body" placeholder="Tulis pesan..." value={body} onChange={e => setBody(e.target.value)} />
@@ -320,8 +468,13 @@ function EmailModal({ onClose }: { onClose: () => void }) {
 // ── Main AppSidebar ───────────────────────────────────────────────────────────
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const { user, clearUser } = useCurrentUser()
   const [showSearch, setShowSearch] = React.useState(false)
   const [showEmail,  setShowEmail]  = React.useState(false)
+  const initials = React.useMemo(() => {
+    const parts = user.name.split(" ").filter(Boolean).slice(0, 2)
+    return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "TU"
+  }, [user.name])
 
   // ⌘K shortcut
   React.useEffect(() => {
@@ -381,14 +534,28 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             </div>
           </Link>
 
-          {/* FIX #1: Quick Create button — color follows theme (--primary) */}
           <button
             className="quick-create-btn"
+            style={{
+              backgroundColor: "hsl(var(--primary))",
+              backgroundImage:
+                "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.92) 56%, hsl(var(--primary) / 0.8) 100%)",
+              color: "hsl(var(--primary-foreground))",
+              borderColor: "hsl(var(--primary) / 0.34)",
+              boxShadow:
+                "0 18px 38px -18px hsl(var(--primary) / 0.78), inset 0 1px 0 hsl(0 0% 100% / 0.3), inset 0 -1px 0 hsl(0 0% 0% / 0.1)",
+            }}
             onClick={() => setShowEmail(true)}
           >
-            <Plus size={15} strokeWidth={2.5} />
-            Quick Create
+            <span className="quick-create-icon">
+              <Plus size={13} strokeWidth={2.6} />
+            </span>
+            <span className="quick-create-copy">
+              <span className="quick-create-title">Quick Create</span>
+              <span className="quick-create-note">Compose internal email cepat</span>
+            </span>
           </button>
+          <div className="quick-create-sub">Shortcut cepat buat kirim email internal.</div>
         </SidebarHeader>
 
         {/* ── Main Nav ── */}
@@ -402,7 +569,19 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                        <Link href={item.url} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Link
+                          href={item.url}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: '100%',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            background: isActive ? 'linear-gradient(90deg, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.08))' : 'transparent',
+                            boxShadow: isActive ? 'inset 0 0 0 1px hsl(var(--primary) / 0.18)' : 'none',
+                          }}
+                        >
                           <item.icon
                             size={16}
                             style={{
@@ -411,17 +590,16 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                               transition: 'color 0.15s',
                             }}
                           />
-                          {/* FIX #2: Bold text + color when active */}
                           <span style={{
-                            fontWeight: isActive ? 700 : 500,
+                            fontWeight: isActive ? 800 : 500,
                             color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground))',
                             fontSize: 13,
                             transition: 'all 0.15s',
+                            letterSpacing: isActive ? '0.01em' : 'normal',
                           }}>
                             {item.title}
                           </span>
-                          {/* Animated dot when active */}
-                          {isActive && <span className="nav-active-dot" />}
+                          {isActive && <span className="nav-active-pill">ON</span>}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -436,16 +614,47 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroupLabel>Documents</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV_DOCS.map(item => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
-                      <Link href={item.url}>
-                        <item.icon size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.55)', flexShrink: 0 }} />
-                        <span style={{ fontSize: 13, color: 'hsl(var(--sidebar-foreground))' }}>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                {NAV_DOCS.map(item => {
+                  const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
+                        <Link
+                          href={item.url}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: '100%',
+                            borderRadius: 10,
+                            padding: '8px 10px',
+                            background: isActive ? 'linear-gradient(90deg, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.08))' : 'transparent',
+                            boxShadow: isActive ? 'inset 0 0 0 1px hsl(var(--primary) / 0.18)' : 'none',
+                          }}
+                        >
+                          <item.icon
+                            size={16}
+                            style={{
+                              flexShrink: 0,
+                              color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground) / 0.6)',
+                              transition: 'color 0.15s',
+                            }}
+                          />
+                          <span style={{
+                            fontWeight: isActive ? 800 : 500,
+                            color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground))',
+                            fontSize: 13,
+                            transition: 'all 0.15s',
+                            letterSpacing: isActive ? '0.01em' : 'normal',
+                          }}>
+                            {item.title}
+                          </span>
+                          {isActive && <span className="nav-active-dot" />}
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -455,33 +664,33 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton tooltip="Search (⌘K)" onClick={() => setShowSearch(true)}>
+                  <SidebarMenuButton className="sidebar-action-btn" tooltip="Search (⌘K)" onClick={() => setShowSearch(true)}>
                     <Search size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
                     <span style={{ fontSize: 13 }}>Search</span>
                     <span style={{
                       marginLeft: 'auto', fontSize: 9, fontWeight: 600,
                       background: 'hsl(var(--muted))', borderRadius: 4, padding: '1px 5px',
                       color: 'hsl(var(--muted-foreground))'
-                    }}>⌘K</span>
+                    }} className="sidebar-action-kbd">⌘K</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
                 <SidebarMenuItem>
-                  <SidebarMenuButton tooltip="Kirim Email" onClick={() => setShowEmail(true)}>
+                  <SidebarMenuButton className="sidebar-action-btn" tooltip="Kirim Email" onClick={() => setShowEmail(true)}>
                     <Mail size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
                     <span style={{ fontSize: 13 }}>Kirim Email</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
                 <SidebarMenuItem>
-                  <SidebarMenuButton tooltip="Get Help" onClick={() => window.open("mailto:support@tup.id?subject=Dashboard Help", "_blank")}>
+                  <SidebarMenuButton className="sidebar-action-btn" tooltip="Get Help" onClick={() => window.open("mailto:support@tup.id?subject=Dashboard Help", "_blank")}>
                     <HelpCircle size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
                     <span style={{ fontSize: 13 }}>Get Help</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip="Settings">
+                  <SidebarMenuButton className="sidebar-action-btn" asChild tooltip="Settings">
                     <Link href="/settings">
                       <Settings size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
                       <span style={{ fontSize: 13 }}>Settings</span>
@@ -492,7 +701,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                 <SidebarMenuItem>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton tooltip="More">
+                      <SidebarMenuButton className="sidebar-action-btn" tooltip="More">
                         <MoreHorizontal size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
                         <span style={{ fontSize: 13 }}>More</span>
                       </SidebarMenuButton>
@@ -532,19 +741,19 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 11, fontWeight: 800, color: 'hsl(var(--primary-foreground))',
                     }}>
-                      KC
+                      {initials}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--sidebar-foreground))' }}>Kane Chen</div>
-                      <div style={{ fontSize: 10, color: 'hsl(var(--sidebar-foreground) / 0.55)' }}>kane@tup.id</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--sidebar-foreground))' }}>{user.name}</div>
+                      <div style={{ fontSize: 10, color: 'hsl(var(--sidebar-foreground) / 0.55)' }}>{user.email}</div>
                     </div>
                     <ChevronUp size={14} style={{ color: 'hsl(var(--sidebar-foreground) / 0.4)', flexShrink: 0 }} />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" style={{ minWidth: 200 }}>
                   <div style={{ padding: '8px 12px', borderBottom: '1px solid hsl(var(--border))' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>Kane Chen</div>
-                    <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>kane@tup.id</div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{user.name}</div>
+                    <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>{user.email}</div>
                   </div>
                   <DropdownMenuItem>
                     <UserCircle size={14} style={{ marginRight: 8 }} /> Profil
@@ -553,7 +762,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     <Settings size={14} style={{ marginRight: 8 }} /> Pengaturan
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem style={{ color: 'hsl(var(--destructive))' }} onClick={() => window.location.href = '/login'}>
+                  <DropdownMenuItem style={{ color: 'hsl(var(--destructive))' }} onClick={() => { clearUser(); window.location.href = '/login' }}>
                     <LogOut size={14} style={{ marginRight: 8 }} /> Keluar
                   </DropdownMenuItem>
                 </DropdownMenuContent>
