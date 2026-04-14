@@ -449,7 +449,11 @@ export default function ClientsPage() {
     let list = [...allClients]
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(c => c.name.toLowerCase().includes(q) || c.locations.some(l => l.toLowerCase().includes(q)))
+      list = list.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        c.locations.some(l => l.toLowerCase().includes(q)) ||
+        c.invoices.some(i => (i.site_name ?? "").toLowerCase().includes(q))
+      )
     }
     if (filterSvc !== "Semua") list = list.filter(c => c.serviceTypes.includes(filterSvc))
     if (filterStatus === "Lunas") list = list.filter(c => c.unpaidCount === 0)

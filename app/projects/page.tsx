@@ -544,7 +544,11 @@ export default function ProjectsPage() {
     let list = [...allProjects]
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(p => p.clientName.toLowerCase().includes(q))
+      list = list.filter(p =>
+      p.clientName.toLowerCase().includes(q) ||
+      p.clientFull.toLowerCase().includes(q) ||
+      p.invoices.some(i => (i.site_name ?? "").toLowerCase().includes(q))
+    )
     }
     if (filterStatus !== "Semua") list = list.filter(p => p.status   === filterStatus)
     if (filterCat    !== "Semua") list = list.filter(p => p.category === filterCat)
@@ -674,7 +678,7 @@ export default function ProjectsPage() {
                       value={search} onChange={e => setSearch(e.target.value)}
                       className="search-box w-full" />
                     {search && (
-                      <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                      <button type="button" title="Hapus pencarian" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                         <X className="h-3 w-3" />
                       </button>
                     )}

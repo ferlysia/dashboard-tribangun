@@ -63,11 +63,23 @@ function calcAging(raw: Invoice[]): AgingInvoice[] {
   return raw
     .filter(i => i.status === "UNPAID")
     .map(i => {
-      const days    = Math.floor((TODAY.getTime() - new Date(i.date).getTime()) / 86_400_000)
-      const bucket  : AgingInvoice["bucket"]  = days<=30?"0-30":days<=60?"31-60":days<=90?"61-90":"90+"
-      const urgency : AgingInvoice["urgency"] = days<=30?"low":days<=60?"medium":days<=90?"high":"critical"
+      // Due date = invoice_sent_date + terms_of_payment days (if both exist)
+      // otherwise fall back to invoice date
+      const top = Number((i as any).terms_of_payment)
+      const sentDate = (i as any).invoice_sent_date
+      let daysOutstanding: number
+      if (top && sentDate) {
+        const due = new Date(sentDate)
+        due.setDate(due.getDate() + top)
+        // outstanding starts from day after due date
+        daysOutstanding = Math.max(0, Math.floor((TODAY.getTime() - due.getTime()) / 86_400_000))
+      } else {
+        daysOutstanding = Math.max(0, Math.floor((TODAY.getTime() - new Date(i.date).getTime()) / 86_400_000))
+      }
+      const bucket  : AgingInvoice["bucket"]  = daysOutstanding<=30?"0-30":daysOutstanding<=60?"31-60":daysOutstanding<=90?"61-90":"90+"
+      const urgency : AgingInvoice["urgency"] = daysOutstanding<=30?"low":daysOutstanding<=60?"medium":daysOutstanding<=90?"high":"critical"
       const clientName = i.customer.includes("(") ? i.customer.split("(")[0].trim() : i.customer.trim()
-      return { ...i, daysOutstanding:days, clientName, bucket, urgency }
+      return { ...i, daysOutstanding, clientName, bucket, urgency }
     })
     .sort((a,b) => b.daysOutstanding - a.daysOutstanding)
 }
@@ -377,7 +389,12 @@ export default function LifecyclePage() {
     let list = [...aging]
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(i=>i.clientName.toLowerCase().includes(q)||i.invoice_no.toLowerCase().includes(q)||i.description.toLowerCase().includes(q))
+      list = list.filter(i=>
+        i.clientName.toLowerCase().includes(q) ||
+        i.invoice_no.toLowerCase().includes(q) ||
+        i.description.toLowerCase().includes(q) ||
+        ((i as any).site_name ?? "").toLowerCase().includes(q)
+      )
     }
     if (activeBucket !== "Semua") list = list.filter(i=>i.bucket===activeBucket)
     list.sort((a,b)=>{

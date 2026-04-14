@@ -37,6 +37,22 @@ const columns: ColumnDef<any>[] = [
   {
     accessorKey: "customer",
     header: "Customer",
+    cell: ({ row }) => {
+      const customer: string = row.getValue("customer") ?? ""
+      const site: string = row.original.site_name ?? ""
+      return (
+        <div>
+          <div className="font-medium">{customer.replace(/\s*\([^)]*\)\s*/g, "").trim() || customer}</div>
+          {site && <div className="text-xs text-muted-foreground">{site}</div>}
+        </div>
+      )
+    },
+  },
+  {
+    // hidden searchable column for site_name
+    accessorKey: "site_name",
+    header: "",
+    enableHiding: true,
   },
   {
     accessorKey: "date",
@@ -94,11 +110,12 @@ export function DataTable({ data }: { data: any[] }) {
     columns,
     state: {
       globalFilter,
+      columnVisibility: { site_name: false },
     },
     onGlobalFilterChange: setGlobalFilter,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(), // Aktifkan filter pencarian
+    getFilteredRowModel: getFilteredRowModel(),
     initialState: {
       pagination: {
         pageSize: 10,
@@ -111,7 +128,7 @@ export function DataTable({ data }: { data: any[] }) {
       {/* 1. SEARCH BAR */}
       <div className="flex items-center justify-between gap-4">
         <input
-          placeholder="Cari Customer (Samsung, Eaton...)"
+          placeholder="Cari Customer / Site Name (Samsung Cikarang, Dakota Batam...)"
           value={globalFilter ?? ""}
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="flex h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

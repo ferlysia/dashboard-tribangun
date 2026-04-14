@@ -2,7 +2,9 @@ export type InvoiceRecord = {
   id?: string
   no: number | null
   invoice_no: string
+  project_type: "Maintenance" | "Material/PAC" | "Project/Instalasi" | "Jasa" | "Lainnya" | ""
   customer: string
+  site_name: string
   description: string
   date: string
   year: number
@@ -18,6 +20,7 @@ export type InvoiceRecord = {
   ppn: number
   total: number
   invoice_sent_date: string
+  terms_of_payment: 15 | 30 | 45 | 60 | 90 | 120 | null
   payment_date: string
   payment_value: number
   selisih: number

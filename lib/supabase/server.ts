@@ -76,6 +76,14 @@ export async function upsertUserProfile(input: {
   return rows[0]
 }
 
+const PROJECT_TYPES = ["Maintenance", "Material/PAC", "Project/Instalasi", "Jasa", "Lainnya"] as const
+
+function extractSiteName(customer: string, explicit?: string): string {
+  if (explicit !== undefined && explicit.trim() !== "") return explicit.trim()
+  const match = customer.match(/\(([^)]+)\)/)
+  return match ? match[1].trim() : ""
+}
+
 export function normalizeInvoiceRecord(record: Partial<InvoiceRecord>) {
   const date = record.date || ""
   const parsedYear = record.year ?? (date ? Number(date.slice(0, 4)) : new Date().getFullYear())
@@ -83,11 +91,15 @@ export function normalizeInvoiceRecord(record: Partial<InvoiceRecord>) {
   const paymentDate = record.payment_date || ""
   const paymentValue = Number(record.payment_value || 0)
   const total = Number(record.total || 0)
+  const customer = String(record.customer || "").trim()
+  const top = Number(record.terms_of_payment)
 
   return {
     no: record.no ?? null,
     invoice_no: String(record.invoice_no || "").trim(),
-    customer: String(record.customer || "").trim(),
+    project_type: PROJECT_TYPES.includes(record.project_type as any) ? record.project_type : "",
+    customer,
+    site_name: extractSiteName(customer, record.site_name),
     description: String(record.description || "").trim(),
     date: date || null,
     year: parsedYear,
@@ -103,6 +115,7 @@ export function normalizeInvoiceRecord(record: Partial<InvoiceRecord>) {
     ppn: Number(record.ppn || 0),
     total,
     invoice_sent_date: String(record.invoice_sent_date || ""),
+    terms_of_payment: [15, 30, 45, 60, 90, 120].includes(top) ? top : null,
     payment_date: paymentDate,
     payment_value: paymentValue,
     selisih: Number(record.selisih || 0),

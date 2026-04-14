@@ -101,10 +101,13 @@ function formatChangedInvoiceDetail(item: any) {
 
 type InvoiceFormState = {
   invoice_no: string
+  project_type: "Maintenance" | "Material/PAC" | "Project/Instalasi" | "Jasa" | "Lainnya" | ""
   customer: string
+  site_name: string
   description: string
   date: string
   invoice_sent_date: string
+  terms_of_payment: "" | "15" | "30" | "45" | "60" | "90" | "120"
   po_number: string
   po_date: string
   po_value: string
@@ -121,10 +124,13 @@ type InvoiceFormState = {
 
 const EMPTY_FORM: InvoiceFormState = {
   invoice_no: "",
+  project_type: "",
   customer: "",
+  site_name: "",
   description: "",
   date: "",
   invoice_sent_date: "",
+  terms_of_payment: "",
   po_number: "",
   po_date: "",
   po_value: "",
@@ -140,12 +146,16 @@ const EMPTY_FORM: InvoiceFormState = {
 }
 
 function mapInvoiceToForm(invoice: InvoiceRecord): InvoiceFormState {
+  const top = invoice.terms_of_payment
   return {
     invoice_no: invoice.invoice_no,
+    project_type: (invoice.project_type as InvoiceFormState["project_type"]) || "",
     customer: invoice.customer,
+    site_name: invoice.site_name || "",
     description: invoice.description,
     date: invoice.date || "",
     invoice_sent_date: invoice.invoice_sent_date || "",
+    terms_of_payment: top ? (String(top) as InvoiceFormState["terms_of_payment"]) : "",
     po_number: invoice.po_number,
     po_date: invoice.po_date || "",
     po_value: String(invoice.po_value || ""),
@@ -194,7 +204,7 @@ export default function ExcelDataPage() {
     if (!keyword) return invoices.slice(0, 12)
     return invoices
       .filter((invoice) =>
-        [invoice.invoice_no, invoice.customer, invoice.description]
+        [invoice.invoice_no, invoice.customer, invoice.site_name, invoice.description]
           .join(" ")
           .toLowerCase()
           .includes(keyword)
@@ -262,10 +272,13 @@ export default function ExcelDataPage() {
     const payload = {
       ...form,
       invoice_no: form.invoice_no.trim(),
+      project_type: form.project_type,
       customer: form.customer.trim(),
+      site_name: form.site_name.trim(),
       description: form.description.trim(),
       date: normalizedDate,
       invoice_sent_date: normalizeDateString(form.invoice_sent_date),
+      terms_of_payment: form.terms_of_payment ? Number(form.terms_of_payment) : null,
       po_number: form.po_number.trim(),
       po_date: normalizeDateString(form.po_date),
       payment_date: form.payment_date.trim(),
@@ -545,14 +558,62 @@ export default function ExcelDataPage() {
                       onChange={(event) => handleInputChange("invoice_sent_date", event.target.value)}
                     />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="terms_of_payment">Terms of Payment (hari)</Label>
+                    <select
+                      id="terms_of_payment"
+                      title="Terms of Payment"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                      value={form.terms_of_payment}
+                      onChange={(event) => handleInputChange("terms_of_payment", event.target.value as InvoiceFormState["terms_of_payment"])}
+                    >
+                      <option value="">— Pilih TOP —</option>
+                      <option value="15">15 hari</option>
+                      <option value="30">30 hari</option>
+                      <option value="45">45 hari</option>
+                      <option value="60">60 hari</option>
+                      <option value="90">90 hari</option>
+                      <option value="120">120 hari</option>
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">Outstanding dihitung mulai hari ke-(TOP+1) setelah Invoice Sent Date</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="project_type">Project Type</Label>
+                    <select
+                      id="project_type"
+                      title="Project Type"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                      value={form.project_type}
+                      onChange={(event) => handleInputChange("project_type", event.target.value as InvoiceFormState["project_type"])}
+                    >
+                      <option value="">— Pilih Tipe —</option>
+                      <option value="Maintenance">Maintenance</option>
+                      <option value="Material/PAC">Material / PAC</option>
+                      <option value="Project/Instalasi">Project / Instalasi</option>
+                      <option value="Jasa">Jasa</option>
+                      <option value="Lainnya">Lainnya</option>
+                    </select>
+                  </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="customer">Customer</Label>
                     <Input id="customer" value={form.customer} onChange={(event) => handleInputChange("customer", event.target.value)} />
                   </div>
                   <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="site_name">Site Name</Label>
+                    <Input
+                      id="site_name"
+                      placeholder="Nama site/lokasi (isi otomatis dari tanda kurung di Customer)"
+                      value={form.site_name}
+                      onChange={(event) => handleInputChange("site_name", event.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">Primary key untuk pencarian — contoh: "Dakota Batam", "Edge Connex", "Samsung Cikarang"</p>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="description">Description</Label>
                     <textarea
                       id="description"
+                      title="Description"
+                      placeholder="Deskripsi pekerjaan / invoice"
                       className="min-h-28 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none"
                       value={form.description}
                       onChange={(event) => handleInputChange("description", event.target.value)}
@@ -579,6 +640,7 @@ export default function ExcelDataPage() {
                     <Label htmlFor="tax_type">Tax Type</Label>
                     <select
                       id="tax_type"
+                      title="Tax Type"
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
                       value={form.tax_type}
                       onChange={(event) => handleInputChange("tax_type", event.target.value as "PPN" | "NON_PPN")}
@@ -615,6 +677,7 @@ export default function ExcelDataPage() {
                     <Label htmlFor="status">Status</Label>
                     <select
                       id="status"
+                      title="Status"
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
                       value={form.status}
                       onChange={(event) => handleInputChange("status", event.target.value as "PAID" | "UNPAID")}
@@ -627,6 +690,8 @@ export default function ExcelDataPage() {
                     <Label htmlFor="keterangan">Keterangan</Label>
                     <textarea
                       id="keterangan"
+                      title="Keterangan"
+                      placeholder="Catatan tambahan"
                       className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none"
                       value={form.keterangan}
                       onChange={(event) => handleInputChange("keterangan", event.target.value)}
