@@ -6,21 +6,18 @@ import {
   ResponsiveContainer, Tooltip, ReferenceLine, Cell,
 } from "recharts"
 import {
-  TrendingUp, TrendingDown, DollarSign, Target, Zap,
-  BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  Info, Settings2, RotateCcw, ChevronRight, AlertTriangle,
-  CheckCircle2, Minus, Calculator,
+  TrendingUp, DollarSign, Target, Zap,
+  BarChart3, Info, Settings2, RotateCcw, AlertTriangle, Calculator,
 } from "lucide-react"
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card"
+import { ChartContainer, type ChartConfig } from "@/components/ui/chart"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
+import { useThemeConfig } from "@/components/ui/active-theme"
 import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-import type { InvoiceRecord as Invoice } from "@/types/invoice"
 
 // ─── Cost Category ────────────────────────────────────────────────────────────
 type CostCategory = {
@@ -48,8 +45,21 @@ const fShort = (n: number) => {
   if (n >= 1_000)         return `${(n / 1e3).toFixed(0)}K`
   return String(Math.round(n))
 }
-const fPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`
-
+// Format large ROI values compactly: 444900% → "444.9k%"
+const fROI = (n: number) => {
+  const abs = Math.abs(n)
+  if (abs >= 100_000) return `${(n / 1000).toFixed(0)}k%`
+  if (abs >= 1_000)   return `${(n / 1000).toFixed(1)}k%`
+  return `${n.toFixed(1)}%`
+}
+// Compact IDR for KPI cards (avoids overflow)
+const fIDRShort = (n: number) => {
+  const abs = Math.abs(n)
+  if (abs >= 1_000_000_000) return `Rp ${(n / 1e9).toFixed(1)}B`
+  if (abs >= 1_000_000)     return `Rp ${(n / 1e6).toFixed(1)}M`
+  if (abs >= 1_000)         return `Rp ${(n / 1e3).toFixed(0)}K`
+  return fIDR(n)
+}
 // ─── Classify service ────────────────────────────────────────────────────────
 function classify(desc: string) {
   const d = desc.toLowerCase()
@@ -60,19 +70,81 @@ function classify(desc: string) {
 }
 
 // ─── useThemeColor hook ───────────────────────────────────────────────────────
-function useThemeColor(variable: string) {
+function useThemeColor(variable: string, watchToken?: string) {
   const [color, setColor] = React.useState("#3b82f6")
   React.useEffect(() => {
-    const el = document.createElement("div")
-    el.style.color = `hsl(var(${variable}))`
-    el.style.display = "none"
-    document.body.appendChild(el)
-    const c = getComputedStyle(el).color
-    document.body.removeChild(el)
-    const m = c.match(/\d+/g)
-    if (m) setColor("#" + m.slice(0,3).map((n:string) => parseInt(n).toString(16).padStart(2,"0")).join(""))
-  }, [variable])
+    const update = () => {
+      const el = document.createElement("div")
+      el.style.color = `hsl(var(${variable}))`
+      el.style.display = "none"
+      document.body.appendChild(el)
+      const c = getComputedStyle(el).color
+      document.body.removeChild(el)
+      const m = c.match(/\d+/g)
+      if (m) setColor("#" + m.slice(0,3).map((n:string) => parseInt(n).toString(16).padStart(2,"0")).join(""))
+    }
+
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
+    return () => observer.disconnect()
+  }, [variable, watchToken])
   return color
+}
+
+function useFinancialTheme(watchToken?: string) {
+  const [theme, setTheme] = React.useState({
+    primary: "#3b82f6",
+    success: "#16a34a",
+    warning: "#d97706",
+    danger: "#dc2626",
+    violet: "#8b5cf6",
+    muted: "#64748b",
+    foreground: "#111827",
+    border: "#d4d4d8",
+    card: "#ffffff",
+  })
+
+  React.useEffect(() => {
+    const update = () => {
+      const probe = document.createElement("div")
+      probe.style.display = "none"
+      document.body.appendChild(probe)
+
+      const resolve = (property: "color" | "borderColor" | "backgroundColor", value: string) => {
+        probe.style.color = ""
+        probe.style.borderColor = ""
+        probe.style.backgroundColor = ""
+        probe.style[property] = value
+        return getComputedStyle(probe)[property]
+      }
+
+      setTheme({
+        primary: resolve("color", "hsl(var(--primary))"),
+        success: "#16a34a",
+        warning: "#d97706",
+        danger: resolve("color", "hsl(var(--destructive))"),
+        violet: "#8b5cf6",
+        muted: resolve("color", "hsl(var(--muted-foreground))"),
+        foreground: resolve("color", "hsl(var(--foreground))"),
+        border: resolve("borderColor", "hsl(var(--border))"),
+        card: resolve("backgroundColor", "hsl(var(--card))"),
+      })
+
+      document.body.removeChild(probe)
+    }
+
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] })
+    return () => observer.disconnect()
+  }, [watchToken])
+
+  return theme
+}
+
+function formatPercentValue(value: number) {
+  return fROI(value)
 }
 
 // ─── CSS ─────────────────────────────────────────────────────────────────────
@@ -203,16 +275,24 @@ const STYLES = `
 `
 
 // ─── ROI Gauge Component ──────────────────────────────────────────────────────
-function ROIGauge({ roi, hasData }: { roi: number; hasData: boolean }) {
-  const r = 70
-  const circumference = 2 * Math.PI * r
+function ROIGauge({
+  roi,
+  hasData,
+  accentColor,
+  mutedColor,
+}: {
+  roi: number
+  hasData: boolean
+  accentColor: string
+  mutedColor: string
+}) {
   // Half arc (180deg) = circumference / 2 = 220
   const halfArc = 220
   // Clamp ROI: 0–200% range mapped to arc
   const clampedRoi = Math.min(Math.max(roi, 0), 200)
   const fillFraction = clampedRoi / 200
   const arcOffset = halfArc - fillFraction * halfArc
-  const roiColor = roi >= 100 ? "#16A34A" : roi >= 50 ? "#D97706" : roi >= 0 ? "#3B82F6" : "#DC2626"
+  const roiColor = roi >= 0 ? accentColor : "#DC2626"
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -221,13 +301,13 @@ function ROIGauge({ roi, hasData }: { roi: number; hasData: boolean }) {
           {/* Track */}
           <path
             d="M 20 100 A 80 80 0 0 1 180 100"
-            fill="none" stroke="hsl(var(--muted))" strokeWidth="14"
+            fill="none" stroke={mutedColor} strokeWidth="14"
             strokeLinecap="round"
           />
           {/* Fill */}
           <path
             d="M 20 100 A 80 80 0 0 1 180 100"
-            fill="none" stroke={hasData ? roiColor : "hsl(var(--muted))"}
+            fill="none" stroke={hasData ? roiColor : mutedColor}
             strokeWidth="14" strokeLinecap="round"
             strokeDasharray={`${halfArc} ${halfArc}`}
             className="arc-fill"
@@ -243,37 +323,44 @@ function ROIGauge({ roi, hasData }: { roi: number; hasData: boolean }) {
               style={{ transition: "all 1.4s cubic-bezier(.16,1,.3,1)" }}
             />
           )}
-          <circle cx="100" cy="100" r="5" fill={hasData ? roiColor : "hsl(var(--muted-foreground))"} />
+          <circle cx="100" cy="100" r="5" fill={hasData ? roiColor : mutedColor} />
         </svg>
         {/* Center text */}
         <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center" }}>
           {hasData ? (
             <>
-              <div style={{ fontSize: 28, fontWeight: 800, color: roiColor, lineHeight: 1, fontFamily: "monospace" }}>
-                {roi.toFixed(1)}%
+              <div style={{ fontSize: Math.abs(roi) >= 1000 ? 18 : 26, fontWeight: 800, color: roiColor, lineHeight: 1, fontFamily: "monospace" }}>
+                {fROI(roi)}
               </div>
-              <div style={{ fontSize: 11, color: "hsl(var(--muted-foreground))", marginTop: 2 }}>ROI</div>
+              <div style={{ fontSize: 11, color: mutedColor, marginTop: 2 }}>ROI</div>
             </>
           ) : (
-            <div style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }}>Input cost →</div>
+            <div style={{ fontSize: 12, color: mutedColor }}>Input cost →</div>
           )}
         </div>
       </div>
       {/* Scale labels */}
-      <div style={{ display: "flex", justifyContent: "space-between", width: 190, fontSize: 10, color: "hsl(var(--muted-foreground))" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", width: 190, fontSize: 10, color: mutedColor }}>
         <span>0%</span>
-        <span style={{ color: "#D97706" }}>50%</span>
-        <span style={{ color: "#16A34A" }}>100%</span>
+        <span style={{ color: accentColor }}>50%</span>
+        <span style={{ color: accentColor }}>100%</span>
         <span>200%</span>
       </div>
     </div>
   )
 }
 
+// ─── Chart configs (CSS-variable-based, always theme-accurate) ───────────────
+const marginChartConfig = {
+  margin: { label: "Margin DPP", color: "hsl(var(--primary))" },
+} satisfies ChartConfig
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function FinancialPerformancePage() {
+  const { activeTheme } = useThemeConfig()
   const { invoices: raw, periodLabel } = useFilteredInvoices()
-  const primaryColor = useThemeColor("--primary")
+  const primaryColor = useThemeColor("--primary", activeTheme)
+  const palette = useFinancialTheme(activeTheme)
 
   // ── Cost state — persisted in sessionStorage ──────────────────────────────
   const [costs, setCosts] = React.useState<Record<string, number>>({})
@@ -486,8 +573,9 @@ export default function FinancialPerformancePage() {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl font-bold">{fIDR(stats.totalRevenue)}</div>
-                  <p className="text-xs text-muted-foreground mt-1">{stats.totalInvoices} invoice · incl. PPN</p>
+                  <div className="text-xl font-bold leading-tight">{fIDRShort(stats.totalRevenue)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{fIDR(stats.totalRevenue)}</p>
+                  <p className="text-xs text-muted-foreground">{stats.totalInvoices} invoice · incl. PPN</p>
                 </CardContent>
               </Card>
             </div>
@@ -497,13 +585,12 @@ export default function FinancialPerformancePage() {
               <Card className="kpi-card kpi-green">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm">Net Revenue (DPP)</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-green-600" />
+                  <TrendingUp className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl font-bold">{fIDR(stats.totalDPP)}</div>
-                  <p className="text-xs text-green-600 mt-1">
-                    {stats.grossMargin.toFixed(1)}% dari gross · setelah dikurangi PPN
-                  </p>
+                  <div className="text-xl font-bold leading-tight text-green-600">{fIDRShort(stats.totalDPP)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{fIDR(stats.totalDPP)}</p>
+                  <p className="text-xs text-green-600">{stats.grossMargin.toFixed(1)}% dari gross</p>
                 </CardContent>
               </Card>
             </div>
@@ -513,13 +600,12 @@ export default function FinancialPerformancePage() {
               <Card className="kpi-card kpi-violet" style={{ "--kpi-color": "#8B5CF6" } as React.CSSProperties}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm">Uang Terkumpul</CardTitle>
-                  <Zap className="h-4 w-4 text-violet-500" />
+                  <Zap className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl font-bold">{fIDR(stats.totalCollected)}</div>
-                  <p className="text-xs text-violet-600 mt-1">
-                    {stats.collectionRate.toFixed(1)}% collection rate
-                  </p>
+                  <div className="text-xl font-bold leading-tight text-violet-600">{fIDRShort(stats.totalCollected)}</div>
+                  <p className="text-xs text-muted-foreground mt-1">{fIDR(stats.totalCollected)}</p>
+                  <p className="text-xs text-violet-600">{stats.collectionRate.toFixed(1)}% collection rate</p>
                 </CardContent>
               </Card>
             </div>
@@ -529,15 +615,15 @@ export default function FinancialPerformancePage() {
               <Card className={`kpi-card ${costData.hasData ? (costData.roi >= 0 ? "kpi-green" : "kpi-red") : "kpi-amber"}`}>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-sm">ROI</CardTitle>
-                  <Target className="h-4 w-4 text-amber-500" />
+                  <Target className="h-4 w-4 text-primary" />
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-xl font-bold ${costData.hasData ? (costData.roi >= 0 ? "text-green-600" : "text-destructive") : "text-amber-500"}`}>
-                    {costData.hasData ? `${costData.roi.toFixed(1)}%` : "Belum dihitung"}
+                  <div className={`text-xl font-bold leading-tight ${costData.hasData ? (costData.roi >= 0 ? "text-green-600" : "text-destructive") : "text-amber-500"}`}>
+                    {costData.hasData ? fROI(costData.roi) : "Belum dihitung"}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {costData.hasData
-                      ? `Net Profit: ${fIDR(costData.netProfit)}`
+                      ? `Profit: ${fIDRShort(costData.netProfit)}`
                       : "Input biaya di bawah ↓"}
                   </p>
                 </CardContent>
@@ -552,7 +638,7 @@ export default function FinancialPerformancePage() {
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl font-bold">
+                  <div className="break-words text-lg font-bold leading-tight lg:text-xl">
                     {costData.hasData
                       ? costData.paybackMonths < 1
                         ? "< 1 bln"
@@ -581,21 +667,26 @@ export default function FinancialPerformancePage() {
                     <CardDescription>Return on Investment berdasarkan biaya yang diinput</CardDescription>
                   </div>
                   {costData.hasData && (
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${costData.roi >= 100 ? "bg-green-500/10 text-green-600" : costData.roi >= 50 ? "bg-amber-500/10 text-amber-600" : costData.roi >= 0 ? "bg-blue-500/10 text-blue-600" : "bg-destructive/10 text-destructive"}`}>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${costData.roi >= 0 ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
                       {costData.roi >= 100 ? "EXCELLENT" : costData.roi >= 50 ? "BAIK" : costData.roi >= 0 ? "POSITIF" : "NEGATIF"}
                     </span>
                   )}
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col items-center gap-4">
-                <ROIGauge roi={costData.hasData ? costData.roi : 0} hasData={costData.hasData} />
+                <ROIGauge
+                  roi={costData.hasData ? costData.roi : 0}
+                  hasData={costData.hasData}
+                  accentColor={primaryColor}
+                  mutedColor={palette.muted}
+                />
 
                 {/* 3 metric pills */}
                 <div className="grid grid-cols-3 gap-3 w-full border-t pt-4">
                   {[
-                    { label: "Net Profit",   val: costData.hasData ? fIDR(costData.netProfit) : "—",              color: costData.hasData ? (costData.netProfit >= 0 ? "text-green-600" : "text-destructive") : "text-muted-foreground" },
+                    { label: "Net Profit",   val: costData.hasData ? fIDR(costData.netProfit) : "—",              color: costData.hasData ? (costData.netProfit >= 0 ? "text-primary" : "text-destructive") : "text-muted-foreground" },
                     { label: "Net Margin",   val: costData.hasData ? `${costData.netMargin.toFixed(1)}%` : "—",    color: costData.hasData ? (costData.netMargin >= 0 ? "text-primary" : "text-destructive") : "text-muted-foreground" },
-                    { label: "Efisiensi",    val: costData.hasData ? `${costData.revenuePerCost.toFixed(2)}x` : "—", color: costData.hasData ? (costData.revenuePerCost >= 1 ? "text-green-600" : "text-destructive") : "text-muted-foreground" },
+                    { label: "Efisiensi",    val: costData.hasData ? `${costData.revenuePerCost.toFixed(2)}x` : "—", color: costData.hasData ? (costData.revenuePerCost >= 1 ? "text-primary" : "text-destructive") : "text-muted-foreground" },
                   ].map(m => (
                     <div key={m.label} className="text-center rounded-lg bg-muted/40 p-3">
                       <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wide">{m.label}</p>
@@ -610,11 +701,11 @@ export default function FinancialPerformancePage() {
                       <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" />
                       <span>
                         Dari setiap <strong>Rp 1</strong> yang diinvestasikan, perusahaan menghasilkan{" "}
-                        <strong className={costData.revenuePerCost >= 1 ? "text-green-600" : "text-destructive"}>
+                        <strong className={costData.revenuePerCost >= 1 ? "text-primary" : "text-destructive"}>
                           Rp {costData.revenuePerCost.toFixed(2)}
                         </strong>.{" "}
                         {costData.roi >= 100
-                          ? <span className="text-green-600 font-semibold">ROI di atas 100% — excellent performance. ↑</span>
+                          ? <span className="text-primary font-semibold">ROI di atas 100% — excellent performance. ↑</span>
                           : costData.roi >= 0
                           ? <span className="text-primary font-semibold">ROI positif, masih ada ruang untuk optimasi.</span>
                           : <span className="text-destructive font-semibold">ROI negatif — cost melebihi pendapatan terkumpul. Perlu evaluasi.</span>}
@@ -728,38 +819,38 @@ export default function FinancialPerformancePage() {
                   <div style={{ height: 260 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={costData.cumulativeData} margin={{ left: 8, right: 8, top: 8, bottom: 0 }}>
-                        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                        <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={fShort} width={60} />
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={palette.border} />
+                        <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: palette.muted }} />
+                        <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: palette.muted }} tickFormatter={fShort} width={60} />
                         <Tooltip
                           content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null
                             const d = payload[0]?.payload
                             return (
-                              <div className="rounded-lg border bg-card px-3 py-2.5 shadow-md text-xs min-w-[200px]">
-                                <p className="font-semibold mb-2">{label} {periodLabel} (Kumulatif)</p>
-                                <p className="text-green-600">Terkumpul: <span className="font-mono font-bold">{fIDR(d?.collected || 0)}</span></p>
+                              <div className="min-w-[200px] rounded-xl border border-border px-3 py-2.5 text-xs shadow-md bg-popover text-popover-foreground">
+                                <p className="mb-2 font-semibold">{label} {periodLabel} (Kumulatif)</p>
+                                <p style={{ color: primaryColor }}>Terkumpul: <span className="font-mono font-bold">{fIDR(d?.collected || 0)}</span></p>
                                 <p className="text-destructive">Biaya: <span className="font-mono font-bold">{fIDR(d?.cost || 0)}</span></p>
-                                <p className={d?.profit >= 0 ? "text-primary" : "text-destructive"}>
+                                <p style={{ color: d?.profit >= 0 ? primaryColor : "#DC2626" }}>
                                   Profit: <span className="font-mono font-bold">{fIDR(d?.profit || 0)}</span>
                                 </p>
-                                <p className="text-muted-foreground mt-1">ROI: <span className="font-bold">{(d?.roi || 0).toFixed(1)}%</span></p>
+                                <p className="mt-1 text-muted-foreground">ROI: <span className="font-bold text-foreground">{(d?.roi || 0).toFixed(1)}%</span></p>
                               </div>
                             )
                           }}
                         />
-                        <ReferenceLine y={0} stroke="hsl(var(--border))" strokeWidth={1.5} />
-                        <Line dataKey="collected" stroke="#16A34A" strokeWidth={2.5} dot={false} name="Terkumpul" />
+                        <ReferenceLine y={0} stroke={palette.border} strokeWidth={1.5} />
+                        <Line dataKey="collected" stroke={primaryColor} strokeWidth={2.5} dot={false} name="Terkumpul" />
                         <Line dataKey="cost"      stroke="#DC2626" strokeWidth={2} dot={false} strokeDasharray="5 4" name="Biaya" />
-                        <Line dataKey="profit"    stroke={primaryColor} strokeWidth={2} dot={{ r: 3, fill: primaryColor }} name="Net Profit" />
+                        <Line dataKey="profit"    stroke="#16A34A" strokeWidth={2.5} dot={{ r: 3, fill: "#16A34A" }} name="Net Profit" />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
                   <div className="flex items-center gap-5 mt-3 flex-wrap">
                     {[
-                      { color: "#16A34A", label: "Uang Terkumpul (kumulatif)" },
-                      { color: "#DC2626", label: "Total Biaya (kumulatif)", dash: true },
-                      { color: primaryColor, label: "Net Profit (kumulatif)" },
+                      { color: primaryColor,  label: "Uang Terkumpul (kumulatif)" },
+                      { color: "#DC2626",     label: "Total Biaya (kumulatif)", dash: true },
+                      { color: "#16A34A",     label: "Net Profit (kumulatif)" },
                     ].map(l => (
                       <div key={l.label} className="flex items-center gap-1.5">
                         <span className="h-0.5 w-5 shrink-0 inline-block" style={{ background: l.color, borderTop: l.dash ? `2px dashed ${l.color}` : undefined }} />
@@ -796,20 +887,20 @@ export default function FinancialPerformancePage() {
                 <div style={{ height: 220 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={displayedCategories} barCategoryGap="30%" margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={fShort} width={50} />
+                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={palette.border} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: palette.muted }} />
+                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 10, fill: palette.muted }} tickFormatter={fShort} width={50} />
                       <Tooltip
                         content={({ active, payload, label }) => {
                           if (!active || !payload?.length) return null
                           const d = payload[0]?.payload
                           return (
-                            <div className="rounded-lg border bg-card px-3 py-2.5 shadow-md text-xs min-w-[180px]">
-                              <p className="font-semibold mb-1.5">{label}</p>
+                            <div className="min-w-[180px] rounded-xl border border-border px-3 py-2.5 text-xs shadow-md bg-popover text-popover-foreground">
+                              <p className="mb-1.5 font-semibold">{label}</p>
                               <p className="text-muted-foreground">Revenue: <span className="font-mono font-bold text-foreground">{fIDR(d?.revenue)}</span></p>
-                              <p className="text-muted-foreground">DPP (Bersih): <span className="font-mono font-bold text-green-600">{fIDR(d?.dpp)}</span></p>
-                              <p className="text-muted-foreground">Margin: <span className="font-bold text-primary">{d?.margin?.toFixed(1)}%</span></p>
-                              <p className="text-muted-foreground">Collection: <span className="font-bold">{d?.rate?.toFixed(0)}%</span></p>
+                              <p className="text-muted-foreground">DPP (Bersih): <span className="font-mono font-bold" style={{ color: primaryColor }}>{fIDR(d?.dpp)}</span></p>
+                              <p className="text-muted-foreground">Margin: <span className="font-bold" style={{ color: primaryColor }}>{d?.margin?.toFixed(1)}%</span></p>
+                              <p className="text-muted-foreground">Collection: <span className="font-bold text-foreground">{d?.rate?.toFixed(0)}%</span></p>
                             </div>
                           )
                         }}
@@ -830,7 +921,7 @@ export default function FinancialPerformancePage() {
                       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: CAT_COLORS[cat.name] || "#94A3B8" }} />
                       <span className="text-sm font-medium flex-1 min-w-0 truncate">{cat.name}</span>
                       <span className="text-xs font-mono text-muted-foreground">{fShort(cat.revenue)}</span>
-                      <span className="text-xs font-semibold text-green-600 w-12 text-right">{cat.margin.toFixed(0)}%</span>
+                      <span className="text-xs font-semibold text-primary w-12 text-right">{cat.margin.toFixed(0)}%</span>
                       <span className={`text-xs font-semibold w-10 text-right ${cat.share >= 30 ? "text-primary" : "text-muted-foreground"}`}>
                         {cat.share.toFixed(1)}%
                       </span>
@@ -847,31 +938,29 @@ export default function FinancialPerformancePage() {
                 <CardDescription>Persentase nilai bersih (DPP) terhadap total revenue per bulan · target margin optimal 85%+</CardDescription>
               </CardHeader>
               <CardContent>
-                <div style={{ height: 220 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={stats.monthly.filter(m => m.revenue > 0)} barCategoryGap="30%" margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-                      <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                      <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => `${v.toFixed(0)}%`} domain={[0, 100]} width={45} />
-                      <Tooltip
-                        content={({ active, payload, label }) => {
-                          if (!active || !payload?.length) return null
-                          const d = payload[0]?.payload
-                          return (
-                            <div className="rounded-lg border bg-card px-3 py-2.5 shadow-md text-xs min-w-[160px]">
-                              <p className="font-semibold mb-1">{label} {periodLabel}</p>
-                              <p>Margin DPP: <span className="font-bold">{d?.margin?.toFixed(1)}%</span></p>
-                              <p className="text-muted-foreground">Revenue: {fIDR(d?.revenue)}</p>
-                              <p className="text-green-600">DPP: {fIDR(d?.dpp)}</p>
-                            </div>
-                          )
-                        }}
-                      />
-                      <ReferenceLine y={90.9} stroke="#16A34A" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "91% (Target)", position: "right", fontSize: 9, fill: "#16A34A" }} />
-                      <Bar dataKey="margin" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={900} fill={primaryColor} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <ChartContainer config={marginChartConfig} className="h-[220px] w-full">
+                  <BarChart data={stats.monthly.filter(m => m.revenue > 0)} barCategoryGap="30%" margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={palette.border} />
+                    <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: palette.muted }} />
+                    <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: palette.muted }} tickFormatter={v => `${v.toFixed(0)}%`} domain={[0, 100]} width={45} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const d = payload[0]?.payload
+                        return (
+                          <div className="min-w-[160px] rounded-xl border border-border px-3 py-2.5 text-xs shadow-md bg-popover text-popover-foreground">
+                            <p className="mb-1 font-semibold">{label} {periodLabel}</p>
+                            <p>Margin DPP: <span className="font-bold text-primary">{d?.margin?.toFixed(1)}%</span></p>
+                            <p className="text-muted-foreground">Revenue: <span className="text-foreground">{fIDR(d?.revenue)}</span></p>
+                            <p className="text-primary">DPP: {fIDR(d?.dpp)}</p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <ReferenceLine y={90.9} stroke="hsl(var(--primary))" strokeDasharray="4 3" strokeWidth={1.5} label={{ value: "91% (Target)", position: "right", fontSize: 9, fill: palette.muted }} />
+                    <Bar dataKey="margin" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={900} style={{ fill: "hsl(var(--primary))" }} />
+                  </BarChart>
+                </ChartContainer>
                 <div className="insight-box mt-4">
                   <div className="flex items-start gap-1.5">
                     <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" />
@@ -898,14 +987,14 @@ export default function FinancialPerformancePage() {
               <CardContent className="p-0">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/40">
-                      <th className="px-6 py-3 text-left font-medium text-muted-foreground text-xs w-8">#</th>
-                      <th className="px-6 py-3 text-left font-medium text-muted-foreground text-xs">Klien</th>
-                      <th className="px-6 py-3 text-right font-medium text-muted-foreground text-xs">Gross Revenue</th>
-                      <th className="px-6 py-3 text-right font-medium text-muted-foreground text-xs">Net DPP</th>
-                      <th className="px-6 py-3 text-right font-medium text-muted-foreground text-xs">Margin</th>
-                      <th className="px-6 py-3 text-right font-medium text-muted-foreground text-xs">% Kontribusi</th>
-                      <th className="px-6 py-3 font-medium text-muted-foreground text-xs">Porsi DPP</th>
+                    <tr style={{ background: 'hsl(var(--primary) / 0.10)', borderBottom: '2px solid hsl(var(--primary) / 0.22)' }}>
+                      <th className="px-6 py-3 text-left font-bold text-primary/80 text-xs uppercase tracking-wide w-8">#</th>
+                      <th className="px-6 py-3 text-left font-bold text-primary/80 text-xs uppercase tracking-wide">Klien</th>
+                      <th className="px-6 py-3 text-right font-bold text-primary/80 text-xs uppercase tracking-wide">Gross Revenue</th>
+                      <th className="px-6 py-3 text-right font-bold text-primary/80 text-xs uppercase tracking-wide">Net DPP</th>
+                      <th className="px-6 py-3 text-right font-bold text-primary/80 text-xs uppercase tracking-wide">Margin</th>
+                      <th className="px-6 py-3 text-right font-bold text-primary/80 text-xs uppercase tracking-wide">% Kontribusi</th>
+                      <th className="px-6 py-3 font-bold text-primary/80 text-xs uppercase tracking-wide">Porsi DPP</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -916,9 +1005,9 @@ export default function FinancialPerformancePage() {
                           <td className="px-6 py-3 text-xs font-bold text-muted-foreground">{i + 1}</td>
                           <td className="px-6 py-3 font-semibold text-sm max-w-[200px] truncate">{client.name}</td>
                           <td className="px-6 py-3 text-right font-mono text-xs text-muted-foreground">{fIDR(client.rev)}</td>
-                          <td className="px-6 py-3 text-right font-mono text-xs font-bold text-green-600">{fIDR(client.dpp)}</td>
+                          <td className="px-6 py-3 text-right font-mono text-xs font-bold text-primary">{fIDR(client.dpp)}</td>
                           <td className="px-6 py-3 text-right">
-                            <span className={`text-xs font-bold ${client.margin >= 88 ? "text-green-600" : "text-amber-600"}`}>
+                            <span className={`text-xs font-bold ${client.margin >= 88 ? "text-primary" : "text-amber-600"}`}>
                               {client.margin.toFixed(1)}%
                             </span>
                           </td>
@@ -937,7 +1026,7 @@ export default function FinancialPerformancePage() {
                       <td className="px-6 py-3" />
                       <td className="px-6 py-3 text-sm">Total (Top 6)</td>
                       <td className="px-6 py-3 text-right font-mono text-xs">{fIDR(stats.topByDpp.reduce((s, c) => s + c.rev, 0))}</td>
-                      <td className="px-6 py-3 text-right font-mono text-xs text-green-600">{fIDR(stats.topByDpp.reduce((s, c) => s + c.dpp, 0))}</td>
+                      <td className="px-6 py-3 text-right font-mono text-xs text-primary">{fIDR(stats.topByDpp.reduce((s, c) => s + c.dpp, 0))}</td>
                       <td className="px-6 py-3 text-right text-xs">
                         {stats.topByDpp.length > 0
                           ? `${(stats.topByDpp.reduce((s, c) => s + c.margin, 0) / stats.topByDpp.length).toFixed(1)}%`
@@ -970,7 +1059,7 @@ export default function FinancialPerformancePage() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Revenue at Risk</span>
-                    <span className={`font-bold ${stats.outstandingRisk > 20 ? "text-destructive" : stats.outstandingRisk > 10 ? "text-amber-500" : "text-green-600"}`}>
+                    <span className={`font-bold ${stats.outstandingRisk > 20 ? "text-destructive" : stats.outstandingRisk > 10 ? "text-amber-500" : "text-primary"}`}>
                       {stats.outstandingRisk.toFixed(1)}%
                     </span>
                   </div>
@@ -979,13 +1068,13 @@ export default function FinancialPerformancePage() {
                       className="bar-fill h-full rounded-full"
                       style={{
                         "--bar-w": `${stats.outstandingRisk}%`,
-                        background: stats.outstandingRisk > 20 ? "#DC2626" : stats.outstandingRisk > 10 ? "#F59E0B" : "#16A34A",
+                        background: stats.outstandingRisk > 20 ? "#DC2626" : stats.outstandingRisk > 10 ? "#F59E0B" : primaryColor,
                       } as React.CSSProperties}
                     />
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
                     <span>0% (Ideal)</span>
-                    <span className={stats.outstandingRisk > 20 ? "text-destructive font-medium" : stats.outstandingRisk > 10 ? "text-amber-500 font-medium" : "text-green-600 font-medium"}>
+                    <span className={stats.outstandingRisk > 20 ? "text-destructive font-medium" : stats.outstandingRisk > 10 ? "text-amber-500 font-medium" : "text-primary font-medium"}>
                       {stats.outstandingRisk > 20 ? "⚠ Risiko Tinggi" : stats.outstandingRisk > 10 ? "~ Perhatikan" : "✓ Aman"}
                     </span>
                     <span>30%+</span>
@@ -995,7 +1084,7 @@ export default function FinancialPerformancePage() {
                 <div className="grid grid-cols-2 gap-3">
                   {[
                     { label: "Total Revenue", val: fIDR(stats.totalRevenue), color: "" },
-                    { label: "Sudah Terkumpul", val: fIDR(stats.totalCollected), color: "text-green-600" },
+                    { label: "Sudah Terkumpul", val: fIDR(stats.totalCollected), color: "text-primary" },
                     { label: "Masih Outstanding", val: fIDR(stats.totalUnpaid), color: "text-destructive" },
                     { label: "Selisih/Diskon", val: fIDR(stats.totalSelisih), color: "text-amber-600" },
                   ].map(m => (
@@ -1012,7 +1101,7 @@ export default function FinancialPerformancePage() {
                     <span>
                       <strong>{stats.outstandingRisk.toFixed(1)}%</strong> dari total revenue masih dalam kondisi outstanding.
                       {stats.outstandingRisk <= 10
-                        ? <span className="text-green-600 font-semibold"> Risiko rendah — cash flow sehat.</span>
+                        ? <span className="text-primary font-semibold"> Risiko rendah — cash flow sehat.</span>
                         : stats.outstandingRisk <= 20
                         ? <span className="text-amber-600 font-semibold"> Perlu monitoring — lakukan follow-up rutin.</span>
                         : <span className="text-destructive font-semibold"> Risiko tinggi — prioritaskan penagihan segera.</span>}
@@ -1038,26 +1127,26 @@ export default function FinancialPerformancePage() {
                         ? stats.avgDays <= 30 ? "✓ Sangat cepat" : stats.avgDays <= 60 ? "~ Normal" : "⚠ Lambat"
                         : "Belum ada data",
                       valColor: stats.avgDays > 0
-                        ? stats.avgDays <= 30 ? "text-green-600" : stats.avgDays <= 60 ? "text-primary" : "text-amber-500"
+                        ? stats.avgDays <= 30 ? "text-primary" : stats.avgDays <= 60 ? "text-primary" : "text-amber-500"
                         : "text-muted-foreground",
                     },
                     {
                       label: "Collection Rate",
                       val: `${stats.collectionRate.toFixed(1)}%`,
                       sub: stats.collectionRate >= 80 ? "✓ Sehat" : "⚠ Perlu perhatian",
-                      valColor: stats.collectionRate >= 80 ? "text-green-600" : "text-amber-500",
+                      valColor: stats.collectionRate >= 80 ? "text-primary" : "text-amber-500",
                     },
                     {
                       label: "Invoice Terbayar",
                       val: `${stats.paidCount} / ${stats.totalInvoices}`,
-                      sub: `${((stats.paidCount / stats.totalInvoices) * 100).toFixed(0)}% invoice lunas`,
+                      sub: `${(stats.totalInvoices > 0 ? (stats.paidCount / stats.totalInvoices) * 100 : 0).toFixed(0)}% invoice lunas`,
                       valColor: "text-primary",
                     },
                     {
                       label: "Revenue Efficiency",
                       val: stats.totalRevenue > 0 ? `${(stats.totalCollected / stats.totalRevenue * 100).toFixed(1)}%` : "—",
                       sub: "Collected / Gross Revenue",
-                      valColor: stats.totalCollected >= stats.totalRevenue * 0.8 ? "text-green-600" : "text-amber-500",
+                      valColor: stats.totalCollected >= stats.totalRevenue * 0.8 ? "text-primary" : "text-amber-500",
                     },
                   ].map(m => (
                     <div key={m.label} className="rounded-lg bg-muted/40 p-4 space-y-1.5">
@@ -1081,11 +1170,11 @@ export default function FinancialPerformancePage() {
                             className="prof-bar"
                             style={{
                               width: `${rate}%`,
-                              background: rate >= 80 ? "#16A34A" : rate >= 50 ? "#F59E0B" : "#DC2626",
+                              background: rate >= 80 ? primaryColor : rate >= 50 ? "#F59E0B" : "#DC2626",
                             }}
                           />
                         </div>
-                        <span className={`text-xs font-semibold w-12 text-right ${rate >= 80 ? "text-green-600" : rate >= 50 ? "text-amber-500" : "text-destructive"}`}>
+                        <span className={`text-xs font-semibold w-12 text-right ${rate >= 80 ? "text-primary" : rate >= 50 ? "text-amber-500" : "text-destructive"}`}>
                           {rate.toFixed(0)}%
                         </span>
                         <span className="text-[10px] text-muted-foreground w-20 text-right font-mono">{fShort(m.collected)}</span>

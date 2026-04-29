@@ -222,7 +222,28 @@ const STYLES = `
   .kpi-card:hover { transform: translateY(-2px) scale(1.01); box-shadow: 0 8px 24px -4px hsl(var(--primary)/.14); }
 
   .hv-card { transition: box-shadow 0.2s ease; }
-  .hv-card:hover { box-shadow: 0 4px 18px -4px hsl(var(--primary)/.10); }
+  .hv-card {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+  }
+  .hv-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow .18s ease, background .18s ease;
+    pointer-events: none;
+  }
+  .hv-card:hover {
+    box-shadow: 0 10px 26px -12px hsl(var(--primary)/.16);
+  }
+  .hv-card:hover::after {
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.22);
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.05), transparent 38%);
+  }
 
   /* ── Project card with visible separator ─────────────────────────────── */
   .proj-card {
@@ -234,10 +255,23 @@ const STYLES = `
     /* subtle shadow so cards look "lifted" and separated from each other */
     box-shadow: 0 1px 4px -1px hsl(var(--foreground)/.06), 0 0 0 0 transparent;
   }
+  .proj-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow .18s ease, background .18s ease;
+    pointer-events: none;
+  }
   .proj-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 28px -6px hsl(var(--primary)/.14), 0 1px 4px -1px hsl(var(--foreground)/.06);
     border-color: hsl(var(--primary)/.3);
+  }
+  .proj-card:hover::after {
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.22);
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.05), transparent 42%);
   }
   .proj-card.tertunggak { border-color: hsl(var(--destructive)/.25); }
   .proj-card.tertunggak:hover {
@@ -318,8 +352,20 @@ const STYLES = `
     max-width: 50px; word-break: break-word;
   }
 
-  .inv-row-sm { transition: background 0.1s; border-radius: 6px; }
-  .inv-row-sm:hover { background: hsl(var(--muted)/.4); }
+  /* Invoice detail rows — card-style with border + hover glow like activity timeline */
+  .inv-row-sm {
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    border-radius: 10px;
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--card));
+    margin-bottom: 6px;
+  }
+  .inv-row-sm:last-child { margin-bottom: 0; }
+  .inv-row-sm:hover {
+    background: hsl(var(--primary) / 0.04);
+    border-color: hsl(var(--primary) / 0.28);
+    box-shadow: 0 4px 14px -6px hsl(var(--primary) / 0.18);
+  }
 
   .search-box {
     background: hsl(var(--muted)/.5);
@@ -481,12 +527,17 @@ function ProjectCard({ project }: { project: Project }) {
 
       {/* ── Expanded detail ────────────────────────────────────────── */}
       {expanded && (
-        <div className="border-t px-5 py-4 space-y-1 bg-muted/20">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium mb-3">
-            Detail Invoice ({project.invoiceCount})
-          </p>
+        <div className="border-t px-4 py-4 space-y-0 bg-muted/10">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[10px] font-bold text-primary uppercase tracking-widest">
+              Detail Invoice
+            </span>
+            <span className="inline-flex items-center justify-center h-4 min-w-[18px] px-1 rounded-full bg-primary/15 text-primary text-[9px] font-bold">
+              {project.invoiceCount}
+            </span>
+          </div>
           {project.invoices.map((inv, idx) => (
-            <div key={inv.invoice_no} className="inv-row-sm px-3 py-2.5">
+            <div key={inv.invoice_no} className="inv-row-sm px-3 py-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-2.5 min-w-0 flex-1">
                   <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
@@ -669,7 +720,11 @@ export default function ProjectsPage() {
 
           {/* Filter bar */}
           <div className="pj-up-3">
-            <Card className="hv-card">
+            <Card className="hv-card overflow-hidden">
+              <div style={{ background: 'hsl(var(--primary) / 0.10)', borderBottom: '2px solid hsl(var(--primary) / 0.22)', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Filter style={{ width: 13, height: 13, color: 'hsl(var(--primary) / 0.8)', flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--primary) / 0.85)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Filter &amp; Pencarian Proyek</span>
+              </div>
               <CardContent className="py-5 px-6 space-y-4">
                 <div className="flex gap-3 flex-wrap items-center">
                   <div className="relative flex-1 min-w-[200px]">
@@ -684,7 +739,7 @@ export default function ProjectsPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2 flex-wrap items-center">
+                <div style={{ background: 'hsl(var(--muted) / 0.55)', border: '1px solid hsl(var(--border) / 0.7)', borderRadius: 12, padding: '8px 14px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span className="text-xs text-muted-foreground flex items-center gap-1 mr-1"><Filter className="h-3 w-3" /> Status:</span>
                   {STATUSES.map(s => (
                     <button key={s} onClick={() => setFilterStatus(s)} className={`chip ${filterStatus===s?"on":""}`}>

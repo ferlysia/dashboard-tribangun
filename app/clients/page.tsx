@@ -168,6 +168,17 @@ const STYLES = `
   .table-scroll::-webkit-scrollbar-track { background: transparent; }
   .table-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 4px; }
 
+  /* Sticky table header */
+  .cl-thead {
+    background: hsl(var(--primary) / 0.15);
+    border-bottom: 2.5px solid hsl(var(--primary) / 0.35);
+    box-shadow: 0 3px 10px -3px hsl(var(--primary) / 0.22);
+  }
+  .cl-thead th {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
   /* Detail panel scroll */
   .detail-scroll { overflow-y: auto; max-height: calc(100vh - 260px); }
   .detail-scroll::-webkit-scrollbar { width: 4px; }
@@ -602,38 +613,31 @@ export default function ClientsPage() {
                 </CardContent>
               </Card>
 
-              {/* Table */}
+              {/* Table — single table with sticky header for correct column alignment */}
               <Card className="hv-card overflow-hidden">
-                {/* Table header */}
-                <div className="border-b bg-muted/40">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr>
-                        <th className="px-5 py-3.5 text-left font-medium text-muted-foreground w-10">#</th>
-                        <th className="px-5 py-3.5 text-left font-medium text-muted-foreground">Klien</th>
-                        <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn" onClick={() => toggleSort("revenue")}>
+                <div className="table-scroll">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="cl-thead">
+                        <th className="px-5 py-3.5 text-left text-xs font-bold text-primary/80 w-10">#</th>
+                        <th className="px-5 py-3.5 text-left text-xs font-bold text-primary/80">Klien</th>
+                        <th className="px-5 py-3.5 text-right text-xs font-bold text-primary/80 cursor-pointer sort-btn" onClick={() => toggleSort("revenue")}>
                           Revenue {renderSortIcon("revenue")}
                         </th>
                         {!selected && <>
-                          <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn hidden lg:table-cell" onClick={() => toggleSort("rate")}>
+                          <th className="px-5 py-3.5 text-right text-xs font-bold text-primary/80 cursor-pointer sort-btn hidden lg:table-cell" onClick={() => toggleSort("rate")}>
                             Rate {renderSortIcon("rate")}
                           </th>
-                          <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn hidden xl:table-cell" onClick={() => toggleSort("invoice")}>
+                          <th className="px-5 py-3.5 text-right text-xs font-bold text-primary/80 cursor-pointer sort-btn hidden xl:table-cell" onClick={() => toggleSort("invoice")}>
                             Inv {renderSortIcon("invoice")}
                           </th>
                         </>}
-                        <th className="px-5 py-3.5 text-right font-medium text-muted-foreground cursor-pointer sort-btn" onClick={() => toggleSort("outstanding")}>
+                        <th className="px-5 py-3.5 text-right text-xs font-bold text-primary/80 cursor-pointer sort-btn" onClick={() => toggleSort("outstanding")}>
                           Outstanding {renderSortIcon("outstanding")}
                         </th>
-                        <th className="px-5 py-3.5 w-8" />
+                        <th className="px-5 py-3.5 w-8" aria-label="Detail" />
                       </tr>
                     </thead>
-                  </table>
-                </div>
-
-                {/* Scrollable body */}
-                <div className="table-scroll">
-                  <table className="w-full text-sm">
                     <tbody>
                       {displayed.length === 0 ? (
                         <tr>

@@ -19,11 +19,13 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/analytics": "Analytics",
   "/clients": "Clients",
-  "/lifecycle": "Lifecycle",
+  "/lifecycle": "Receivables Lifecycle",
   "/projects": "Projects",
   "/financial-performance": "Financial Performance",
-  "/excel-data": "Excel Data",
+  "/excel-data": "Invoice Records",
   "/reports": "Reports",
+  "/activity-history": "Activity History",
+  "/input-invoice": "New Invoice",
 }
 
 export function SiteHeader() {
