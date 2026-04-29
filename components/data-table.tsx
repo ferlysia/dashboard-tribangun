@@ -17,6 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { InvoiceStatusAction } from "@/components/invoice-status-action"
+import type { InvoiceRecord } from "@/types/invoice"
 import {
   Table,
   TableBody,
@@ -26,10 +27,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+type TableInvoiceRow = Pick<
+  InvoiceRecord,
+  "id" | "invoice_no" | "customer" | "site_name" | "date" | "status" | "total"
+> & {
+  amount: number
+  category: string
+}
+
 /* =======================
    COLUMNS (Disesuaikan dengan Excel PT TUP)
 ======================= */
-const columns: ColumnDef<any>[] = [
+const columns: ColumnDef<TableInvoiceRow>[] = [
   {
     accessorKey: "invoice_no",
     header: "No. Invoice",
@@ -102,8 +111,22 @@ const columns: ColumnDef<any>[] = [
 /* =======================
    DATA TABLE COMPONENT
 ======================= */
-export function DataTable({ data }: { data: any[] }) {
+export function DataTable({ data }: { data: TableInvoiceRow[] }) {
   const [globalFilter, setGlobalFilter] = React.useState("")
+  const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 10 })
+
+  // Keep search predictable without forcing pagination back to page 1 on every re-render.
+  React.useEffect(() => {
+    setPagination((current) => (current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }))
+  }, [globalFilter])
+
+  React.useEffect(() => {
+    setPagination((current) => {
+      const lastPageIndex = Math.max(0, Math.ceil(data.length / current.pageSize) - 1)
+      if (current.pageIndex <= lastPageIndex) return current
+      return { ...current, pageIndex: lastPageIndex }
+    })
+  }, [data.length])
 
   const table = useReactTable({
     data: data || [],
@@ -111,16 +134,14 @@ export function DataTable({ data }: { data: any[] }) {
     state: {
       globalFilter,
       columnVisibility: { site_name: false },
+      pagination,
     },
     onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    initialState: {
-      pagination: {
-        pageSize: 10,
-      },
-    },
+    autoResetPageIndex: false,
   })
 
   return (
@@ -141,11 +162,11 @@ export function DataTable({ data }: { data: any[] }) {
       {/* 2. STYLED TABLE */}
       <div className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden">
         <Table>
-          <TableHeader className="bg-zinc-50 dark:bg-zinc-900">
+          <TableHeader className="bg-primary/[0.08] dark:bg-primary/[0.13] border-b-2 border-primary/20">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="hover:bg-transparent">
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id} className="h-12 px-4 text-left align-middle font-bold text-zinc-600 dark:text-zinc-400">
+                  <TableHead key={header.id} className="h-12 px-4 text-left align-middle font-bold text-primary/80 text-xs uppercase tracking-wide">
                     {flexRender(header.column.columnDef.header, header.getContext())}
                   </TableHead>
                 ))}

@@ -7,7 +7,9 @@ import { useInvoices } from "@/components/providers/invoices-provider"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
 import type { InvoiceRecord } from "@/types/invoice"
 
-export function InvoiceStatusAction({ invoice }: { invoice: InvoiceRecord }) {
+type InvoiceStatusActionInvoice = Pick<InvoiceRecord, "id" | "status" | "total">
+
+export function InvoiceStatusAction({ invoice }: { invoice: InvoiceStatusActionInvoice }) {
   const { refresh } = useInvoices()
   const { user } = useCurrentUser()
   const [loading, setLoading] = React.useState(false)

@@ -9,19 +9,16 @@ import {
   Users,
   Clock,
   FolderKanban,
-  Settings,
-  HelpCircle,
   Search,
-  Mail,
-  MoreHorizontal,
   ChevronUp,
   ExternalLink,
-  Bell,
   UserCircle,
   LogOut,
-  Database,
   FileText,
   Plus,
+  TrendingUp,
+  History,
+  Database,
 } from "lucide-react"
 import {
   Sidebar,
@@ -46,52 +43,70 @@ import { useCurrentUser } from "@/components/providers/current-user-provider"
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 const NAV_MAIN = [
-  { title: "Dashboard",  url: "/dashboard",  icon: LayoutDashboard },
-  { title: "Analytics",  url: "/analytics",  icon: BarChart3       },
-  { title: "Clients",    url: "/clients",    icon: Users           },
-  { title: "Lifecycle",  url: "/lifecycle",  icon: Clock           },
-  { title: "Projects",   url: "/projects",   icon: FolderKanban   },
+  { title: "Dashboard",               url: "/dashboard",             icon: LayoutDashboard },
+  { title: "Analytics",               url: "/analytics",             icon: BarChart3       },
+  { title: "Clients",                 url: "/clients",               icon: Users           },
+  { title: "Lifecycle",               url: "/lifecycle",             icon: Clock           },
+  { title: "Projects",                url: "/projects",              icon: FolderKanban    },
+  { title: "Financial Performance",    url: "/financial-performance", icon: TrendingUp      },
 ]
 
 const NAV_DOCS = [
-  { title: "Excel Data", url: "/excel-data", icon: Database },
-  { title: "Reports",    url: "/reports", icon: FileText },
+  { title: "Invoice Records",    url: "/excel-data",        icon: Database },
+  { title: "Reports",            url: "/reports",           icon: FileText },
+  { title: "Activity History",   url: "/activity-history",  icon: History  },
 ]
 
 const APP_SIDEBAR_STYLES = `
-  /* ── Active nav item: bold + colored bg + left accent bar ── */
-  [data-sidebar="menu-button"][data-active="true"] {
-    background: linear-gradient(90deg, hsl(var(--primary) / 0.22), hsl(var(--primary) / 0.10)) !important;
-    color: hsl(var(--primary)) !important;
-    font-weight: 800 !important;
-    position: relative;
-    border: 1px solid hsl(var(--primary) / 0.24) !important;
-    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.06), 0 8px 20px -12px hsl(var(--primary) / 0.45);
+  /* ── Nav link base ── */
+  .nav-link-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    border-radius: 10px;
+    padding: 8px 12px;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    color: hsl(var(--sidebar-foreground) / 0.75);
+    border-left: 3px solid transparent;
+    box-sizing: border-box;
   }
-  [data-sidebar="menu-button"][data-active="true"]::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 16%; bottom: 16%;
-    width: 4px;
-    border-radius: 0 6px 6px 0;
-    background: hsl(var(--primary));
-    box-shadow: 0 0 18px hsl(var(--primary) / 0.55);
+  .nav-link-item:hover {
+    background: hsl(var(--primary) / 0.10);
+    color: hsl(var(--foreground));
   }
-  [data-sidebar="menu-button"][data-active="true"] svg {
-    color: hsl(var(--primary)) !important;
-    opacity: 1 !important;
+  .nav-link-item .nav-link-icon {
+    color: hsl(var(--sidebar-foreground) / 0.55);
+    flex-shrink: 0;
+    transition: color 0.15s;
   }
-  [data-sidebar="menu-button"][data-active="true"] span {
-    color: hsl(var(--primary)) !important;
+  .nav-link-item:hover .nav-link-icon {
+    color: hsl(var(--foreground));
   }
 
-  /* ── All icons always visible ── */
-  [data-sidebar="menu-button"] svg {
-    color: hsl(var(--sidebar-foreground) / 0.6) !important;
-    opacity: 1 !important;
+  /* ── Active state ── */
+  .nav-link-active {
+    background: hsl(var(--primary) / 0.14) !important;
+    border-left: 3px solid hsl(var(--primary)) !important;
+    color: hsl(var(--primary)) !important;
+    font-weight: 700 !important;
   }
-  [data-sidebar="menu-button"]:hover svg {
-    color: hsl(var(--sidebar-foreground)) !important;
+  .nav-link-active:hover {
+    background: hsl(var(--primary) / 0.20) !important;
+  }
+  .nav-link-active .nav-link-icon {
+    color: hsl(var(--primary)) !important;
+    filter: drop-shadow(0 0 4px hsl(var(--primary) / 0.45));
+  }
+  .nav-link-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* ── Active item pulse dot ── */
@@ -118,6 +133,22 @@ const APP_SIDEBAR_STYLES = `
     letter-spacing: 0.08em;
     box-shadow: 0 0 14px hsl(var(--primary) / 0.45);
     animation: activePulse 2s ease-in-out infinite;
+  }
+  .nav-active-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 8px;
+    background: hsl(var(--primary) / 0.16);
+    color: hsl(var(--primary));
+    font-size: 10px;
+    font-weight: 800;
+    box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.16);
   }
 
   /* ── Quick Create button ── */
@@ -371,11 +402,16 @@ function SearchModal({ onClose }: { onClose: () => void }) {
   }, [onClose])
 
   const ALL_PAGES = [
-    { title: "Dashboard",  url: "/dashboard",  icon: LayoutDashboard, desc: "Overview & revenue trend" },
-    { title: "Analytics",  url: "/analytics",  icon: BarChart3,       desc: "Analisis invoice multi-year" },
-    { title: "Clients",    url: "/clients",    icon: Users,           desc: "Daftar klien & riwayat" },
-    { title: "Lifecycle",  url: "/lifecycle",  icon: Clock,           desc: "Aging & follow-up" },
-    { title: "Projects",   url: "/projects",   icon: FolderKanban,    desc: "Proyek & kontrak" },
+    { title: "Dashboard",              url: "/dashboard",             icon: LayoutDashboard, desc: "Overview & revenue trend" },
+    { title: "Analytics",              url: "/analytics",             icon: BarChart3,       desc: "Multi-year invoice analytics" },
+    { title: "Clients",                url: "/clients",               icon: Users,           desc: "Client list and payment history" },
+    { title: "Lifecycle",   url: "/lifecycle",             icon: Clock,           desc: "Aging, follow-up, and outstanding risk" },
+    { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
+    { title: "Financial Performance",  url: "/financial-performance", icon: TrendingUp,      desc: "ROI, profitability, and financial analysis" },
+    { title: "New Invoice",            url: "/input-invoice",         icon: Plus,            desc: "Create a new invoice record" },
+    { title: "Invoice Records",        url: "/excel-data",            icon: Database,        desc: "Review, edit, delete, and restore invoices" },
+    { title: "Reports",                url: "/reports",               icon: FileText,        desc: "Reports and invoice recaps" },
+    { title: "Activity History",       url: "/activity-history",      icon: History,         desc: "Audit trail of user actions" },
   ]
 
   const results = query.trim()
@@ -401,7 +437,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
         <div style={{ maxHeight: 300, overflowY: 'auto' }}>
           {results.length === 0 ? (
             <div style={{ padding: '24px 20px', textAlign: 'center', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>
-              Tidak ada hasil untuk "{query}"
+              Tidak ada hasil untuk &quot;{query}&quot;
             </div>
           ) : results.map(r => (
             <Link key={r.url} href={r.url} className="search-result-item" onClick={onClose}>
@@ -419,58 +455,12 @@ function SearchModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ── Email Compose Modal ───────────────────────────────────────────────────────
-function EmailModal({ onClose }: { onClose: () => void }) {
-  const [to,      setTo]      = React.useState("")
-  const [subject, setSubject] = React.useState("")
-  const [body,    setBody]    = React.useState("")
-  const [sent,    setSent]    = React.useState(false)
-
-  React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
-  }, [onClose])
-
-  const handleSend = () => { setSent(true); setTimeout(onClose, 1200) }
-
-  return (
-    <div className="email-modal" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="email-card">
-        <div className="email-header">
-          <span>✉ Buat Email Baru</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--muted-foreground))' }}>✕</button>
-        </div>
-        {sent ? (
-          <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
-            <div style={{ fontWeight: 600 }}>Email terkirim!</div>
-          </div>
-        ) : (
-          <>
-            <div style={{ padding: '14px 20px 0', fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>
-              Kirim pesan cepat ke tim internal langsung dari sidebar.
-            </div>
-            <input className="email-field" placeholder="Kepada:" value={to} onChange={e => setTo(e.target.value)} />
-            <input className="email-field" placeholder="Subjek:" value={subject} onChange={e => setSubject(e.target.value)} />
-            <textarea className="email-body" placeholder="Tulis pesan..." value={body} onChange={e => setBody(e.target.value)} />
-            <div className="email-footer">
-              <button className="email-btn-cancel" onClick={onClose}>Batal</button>
-              <button className="email-btn-send" onClick={handleSend}>Kirim</button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Main AppSidebar ───────────────────────────────────────────────────────────
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { user, clearUser } = useCurrentUser()
   const [showSearch, setShowSearch] = React.useState(false)
-  const [showEmail,  setShowEmail]  = React.useState(false)
+  const isQuickCreateActive = pathname === "/input-invoice" || pathname?.startsWith("/input-invoice/")
   const initials = React.useMemo(() => {
     const parts = user.name.split(" ").filter(Boolean).slice(0, 2)
     return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "TU"
@@ -492,7 +482,6 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
     <>
       <style dangerouslySetInnerHTML={{ __html: APP_SIDEBAR_STYLES }} />
       {showSearch && <SearchModal onClose={() => setShowSearch(false)} />}
-      {showEmail  && <EmailModal  onClose={() => setShowEmail(false)}  />}
 
       <Sidebar collapsible="offcanvas" {...props}>
 
@@ -534,28 +523,25 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             </div>
           </Link>
 
-          <button
+          <Link
+            href="/input-invoice"
             className="quick-create-btn"
             style={{
-              backgroundColor: "hsl(var(--primary))",
-              backgroundImage:
-                "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.92) 56%, hsl(var(--primary) / 0.8) 100%)",
-              color: "hsl(var(--primary-foreground))",
-              borderColor: "hsl(var(--primary) / 0.34)",
-              boxShadow:
-                "0 18px 38px -18px hsl(var(--primary) / 0.78), inset 0 1px 0 hsl(0 0% 100% / 0.3), inset 0 -1px 0 hsl(0 0% 0% / 0.1)",
+              boxShadow: isQuickCreateActive
+                ? "0 22px 42px -18px hsl(var(--primary) / 0.85), inset 0 0 0 1px hsl(0 0% 100% / 0.24), inset 0 0 0 2px hsl(var(--primary-foreground) / 0.08)"
+                : undefined,
+              transform: isQuickCreateActive ? "translateY(-1px)" : undefined,
+              textDecoration: "none",
             }}
-            onClick={() => setShowEmail(true)}
           >
             <span className="quick-create-icon">
               <Plus size={13} strokeWidth={2.6} />
             </span>
             <span className="quick-create-copy">
-              <span className="quick-create-title">Quick Create</span>
-              <span className="quick-create-note">Compose internal email cepat</span>
+              <span className="quick-create-title">New Invoice</span>
+              <span className="quick-create-note">Create a new invoice record</span>
             </span>
-          </button>
-          <div className="quick-create-sub">Shortcut cepat buat kirim email internal.</div>
+          </Link>
         </SidebarHeader>
 
         {/* ── Main Nav ── */}
@@ -568,40 +554,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                        <Link
-                          href={item.url}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            width: '100%',
-                            borderRadius: 10,
-                            padding: '8px 10px',
-                            background: isActive ? 'linear-gradient(90deg, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.08))' : 'transparent',
-                            boxShadow: isActive ? 'inset 0 0 0 1px hsl(var(--primary) / 0.18)' : 'none',
-                          }}
-                        >
-                          <item.icon
-                            size={16}
-                            style={{
-                              flexShrink: 0,
-                              color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground) / 0.6)',
-                              transition: 'color 0.15s',
-                            }}
-                          />
-                          <span style={{
-                            fontWeight: isActive ? 800 : 500,
-                            color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground))',
-                            fontSize: 13,
-                            transition: 'all 0.15s',
-                            letterSpacing: isActive ? '0.01em' : 'normal',
-                          }}>
-                            {item.title}
-                          </span>
-                          {isActive && <span className="nav-active-pill">ON</span>}
-                        </Link>
-                      </SidebarMenuButton>
+                      <Link
+                        href={item.url}
+                        className={isActive ? "nav-link-item nav-link-active" : "nav-link-item"}
+                      >
+                        <item.icon size={16} className="nav-link-icon" />
+                        <span className="nav-link-text">{item.title}</span>
+                        {isActive && <span className="nav-active-pill">ACTIVE</span>}
+                      </Link>
                     </SidebarMenuItem>
                   )
                 })}
@@ -618,40 +578,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                   const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
                   return (
                     <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
-                        <Link
-                          href={item.url}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            width: '100%',
-                            borderRadius: 10,
-                            padding: '8px 10px',
-                            background: isActive ? 'linear-gradient(90deg, hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.08))' : 'transparent',
-                            boxShadow: isActive ? 'inset 0 0 0 1px hsl(var(--primary) / 0.18)' : 'none',
-                          }}
-                        >
-                          <item.icon
-                            size={16}
-                            style={{
-                              flexShrink: 0,
-                              color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground) / 0.6)',
-                              transition: 'color 0.15s',
-                            }}
-                          />
-                          <span style={{
-                            fontWeight: isActive ? 800 : 500,
-                            color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--sidebar-foreground))',
-                            fontSize: 13,
-                            transition: 'all 0.15s',
-                            letterSpacing: isActive ? '0.01em' : 'normal',
-                          }}>
-                            {item.title}
-                          </span>
-                          {isActive && <span className="nav-active-dot" />}
-                        </Link>
-                      </SidebarMenuButton>
+                      <Link
+                        href={item.url}
+                        className={isActive ? "nav-link-item nav-link-active" : "nav-link-item"}
+                      >
+                        <item.icon size={16} className="nav-link-icon" />
+                        <span className="nav-link-text">{item.title}</span>
+                        {isActive && <span className="nav-active-dot" />}
+                      </Link>
                     </SidebarMenuItem>
                   )
                 })}
@@ -659,69 +593,20 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroupContent>
           </SidebarGroup>
 
-          {/* Bottom: Search / Email / Help / Settings / More */}
+          {/* Bottom: Search only */}
           <SidebarGroup style={{ marginTop: 'auto' }}>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton className="sidebar-action-btn" tooltip="Search (⌘K)" onClick={() => setShowSearch(true)}>
                     <Search size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13 }}>Search</span>
+                    <span style={{ fontSize: 13 }}>Cari Halaman</span>
                     <span style={{
                       marginLeft: 'auto', fontSize: 9, fontWeight: 600,
                       background: 'hsl(var(--muted))', borderRadius: 4, padding: '1px 5px',
                       color: 'hsl(var(--muted-foreground))'
                     }} className="sidebar-action-kbd">⌘K</span>
                   </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <SidebarMenuButton className="sidebar-action-btn" tooltip="Kirim Email" onClick={() => setShowEmail(true)}>
-                    <Mail size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13 }}>Kirim Email</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <SidebarMenuButton className="sidebar-action-btn" tooltip="Get Help" onClick={() => window.open("mailto:support@tup.id?subject=Dashboard Help", "_blank")}>
-                    <HelpCircle size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13 }}>Get Help</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <SidebarMenuButton className="sidebar-action-btn" asChild tooltip="Settings">
-                    <Link href="/settings">
-                      <Settings size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
-                      <span style={{ fontSize: 13 }}>Settings</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-
-                <SidebarMenuItem>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <SidebarMenuButton className="sidebar-action-btn" tooltip="More">
-                        <MoreHorizontal size={16} style={{ color: 'hsl(var(--sidebar-foreground) / 0.6)', flexShrink: 0 }} />
-                        <span style={{ fontSize: 13 }}>More</span>
-                      </SidebarMenuButton>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="right" align="end" style={{ minWidth: 180 }}>
-                      <DropdownMenuItem onClick={() => setShowSearch(true)}>
-                        <Search size={14} style={{ marginRight: 8 }} /> Cari
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setShowEmail(true)}>
-                        <Mail size={14} style={{ marginRight: 8 }} /> Kirim Email
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem>
-                        <Bell size={14} style={{ marginRight: 8 }} /> Notifikasi
-                      </DropdownMenuItem>
-                      <DropdownMenuItem>
-                        <UserCircle size={14} style={{ marginRight: 8 }} /> Profil Saya
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
@@ -756,10 +641,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>{user.email}</div>
                   </div>
                   <DropdownMenuItem>
-                    <UserCircle size={14} style={{ marginRight: 8 }} /> Profil
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Settings size={14} style={{ marginRight: 8 }} /> Pengaturan
+                    <UserCircle size={14} style={{ marginRight: 8 }} /> {user.name}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem style={{ color: 'hsl(var(--destructive))' }} onClick={() => { clearUser(); window.location.href = '/login' }}>

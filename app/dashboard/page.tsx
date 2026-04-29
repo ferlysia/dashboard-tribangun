@@ -276,6 +276,7 @@ export default function DashboardPage() {
       id: inv.id,
       invoice_no: inv.invoice_no, date: inv.date,
       amount: inv.total, status: inv.status, customer: inv.customer,
+      site_name: inv.site_name,
       total: inv.total,
       category: classifyCategory(inv.description),
     }))

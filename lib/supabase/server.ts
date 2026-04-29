@@ -20,6 +20,56 @@ function getServerHeaders() {
   }
 }
 
+const unsupportedInvoiceColumns = new Set<string>()
+
+function extractMissingColumnName(rawError: string) {
+  const match = rawError.match(/Could not find the '([^']+)' column/i)
+  return match?.[1] ?? null
+}
+
+function omitUnsupportedInvoiceColumns(payload: Record<string, unknown>) {
+  const next = { ...payload }
+  for (const column of unsupportedInvoiceColumns) {
+    delete next[column]
+  }
+  return next
+}
+
+async function writeInvoiceRecord(
+  url: string,
+  method: "POST" | "PATCH",
+  payload: Record<string, unknown>,
+  prefer: string
+) {
+  const nextPayload = omitUnsupportedInvoiceColumns(payload)
+
+  while (true) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        ...getServerHeaders(),
+        Prefer: prefer,
+      },
+      body: JSON.stringify(nextPayload),
+    })
+
+    if (response.ok) {
+      return response.json()
+    }
+
+    const rawError = await response.text()
+    const missingColumn = extractMissingColumnName(rawError)
+
+    if (missingColumn && missingColumn in nextPayload) {
+      unsupportedInvoiceColumns.add(missingColumn)
+      delete nextPayload[missingColumn]
+      continue
+    }
+
+    throw new Error(rawError)
+  }
+}
+
 async function logActivity(input: {
   actorEmail?: string
   action: string
@@ -97,7 +147,7 @@ export function normalizeInvoiceRecord(record: Partial<InvoiceRecord>) {
   return {
     no: record.no ?? null,
     invoice_no: String(record.invoice_no || "").trim(),
-    project_type: PROJECT_TYPES.includes(record.project_type as any) ? record.project_type : "",
+    project_type: PROJECT_TYPES.includes((record.project_type || "") as (typeof PROJECT_TYPES)[number]) ? record.project_type : "",
     customer,
     site_name: extractSiteName(customer, record.site_name),
     description: String(record.description || "").trim(),
@@ -141,20 +191,12 @@ export async function getInvoiceById(id: string) {
 
 export async function createInvoice(record: Partial<InvoiceRecord>, actorEmail?: string) {
   const payload = normalizeInvoiceRecord(record)
-  const response = await fetch(`${supabaseConfig.url}/rest/v1/invoices`, {
-    method: "POST",
-    headers: {
-      ...getServerHeaders(),
-      Prefer: "return=representation",
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-
-  const rows = await response.json()
+  const rows = await writeInvoiceRecord(
+    `${supabaseConfig.url}/rest/v1/invoices`,
+    "POST",
+    payload as Record<string, unknown>,
+    "return=representation"
+  )
   await logActivity({
     actorEmail,
     action: "CREATE",
@@ -173,29 +215,35 @@ export async function updateInvoice(id: string, record: Partial<InvoiceRecord>, 
   }
 
   const payload = normalizeInvoiceRecord({ ...existing, ...record })
-  const response = await fetch(`${supabaseConfig.url}/rest/v1/invoices?id=eq.${id}`, {
-    method: "PATCH",
-    headers: {
-      ...getServerHeaders(),
-      Prefer: "return=representation",
-    },
-    body: JSON.stringify(payload),
+  const rows = await writeInvoiceRecord(
+    `${supabaseConfig.url}/rest/v1/invoices?id=eq.${id}`,
+    "PATCH",
+    payload as Record<string, unknown>,
+    "return=representation"
+  )
+  const updated = rows[0]
+  const changedFields = ["status", "payment_date", "payment_value", "selisih", "total", "dpp", "ppn"].filter((field) => {
+    const beforeValue = existing[field as keyof InvoiceRecord] ?? ""
+    const afterValue = updated[field as keyof InvoiceRecord] ?? ""
+    return String(beforeValue) !== String(afterValue)
   })
 
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
+  const summary =
+    existing.status !== updated.status
+      ? `Mengubah status invoice ${updated.invoice_no} menjadi ${updated.status}`
+      : changedFields.length > 0
+        ? `Update invoice ${updated.invoice_no} (${changedFields.join(", ")})`
+        : `Update invoice ${updated.invoice_no}`
 
-  const rows = await response.json()
   await logActivity({
     actorEmail,
     action: "UPDATE",
     entityType: "invoice",
     entityId: id,
-    summary: `Update invoice ${rows[0].invoice_no}`,
-    payload: { before: existing, after: rows[0] },
+    summary,
+    payload: { before: existing, after: updated, changed_fields: changedFields },
   })
-  return rows[0]
+  return updated
 }
 
 export async function deleteInvoice(id: string, actorEmail?: string) {

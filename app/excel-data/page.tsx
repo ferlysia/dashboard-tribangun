@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import Link from "next/link"
 import {
   Database,
   FileSpreadsheet,
@@ -25,6 +26,27 @@ import importReport from "@/data/invoice-import-report.json"
 import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 import type { InvoiceRecord } from "@/types/invoice"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
+
+type ActivityLog = {
+  id: string
+  action: string
+  actor_email: string
+  summary: string
+  created_at: string
+  payload?: {
+    before?: Partial<InvoiceRecord>
+    after?: Partial<InvoiceRecord>
+  }
+}
+
+type ChangedInvoice = {
+  id: string
+  invoice_no: string
+  customer: string
+  reason: string
+  current: Partial<InvoiceRecord> | null
+  baseline: Partial<InvoiceRecord> | null
+}
 
 const fDateTime = (value: string) =>
   new Intl.DateTimeFormat("id-ID", {
@@ -50,7 +72,7 @@ function normalizeDateString(value: string) {
   return ""
 }
 
-function formatActivityDetail(log: any) {
+function formatActivityDetail(log: ActivityLog) {
   const before = log?.payload?.before || null
   const after = log?.payload?.after || null
 
@@ -81,7 +103,7 @@ function formatActivityDetail(log: any) {
   return "perubahan field lain tersimpan di payload log"
 }
 
-function formatChangedInvoiceDetail(item: any) {
+function formatChangedInvoiceDetail(item: ChangedInvoice) {
   const baseline = item?.baseline
   const current = item?.current
   if (!baseline || !current) return item.reason
@@ -179,8 +201,8 @@ export default function ExcelDataPage() {
   const [form, setForm] = React.useState<InvoiceFormState>(EMPTY_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [message, setMessage] = React.useState<string>("")
-  const [activityLogs, setActivityLogs] = React.useState<any[]>([])
-  const [changedInvoices, setChangedInvoices] = React.useState<any[]>([])
+  const [activityLogs, setActivityLogs] = React.useState<ActivityLog[]>([])
+  const [changedInvoices, setChangedInvoices] = React.useState<ChangedInvoice[]>([])
 
   const files = [
     {
@@ -256,6 +278,11 @@ export default function ExcelDataPage() {
   }, [loadAuditData, invoices.length])
 
   const handleSubmit = React.useCallback(async () => {
+    if (!editingInvoice?.id) {
+      setMessage("Pembuatan invoice baru dipindahkan ke halaman New Invoice.")
+      return
+    }
+
     const normalizedDate = normalizeDateString(form.date)
     const missingFields = [
       !form.invoice_no.trim() && "Invoice No",
@@ -292,11 +319,11 @@ export default function ExcelDataPage() {
     }
 
     setSubmitting(true)
-    setMessage(editingInvoice ? "Menyimpan perubahan invoice..." : "Membuat invoice baru...")
+    setMessage("Menyimpan perubahan invoice...")
 
     try {
-      const response = await fetch(editingInvoice ? `/api/invoices/${editingInvoice.id}` : "/api/invoices", {
-        method: editingInvoice ? "PATCH" : "POST",
+      const response = await fetch(`/api/invoices/${editingInvoice.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, actor_email: user.email }),
       })
@@ -308,14 +335,14 @@ export default function ExcelDataPage() {
 
       await refresh()
       await loadAuditData()
-      setMessage(editingInvoice ? "Invoice berhasil diperbarui." : "Invoice baru berhasil ditambahkan.")
+      setMessage("Invoice berhasil diperbarui.")
       resetForm()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Operasi invoice gagal.")
     } finally {
       setSubmitting(false)
     }
-  }, [editingInvoice, form, loadAuditData, refresh, resetForm, user.email])
+  }, [editingInvoice?.id, form, loadAuditData, refresh, resetForm, user.email])
 
   const handleDelete = React.useCallback(
     async (invoice: InvoiceRecord) => {
@@ -390,11 +417,12 @@ export default function ExcelDataPage() {
           <section className="rounded-2xl border bg-card p-5 shadow-sm">
             <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
               <div className="space-y-3">
-                <Badge className="bg-primary/12 text-primary hover:bg-primary/12">Import Center</Badge>
+                <Badge className="bg-primary/12 text-primary hover:bg-primary/12">Invoice Records Center</Badge>
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-tight">Excel source dan status kesiapan data</h2>
+                  <h2 className="text-2xl font-semibold tracking-tight">Manage invoice records already stored in the database</h2>
                   <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                    Halaman ini sekarang jadi pusat data invoice: cek workbook, validasi import, lalu tambah, edit, dan hapus invoice langsung dari web.
+                    Invoices created from the `New Invoice` page will appear here. This page is now the main place to review,
+                    edit, delete, restore, and monitor invoice record changes directly from the web app.
                   </p>
                 </div>
               </div>
@@ -521,20 +549,50 @@ export default function ExcelDataPage() {
             </Card>
           </section>
 
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:items-start">
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)] xl:items-start">
             <Card className="self-start">
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <div>
-                  <CardTitle>{editingInvoice ? "Edit Invoice Record" : "Invoice Entry Studio"}</CardTitle>
-                  <p className="mt-1 text-xs text-muted-foreground">Perubahan di sini akan tersimpan ke database Tribangun.</p>
+                  <CardTitle>{editingInvoice ? "Edit Selected Invoice" : "Invoice Management"}</CardTitle>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Gunakan page ini untuk review data invoice yang sudah masuk ke database, lalu edit, delete, atau restore bila diperlukan.
+                  </p>
                 </div>
                 {editingInvoice ? (
                   <Badge variant="secondary">Editing {editingInvoice.invoice_no}</Badge>
                 ) : (
-                  <Badge className="bg-primary/12 text-primary hover:bg-primary/12">Create</Badge>
+                  <Badge className="bg-primary/12 text-primary hover:bg-primary/12">Records</Badge>
                 )}
               </CardHeader>
               <CardContent className="space-y-5">
+                {!editingInvoice ? (
+                  <div className="rounded-3xl border border-border/70 bg-muted/15 p-5">
+                    <div className="space-y-3">
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Database className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold">Select an invoice to edit</h3>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          Klik tombol `Edit` pada invoice di panel kanan untuk membuka editor. Untuk menambah invoice baru,
+                          langsung gunakan page `New Invoice` agar alurnya tetap rapi dan tidak dobel.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-3 pt-1">
+                        <Button asChild>
+                          <Link href="/input-invoice">
+                            <Plus className="h-4 w-4" />
+                            Open New Invoice
+                          </Link>
+                        </Button>
+                        <Button variant="outline" onClick={handleRefresh} disabled={submitting}>
+                          <RefreshCw className="h-4 w-4" />
+                          Refresh Records
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="invoice_no">Invoice No</Label>
@@ -606,7 +664,9 @@ export default function ExcelDataPage() {
                       value={form.site_name}
                       onChange={(event) => handleInputChange("site_name", event.target.value)}
                     />
-                    <p className="text-[11px] text-muted-foreground">Primary key untuk pencarian — contoh: "Dakota Batam", "Edge Connex", "Samsung Cikarang"</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Primary key untuk pencarian, contoh: &quot;Dakota Batam&quot;, &quot;Edge Connex&quot;, &quot;Samsung Cikarang&quot;
+                    </p>
                   </div>
                   <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="description">Description</Label>
@@ -698,19 +758,24 @@ export default function ExcelDataPage() {
                     />
                   </div>
                 </div>
+                )}
 
                 {message ? (
                   <div className="rounded-xl border border-primary/15 bg-primary/6 px-4 py-3 text-sm text-muted-foreground">{message}</div>
                 ) : null}
 
                 <div className="flex flex-wrap gap-3">
-                  <Button onClick={handleSubmit} disabled={submitting}>
-                    {editingInvoice ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                    {submitting ? "Memproses..." : editingInvoice ? "Save Changes" : "Create Invoice"}
-                  </Button>
-                  <Button variant="outline" onClick={resetForm} disabled={submitting}>
-                    Reset Form
-                  </Button>
+                  {editingInvoice ? (
+                    <>
+                      <Button onClick={handleSubmit} disabled={submitting}>
+                        <Pencil className="h-4 w-4" />
+                        {submitting ? "Memproses..." : "Save Changes"}
+                      </Button>
+                      <Button variant="outline" onClick={resetForm} disabled={submitting}>
+                        Close Editor
+                      </Button>
+                    </>
+                  ) : null}
                   <Button variant="outline" onClick={handleRefresh} disabled={submitting}>
                     <RefreshCw className="h-4 w-4" />
                     Refresh Data

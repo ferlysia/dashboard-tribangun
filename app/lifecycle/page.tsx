@@ -817,7 +817,7 @@ export default function LifecyclePage() {
               <CardContent className="p-0">
                 <div className="t-wrap mx-6 mb-6">
                   {/* Fixed header */}
-                  <div className="bg-muted/50 border-b border-border">
+                  <div className="bg-primary/[0.08] border-b-2 border-primary/20">
                     <table className="w-full text-xs table-fixed">
                       <colgroup>
                         <col style={{width:"13%"}}/>
@@ -830,17 +830,17 @@ export default function LifecyclePage() {
                       </colgroup>
                       <thead>
                         <tr>
-                          <th className="px-3 py-3 text-left font-semibold text-muted-foreground text-[11px]">Invoice</th>
-                          <th className="px-3 py-3 text-left font-semibold text-muted-foreground text-[11px]">Klien</th>
-                          <th className="px-3 py-3 text-left font-semibold text-muted-foreground text-[11px]">Deskripsi</th>
-                          <th className="px-3 py-3 text-left font-semibold text-muted-foreground text-[11px]">Bucket</th>
-                          <th className="px-3 py-3 text-right font-semibold text-muted-foreground text-[11px] t-sort" onClick={()=>toggleSort("days")}>
+                          <th className="px-3 py-3 text-left font-bold text-primary/80 text-[11px] uppercase tracking-wide">Invoice</th>
+                          <th className="px-3 py-3 text-left font-bold text-primary/80 text-[11px] uppercase tracking-wide">Klien</th>
+                          <th className="px-3 py-3 text-left font-bold text-primary/80 text-[11px] uppercase tracking-wide">Deskripsi</th>
+                          <th className="px-3 py-3 text-left font-bold text-primary/80 text-[11px] uppercase tracking-wide">Bucket</th>
+                          <th className="px-3 py-3 text-right font-bold text-primary/80 text-[11px] uppercase tracking-wide t-sort" onClick={()=>toggleSort("days")}>
                             Hari {sortKey==="days"?(sortAsc?"↑":"↓"):<span className="opacity-35">↕</span>}
                           </th>
-                          <th className="px-3 py-3 text-right font-semibold text-muted-foreground text-[11px] t-sort" onClick={()=>toggleSort("value")}>
+                          <th className="px-3 py-3 text-right font-bold text-primary/80 text-[11px] uppercase tracking-wide t-sort" onClick={()=>toggleSort("value")}>
                             Nilai {sortKey==="value"?(sortAsc?"↑":"↓"):<span className="opacity-35">↕</span>}
                           </th>
-                          <th className="px-3 py-3 text-center font-semibold text-muted-foreground text-[11px]">Status</th>
+                          <th className="px-3 py-3 text-center font-bold text-primary/80 text-[11px] uppercase tracking-wide">Status</th>
                         </tr>
                       </thead>
                     </table>
