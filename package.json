@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "dev:turbo": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "lint": "eslint",
     "build:invoices": "node build-invoice-data.js",
     "validate:invoices": "node validate-invoice-data.js",
