@@ -4,8 +4,9 @@ import * as React from "react"
 import {
   FolderKanban, Search, CircleDot, CheckCircle2, AlertTriangle,
   CalendarDays, Receipt, Package, Wrench, Briefcase, X, Filter,
-  Hash, Pencil, Plus, Trash2, Save, TrendingUp, DollarSign,
-  ChevronDown, MapPin,
+  Hash, Pencil, Plus, Trash2, TrendingUp, DollarSign,
+  MapPin, ChevronRight, FileText, BarChart3, Users,
+  Building2, ClipboardList, Save, CheckCheck,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
@@ -42,6 +43,15 @@ type ProjectDetail = {
   display_name: string
   physical_progress: number
   notes: string
+  site_location: string
+  description: string
+  po_value_manual: number
+  op_gaji: number
+  op_material: number
+  op_transport: number
+  op_operasional: number
+  op_sewa: number
+  op_lainnya: number
 }
 
 type ProjectCost = {
@@ -66,6 +76,9 @@ const fShort = (n: number) => {
   return `Rp ${Math.round(n)}`
 }
 
+function parseNum(s: string) { return Number(s.replace(/[^\d]/g, "")) || 0 }
+function fNum(n: number) { return n > 0 ? n.toLocaleString("id-ID") : "" }
+
 function classifyCategory(desc: string): Project["category"] {
   const d = desc.toLowerCase()
   if (d.includes("pemeliharaan") || d.includes("pemeliaharan") || d.includes("perbaikan") ||
@@ -85,14 +98,13 @@ function classifyCategory(desc: string): Project["category"] {
     d.includes("positioning") || d.includes("cabling") || d.includes("transportation") ||
     d.includes("transportasi") || d.includes("akomodasi") || d.includes("pelunasan"))
     return "Project/Instalasi"
-  if (d.includes("jasa")) return "Jasa"
   return "Jasa"
 }
 
 function extractTerminLabel(desc: string, index: number): string {
-  const d = desc.toLowerCase()
   const terminMatch = desc.match(/termin ke[- ]?(\d+)/i)
   if (terminMatch) return `T${terminMatch[1]}`
+  const d = desc.toLowerCase()
   if (d.includes("dp 30%")) return "DP30"
   if (d.includes("dp 50%")) return "DP50"
   if (d.includes("dp 40%")) return "DP40"
@@ -155,182 +167,264 @@ const CAT_ICON: Record<Project["category"], React.ReactNode> = {
   Lainnya: <Hash className="h-3 w-3" />,
 }
 
-const COST_CATS = [
-  { key: "material",   label: "Material",      color: "amber" },
-  { key: "subkon",     label: "Subkon",        color: "violet" },
-  { key: "harian",     label: "Orang Harian",  color: "blue" },
-  { key: "pengiriman", label: "Pengiriman",    color: "orange" },
-  { key: "lainnya",    label: "Lainnya",       color: "slate" },
-]
+const OP_FIELDS = [
+  { key: "op_gaji",        label: "Gaji & Tunjangan",     icon: "👤", ex: 150_000_000 },
+  { key: "op_operasional", label: "Biaya Operasional",    icon: "⚙️", ex: 50_000_000  },
+  { key: "op_material",    label: "Biaya Material/Bahan", icon: "🧱", ex: 80_000_000  },
+  { key: "op_sewa",        label: "Sewa & Utilitas",      icon: "🏢", ex: 20_000_000  },
+  { key: "op_transport",   label: "Transport & Logistik", icon: "🚛", ex: 15_000_000  },
+  { key: "op_lainnya",     label: "Biaya Lainnya",        icon: "📦", ex: 10_000_000  },
+] as const
+
+const PROGRESS_STEPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+// ─── ROI Gauge ────────────────────────────────────────────────────────────────
+function ROIGauge({ costPct }: { costPct: number }) {
+  // costPct = totalCosts / contractVal * 100, range 0–200
+  const clamped = Math.min(200, Math.max(0, costPct))
+  // angle: 0% -> -180deg (left end), 200% -> 0deg (right end)
+  const angleDeg = (clamped / 200) * 180 - 180
+  const rad = (angleDeg * Math.PI) / 180
+  const cx = 110, cy = 95, r = 78
+  const nx = cx + r * Math.cos(rad)
+  const ny = cy + r * Math.sin(rad)
+
+  // Arc segments: green 0-70%, yellow 70-100%, red 100-200%
+  function arcPath(startPct: number, endPct: number) {
+    const a1 = ((startPct / 200) * 180 - 180) * (Math.PI / 180)
+    const a2 = ((endPct   / 200) * 180 - 180) * (Math.PI / 180)
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1)
+    const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2)
+    const large = endPct - startPct > 100 ? 1 : 0
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`
+  }
+
+  return (
+    <svg viewBox="0 0 220 110" className="w-full max-w-[220px] mx-auto" aria-label="ROI Gauge">
+      {/* Track */}
+      <path d={arcPath(0, 200)} fill="none" stroke="hsl(var(--muted))" strokeWidth="10" strokeLinecap="round" />
+      {/* Green zone: 0–70% cost */}
+      <path d={arcPath(0, 70)}   fill="none" stroke="#22c55e" strokeWidth="10" />
+      {/* Yellow zone: 70–100% */}
+      <path d={arcPath(70, 100)} fill="none" stroke="#f59e0b" strokeWidth="10" />
+      {/* Red zone: 100–200% */}
+      <path d={arcPath(100, 200)} fill="none" stroke="#ef4444" strokeWidth="10" />
+      {/* Needle */}
+      {costPct > 0 && (
+        <>
+          <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+          <circle cx={cx} cy={cy} r="5" fill="white" />
+          <circle cx={nx} cy={ny} r="3.5" fill="white" />
+        </>
+      )}
+      {/* Labels */}
+      <text x="22"  y="107" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="middle">0%</text>
+      <text x="110" y="12"  fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="middle">100%</text>
+      <text x="200" y="107" fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="middle">200%</text>
+      {/* Center label */}
+      {costPct > 0 ? (
+        <>
+          <text x={cx} y={cy + 18} fontSize="11" fontWeight="bold" fill="hsl(var(--foreground))" textAnchor="middle">
+            {costPct.toFixed(0)}%
+          </text>
+          <text x={cx} y={cy + 29} fontSize="7.5" fill="hsl(var(--muted-foreground))" textAnchor="middle">rasio biaya</text>
+        </>
+      ) : (
+        <text x={cx} y={cy + 18} fontSize="9" fill="hsl(var(--muted-foreground))" textAnchor="middle">Input cost →</text>
+      )}
+    </svg>
+  )
+}
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const STYLES = `
-  @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes scaleIn { from{opacity:0;transform:scale(.94)} to{opacity:1;transform:scale(1)} }
-  @keyframes slideRight { from{opacity:0;transform:translateX(100%)} to{opacity:1;transform:translateX(0)} }
-  @keyframes fadeBg { from{opacity:0} to{opacity:1} }
-  @keyframes growW { from{width:0} to{width:var(--w)} }
+  @keyframes fadeUp  { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes scaleIn { from{opacity:0;transform:scale(.95)} to{opacity:1;transform:scale(1)} }
+  @keyframes fadeBg  { from{opacity:0} to{opacity:1} }
+  @keyframes modalIn { from{opacity:0;transform:scale(.96) translateY(16px)} to{opacity:1;transform:scale(1) translateY(0)} }
+  @keyframes growW   { from{width:0} to{width:var(--w)} }
 
-  .u1{animation:fadeUp .35s ease both .04s} .u2{animation:fadeUp .35s ease both .09s}
-  .u3{animation:fadeUp .35s ease both .14s} .u4{animation:fadeUp .35s ease both .19s}
-  .s1{animation:scaleIn .3s cubic-bezier(.22,.68,0,1.2) both .05s}
-  .s2{animation:scaleIn .3s cubic-bezier(.22,.68,0,1.2) both .10s}
-  .s3{animation:scaleIn .3s cubic-bezier(.22,.68,0,1.2) both .15s}
-  .s4{animation:scaleIn .3s cubic-bezier(.22,.68,0,1.2) both .20s}
+  .u1{animation:fadeUp .3s ease both .04s} .u2{animation:fadeUp .3s ease both .09s}
+  .u3{animation:fadeUp .3s ease both .14s} .u4{animation:fadeUp .3s ease both .19s}
+  .s1{animation:scaleIn .28s cubic-bezier(.22,.68,0,1.2) both .05s}
+  .s2{animation:scaleIn .28s cubic-bezier(.22,.68,0,1.2) both .10s}
+  .s3{animation:scaleIn .28s cubic-bezier(.22,.68,0,1.2) both .15s}
+  .s4{animation:scaleIn .28s cubic-bezier(.22,.68,0,1.2) both .20s}
 
-  .kcard{transition:transform .18s,box-shadow .18s;cursor:default}
-  .kcard:hover{transform:translateY(-1px);box-shadow:0 6px 20px -6px hsl(var(--primary)/.18)}
-
-  /* ─── Project card ─────────────────────────────────────────────── */
+  /* ── Project Card ──────────────────────────── */
   .pcard {
     background: hsl(var(--card));
-    border-radius: 16px;
-    border: 1.5px solid hsl(var(--border));
-    box-shadow: 0 2px 8px -3px hsl(var(--foreground)/.07), 0 1px 2px -1px hsl(var(--foreground)/.04);
+    border-radius: 14px;
+    border: 1px solid hsl(var(--border));
+    box-shadow: 0 2px 12px -4px rgba(0,0,0,.12), 0 1px 3px -1px rgba(0,0,0,.08);
     overflow: hidden;
-    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    transition: transform .18s ease, box-shadow .18s ease;
     cursor: pointer;
+    position: relative;
   }
+  .pcard::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    border-radius: 14px 0 0 14px;
+  }
+  .pcard.st-berjalan::before   { background: hsl(var(--primary)); }
+  .pcard.st-selesai::before    { background: #22c55e; }
+  .pcard.st-tertunggak::before { background: hsl(var(--destructive)); }
   .pcard:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 12px 32px -8px hsl(var(--foreground)/.12), 0 2px 8px -3px hsl(var(--foreground)/.06);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px -6px rgba(0,0,0,.16), 0 2px 6px -2px rgba(0,0,0,.1);
   }
-  .pcard.st-berjalan:hover  { border-color: hsl(var(--primary)/.4); box-shadow: 0 12px 32px -8px hsl(var(--primary)/.18); }
-  .pcard.st-selesai:hover   { border-color: hsl(142 70% 45%/.4); box-shadow: 0 12px 32px -8px hsl(142 70% 45%/.14); }
-  .pcard.st-tertunggak      { border-color: hsl(var(--destructive)/.3); }
-  .pcard.st-tertunggak:hover{ border-color: hsl(var(--destructive)/.55); box-shadow: 0 12px 32px -8px hsl(var(--destructive)/.16); }
+  .pcard-body { padding: 16px 18px 18px 22px; }
 
-  /* colored top accent bar */
-  .pcard-accent {
-    height: 5px;
-    width: 100%;
-    flex-shrink: 0;
+  /* ── Modal ─────────────────────────────────── */
+  .modal-bg {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(4px);
+    animation: fadeBg .2s ease both;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
   }
-  .acc-berjalan   { background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary)/.6)); }
-  .acc-selesai    { background: linear-gradient(90deg, #22c55e, #16a34a80); }
-  .acc-tertunggak { background: linear-gradient(90deg, hsl(var(--destructive)), hsl(var(--destructive)/.55)); }
+  .modal {
+    background: hsl(var(--background));
+    border: 1.5px solid hsl(var(--border));
+    border-radius: 20px;
+    box-shadow: 0 32px 80px -12px rgba(0,0,0,.35), 0 8px 24px -4px rgba(0,0,0,.2);
+    width: min(940px, 100%);
+    max-height: calc(100vh - 32px);
+    display: flex; flex-direction: column;
+    animation: modalIn .25s cubic-bezier(.16,1,.3,1) both;
+    overflow: hidden;
+  }
 
-  .pcard-body { padding: 18px 20px 20px; }
+  /* ── Tabs ──────────────────────────────────── */
+  .mtab {
+    flex: 1; padding: 12px 8px; font-size: 13px; font-weight: 600;
+    border-bottom: 2.5px solid transparent; transition: all .14s;
+    color: hsl(var(--muted-foreground)); cursor: pointer;
+    background: transparent; text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .mtab:hover { color: hsl(var(--foreground)); }
+  .mtab.on { color: hsl(var(--primary)); border-bottom-color: hsl(var(--primary)); background: hsl(var(--primary)/.04); }
 
-  /* metric box */
+  /* ── Progress buttons ──────────────────────── */
+  .pbtn {
+    width: 48px; height: 34px; border-radius: 8px;
+    font-size: 11px; font-weight: 700; border: 1.5px solid hsl(var(--border));
+    cursor: pointer; transition: all .12s; background: hsl(var(--muted)/.5);
+    color: hsl(var(--muted-foreground));
+  }
+  .pbtn:hover { border-color: hsl(var(--primary)/.5); color: hsl(var(--primary)); background: hsl(var(--primary)/.06); }
+  .pbtn.on { background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: hsl(var(--primary-foreground)); box-shadow: 0 3px 10px -3px hsl(var(--primary)/.55); }
+
+  /* ── Input fields ──────────────────────────── */
+  .minput {
+    width: 100%; background: hsl(var(--muted)/.3);
+    border: 1.5px solid hsl(var(--border)); border-radius: 9px;
+    padding: 9px 12px; font-size: 13px; color: hsl(var(--foreground));
+    outline: none; transition: all .14s;
+  }
+  .minput::placeholder { color: hsl(var(--muted-foreground)/.6); }
+  .minput:focus { border-color: hsl(var(--primary)/.5); box-shadow: 0 0 0 3px hsl(var(--primary)/.08); background: hsl(var(--card)); }
+  textarea.minput { resize: vertical; min-height: 72px; }
+
+  /* ── Metric box ────────────────────────────── */
   .mbox {
-    border-radius: 10px;
-    border: 1px solid hsl(var(--border)/.8);
-    padding: 10px 12px;
-    background: hsl(var(--muted)/.35);
+    border-radius: 10px; border: 1px solid hsl(var(--border)/.8);
+    padding: 10px 14px; background: hsl(var(--muted)/.25);
   }
-  .mbox-warn {
-    border-color: hsl(var(--destructive)/.25);
-    background: hsl(var(--destructive)/.05);
-  }
-  .mbox-good {
-    border-color: hsl(142 60% 45%/.25);
-    background: hsl(142 60% 45%/.05);
-  }
+  .mbox-warn { border-color: hsl(var(--destructive)/.3); background: hsl(var(--destructive)/.05); }
+  .mbox-good { border-color: hsl(142 60% 45%/.3); background: hsl(142 60% 45%/.05); }
 
-  /* progress bar */
-  .pbar-bg { height: 7px; border-radius: 99px; background: hsl(var(--muted)); overflow: hidden; }
-  .pbar-fill { height: 100%; border-radius: 99px; width: var(--w); animation: growW .9s cubic-bezier(.16,1,.3,1) both .35s; }
-  .pbar-blue   { background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary)/.75)); }
-  .pbar-green  { background: linear-gradient(90deg, #22c55e, #16a34a); }
-  .pbar-red    { background: hsl(var(--destructive)/.7); }
+  /* ── Progress bar ──────────────────────────── */
+  .pbar-bg   { height: 6px; border-radius: 99px; background: hsl(var(--muted)); overflow: hidden; }
+  .pbar-fill { height: 100%; border-radius: 99px; width: var(--w); animation: growW .9s cubic-bezier(.16,1,.3,1) both .3s; }
+  .pbar-blue  { background: linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary)/.7)); }
+  .pbar-green { background: linear-gradient(90deg, #22c55e, #16a34a); }
+  .pbar-red   { background: hsl(var(--destructive)/.7); }
 
-  /* termin dots */
+  /* ── Termin timeline ───────────────────────── */
   .tl { display:flex; align-items:flex-start; overflow-x:auto; padding-bottom:2px; gap:0; }
   .tl::-webkit-scrollbar{height:2px}
   .tl::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:1px}
-  .tl-item { display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:46px;position:relative; }
+  .tl-item{display:flex;flex-direction:column;align-items:center;flex-shrink:0;width:44px;position:relative}
   .tl-item:not(:first-child)::before{content:'';position:absolute;top:9px;left:0;width:calc(50% - 9px);height:2px;background:hsl(var(--border))}
   .tl-item.prev-ok:not(:first-child)::before{background:hsl(var(--primary))}
   .tl-item:not(:last-child)::after{content:'';position:absolute;top:9px;right:0;width:calc(50% - 9px);height:2px;background:hsl(var(--border))}
   .tl-item.is-ok:not(:last-child)::after{background:hsl(var(--primary))}
   .tl-dot{width:20px;height:20px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;position:relative;z-index:1}
-  .tl-dot.ok  {background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground))}
-  .tl-dot.no  {background:hsl(var(--card));border-color:hsl(var(--muted-foreground)/.4);color:hsl(var(--muted-foreground))}
+  .tl-dot.ok{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+  .tl-dot.no{background:hsl(var(--card));border-color:hsl(var(--muted-foreground)/.4);color:hsl(var(--muted-foreground))}
   .tl-dot.warn{background:hsl(var(--destructive)/.08);border-color:hsl(var(--destructive));color:hsl(var(--destructive))}
-  .tl-lbl{font-size:8px;color:hsl(var(--muted-foreground));margin-top:4px;text-align:center;line-height:1.1;max-width:44px;word-break:break-word}
+  .tl-lbl{font-size:8px;color:hsl(var(--muted-foreground));margin-top:4px;text-align:center;line-height:1.1;max-width:42px;word-break:break-word}
 
-  /* search / chip */
-  .sbox{background:hsl(var(--muted)/.5);border:1.5px solid hsl(var(--border));border-radius:10px;padding:9px 12px 9px 38px;font-size:13px;color:hsl(var(--foreground));outline:none;transition:all .15s}
-  .sbox::placeholder{color:hsl(var(--muted-foreground))}
+  /* ── Search/filter ─────────────────────────── */
+  .sbox{background:hsl(var(--muted)/.4);border:1.5px solid hsl(var(--border));border-radius:10px;padding:9px 12px 9px 38px;font-size:13px;color:hsl(var(--foreground));outline:none;transition:all .15s;width:100%}
+  .sbox::placeholder{color:hsl(var(--muted-foreground)/.6)}
   .sbox:focus{border-color:hsl(var(--primary)/.5);box-shadow:0 0 0 3px hsl(var(--primary)/.08);background:hsl(var(--card))}
-  .chip{border:1.5px solid hsl(var(--border));border-radius:20px;padding:4px 12px;font-size:11.5px;cursor:pointer;transition:all .13s;background:transparent;color:hsl(var(--muted-foreground));white-space:nowrap}
-  .chip:hover{border-color:hsl(var(--primary)/.5);color:hsl(var(--foreground))}
-  .chip.on{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground));font-weight:700;box-shadow:0 4px 14px -4px hsl(var(--primary)/.6)}
+  .chip{border:1.5px solid hsl(var(--border));border-radius:20px;padding:4px 12px;font-size:11.5px;cursor:pointer;transition:all .12s;background:transparent;color:hsl(var(--muted-foreground));white-space:nowrap}
+  .chip:hover{border-color:hsl(var(--primary)/.4);color:hsl(var(--foreground))}
+  .chip.on{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground));font-weight:700}
 
-  /* grid */
-  .pgrid{display:grid;gap:20px;grid-template-columns:1fr}
-  @media(min-width:860px){.pgrid{grid-template-columns:1fr 1fr}}
-  @media(min-width:1280px){.pgrid{grid-template-columns:1fr 1fr 1fr}}
+  /* ── Card grid ─────────────────────────────── */
+  .pgrid{display:grid;gap:16px;grid-template-columns:1fr}
+  @media(min-width:760px){.pgrid{grid-template-columns:1fr 1fr}}
+  @media(min-width:1200px){.pgrid{grid-template-columns:1fr 1fr 1fr}}
 
-  /* ─── Detail panel ─────────────────────────────────────────────── */
-  .panel-bg {
-    position: fixed; inset: 0; z-index: 50;
-    background: rgba(0,0,0,.45);
-    backdrop-filter: blur(2px);
-    animation: fadeBg .2s ease both;
-  }
-  .panel {
-    position: fixed; right: 0; top: 0; bottom: 0;
-    width: min(500px, 100vw);
-    z-index: 51;
-    background: hsl(var(--background));
-    border-left: 1.5px solid hsl(var(--border));
-    box-shadow: -16px 0 48px -8px rgba(0,0,0,.18);
-    display: flex; flex-direction: column;
-    animation: slideRight .24s cubic-bezier(.16,1,.3,1) both;
-  }
-  .ptab{flex:1;padding:11px 4px;font-size:12px;font-weight:600;border-bottom:2.5px solid transparent;transition:all .14s;color:hsl(var(--muted-foreground));cursor:pointer;background:transparent;text-align:center}
-  .ptab:hover{color:hsl(var(--foreground))}
-  .ptab.on{color:hsl(var(--primary));border-bottom-color:hsl(var(--primary))}
-
-  .pinput{width:100%;background:hsl(var(--muted)/.4);border:1.5px solid hsl(var(--border));border-radius:9px;padding:9px 12px;font-size:13px;color:hsl(var(--foreground));outline:none;transition:all .15s}
-  .pinput::placeholder{color:hsl(var(--muted-foreground))}
-  .pinput:focus{border-color:hsl(var(--primary)/.5);box-shadow:0 0 0 3px hsl(var(--primary)/.08);background:hsl(var(--card))}
-
-  .pslider{width:100%;height:7px;border-radius:99px;appearance:none;background:hsl(var(--muted));outline:none;cursor:pointer;accent-color:hsl(var(--primary))}
-  .pslider::-webkit-slider-thumb{appearance:none;width:20px;height:20px;border-radius:50%;background:hsl(var(--primary));border:3px solid hsl(var(--background));box-shadow:0 2px 8px hsl(var(--primary)/.4);cursor:pointer}
-
-  .ccat-btn{padding:5px 12px;border-radius:99px;font-size:11px;font-weight:600;border:1.5px solid hsl(var(--border));cursor:pointer;transition:all .12s;background:transparent;color:hsl(var(--muted-foreground));white-space:nowrap}
-  .ccat-btn:hover{border-color:hsl(var(--primary)/.5);color:hsl(var(--foreground))}
-  .ccat-btn.on{background:hsl(var(--primary));border-color:hsl(var(--primary));color:hsl(var(--primary-foreground))}
-
-  .cost-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 14px;border-radius:10px;border:1.5px solid hsl(var(--border)/.7);background:hsl(var(--card));margin-bottom:6px;transition:border-color .14s}
-  .cost-row:hover{border-color:hsl(var(--primary)/.3)}
-  .cost-row:last-child{margin-bottom:0}
-
-  .inv-row{padding:10px 14px;border-radius:10px;border:1.5px solid hsl(var(--border)/.7);background:hsl(var(--card));margin-bottom:6px;transition:all .14s}
-  .inv-row:hover{border-color:hsl(var(--primary)/.3);background:hsl(var(--primary)/.03)}
+  /* ── Invoice/cost rows ─────────────────────── */
+  .inv-row{padding:10px 14px;border-radius:10px;border:1.5px solid hsl(var(--border)/.7);background:hsl(var(--muted)/.12);margin-bottom:6px;transition:all .13s}
+  .inv-row:hover{border-color:hsl(var(--primary)/.35);background:hsl(var(--primary)/.03)}
   .inv-row:last-child{margin-bottom:0}
 
-  /* hv card */
-  .hvc{position:relative;overflow:hidden;border:1px solid hsl(var(--border));background:hsl(var(--card));transition:box-shadow .18s}
-  .hvc:hover{box-shadow:0 8px 24px -8px hsl(var(--primary)/.14)}
+  /* ── KPI card hover ────────────────────────── */
+  .kcard{transition:box-shadow .18s, transform .18s}
+  .kcard:hover{box-shadow:0 6px 20px -6px hsl(var(--primary)/.15);transform:translateY(-1px)}
+
+  /* ── Division badge ────────────────────────── */
+  .div-badge-proj{background:hsl(220 100% 50%/.08);border:1px solid hsl(220 100% 50%/.2);color:hsl(220 100% 45%)}
+  .div-badge-fin{background:hsl(142 70% 45%/.08);border:1px solid hsl(142 70% 45%/.2);color:hsl(142 70% 40%)}
+  .dark .div-badge-proj{color:hsl(220 100% 70%)}
+  .dark .div-badge-fin{color:hsl(142 70% 60%)}
+
+  /* ── Save button ───────────────────────────── */
+  .savebtn{display:inline-flex;align-items:center;gap:6px;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;transition:all .14s;border:none}
+  .savebtn-primary{background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+  .savebtn-primary:hover{opacity:.88}
+  .savebtn-primary:disabled{opacity:.5;cursor:not-allowed}
 `
 
-// ─── Detail Panel Component ───────────────────────────────────────────────────
-function DetailPanel({ project, onClose }: { project: Project; onClose: () => void }) {
+// ─── Detail Modal ─────────────────────────────────────────────────────────────
+function DetailModal({ project, onClose }: { project: Project; onClose: () => void }) {
   const { user } = useCurrentUser()
-  const [tab, setTab] = React.useState<"overview" | "biaya" | "invoice">("overview")
+  const [tab, setTab] = React.useState<"project" | "costcontrol" | "invoice">("project")
   const [detail, setDetail] = React.useState<ProjectDetail | null>(null)
   const [costs, setCosts]   = React.useState<ProjectCost[]>([])
   const [loading, setLoading] = React.useState(true)
-
-  // edit state
-  const [editProg, setEditProg]     = React.useState(0)
-  const [editNotes, setEditNotes]   = React.useState("")
-  const [editName, setEditName]     = React.useState("")
-  const [editingName, setEditingName] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
+  const [saving, setSaving]  = React.useState(false)
   const [savedOk, setSavedOk] = React.useState(false)
 
-  // cost form
-  const [ccat, setCcat]   = React.useState("material")
-  const [cdesc, setCdesc] = React.useState("")
-  const [camt, setCamt]   = React.useState("")
-  const [cdate, setCdate] = React.useState("")
+  // ── Doc Control fields ──
+  const [editName,     setEditName]     = React.useState("")
+  const [editSite,     setEditSite]     = React.useState("")
+  const [editDesc,     setEditDesc]     = React.useState("")
+  const [editProg,     setEditProg]     = React.useState(0)
+  const [editNotes,    setEditNotes]    = React.useState("")
+  const [editPOManual, setEditPOManual] = React.useState("")
+
+  // ── Cost Control fields ──
+  const [opVals, setOpVals] = React.useState<Record<string, string>>({
+    op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
+  })
+
+  // ── Add actual cost ──
+  const [ccat,   setCcat]   = React.useState("material")
+  const [cdesc,  setCdesc]  = React.useState("")
+  const [camt,   setCamt]   = React.useState("")
+  const [cdate,  setCdate]  = React.useState("")
   const [adding, setAdding] = React.useState(false)
-  const [cerr, setCerr]   = React.useState("")
 
   React.useEffect(() => {
     setLoading(true)
@@ -338,21 +432,46 @@ function DetailPanel({ project, onClose }: { project: Project; onClose: () => vo
       fetch(`/api/project-details/${encodeURIComponent(project.id)}`).then(r => r.json()),
       fetch(`/api/project-costs?key=${encodeURIComponent(project.id)}`).then(r => r.json()),
     ]).then(([d, c]) => {
-      const det: ProjectDetail = d.data ?? { project_key: project.id, display_name: "", physical_progress: 0, notes: "" }
+      const det: ProjectDetail = d.data ?? {
+        project_key: project.id, display_name: "", physical_progress: 0, notes: "",
+        site_location: "", description: "", po_value_manual: 0,
+        op_gaji: 0, op_material: 0, op_transport: 0, op_operasional: 0, op_sewa: 0, op_lainnya: 0,
+      }
       setDetail(det)
+      setEditName(det.display_name || project.clientName)
+      setEditSite(det.site_location || project.location)
+      setEditDesc(det.description)
       setEditProg(det.physical_progress)
       setEditNotes(det.notes)
-      setEditName(det.display_name || project.clientName)
+      setEditPOManual(det.po_value_manual > 0 ? fNum(det.po_value_manual) : "")
+      setOpVals({
+        op_gaji:        fNum(det.op_gaji),
+        op_material:    fNum(det.op_material),
+        op_transport:   fNum(det.op_transport),
+        op_operasional: fNum(det.op_operasional),
+        op_sewa:        fNum(det.op_sewa),
+        op_lainnya:     fNum(det.op_lainnya),
+      })
       setCosts(c.data ?? [])
     }).finally(() => setLoading(false))
-  }, [project.id, project.clientName])
+  }, [project.id, project.clientName, project.location])
 
   async function save() {
     setSaving(true); setSavedOk(false)
     try {
       const r = await fetch(`/api/project-details/${encodeURIComponent(project.id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: editName, physical_progress: editProg, notes: editNotes }),
+        body: JSON.stringify({
+          display_name: editName, physical_progress: editProg,
+          notes: editNotes, site_location: editSite, description: editDesc,
+          po_value_manual: parseNum(editPOManual),
+          op_gaji:        parseNum(opVals.op_gaji),
+          op_material:    parseNum(opVals.op_material),
+          op_transport:   parseNum(opVals.op_transport),
+          op_operasional: parseNum(opVals.op_operasional),
+          op_sewa:        parseNum(opVals.op_sewa),
+          op_lainnya:     parseNum(opVals.op_lainnya),
+        }),
       })
       const d = await r.json()
       setDetail(d.data)
@@ -362,10 +481,10 @@ function DetailPanel({ project, onClose }: { project: Project; onClose: () => vo
   }
 
   async function addCost() {
-    if (!cdesc.trim()) { setCerr("Deskripsi wajib diisi"); return }
-    const amt = Number(camt.replace(/[^\d.]/g, ""))
-    if (!amt) { setCerr("Jumlah tidak valid"); return }
-    setCerr(""); setAdding(true)
+    if (!cdesc.trim() || !camt) return
+    const amt = parseNum(camt)
+    if (!amt) return
+    setAdding(true)
     try {
       const r = await fetch("/api/project-costs", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -381,323 +500,442 @@ function DetailPanel({ project, onClose }: { project: Project; onClose: () => vo
     setCosts(p => p.filter(c => c.id !== id))
   }
 
-  const totalCosts = costs.reduce((s, c) => s + (c.amount || 0), 0)
-  const contractVal = project.poValue || project.totalValue
-  const margin = contractVal - totalCosts
-  const marginPct = contractVal > 0 ? (margin / contractVal) * 100 : 0
+  // ── Calculations ──
+  const contractVal = parseNum(editPOManual) || project.poValue || project.totalValue
+  const totalOpCosts = Object.keys(opVals).reduce((s, k) => s + parseNum(opVals[k]), 0)
+  const netProfit  = contractVal - totalOpCosts
+  const netMargin  = contractVal > 0 ? (netProfit / contractVal) * 100 : 0
+  const efisiensi  = totalOpCosts > 0 ? (contractVal / totalOpCosts) * 100 : 0
+  const costPct    = contractVal > 0 ? (totalOpCosts / contractVal) * 100 : 0
+
+  const stCls   = project.status === "SELESAI" ? "st-selesai" : project.status === "TERTUNGGAK" ? "st-tertunggak" : "st-berjalan"
+  const barCls  = project.status === "SELESAI" ? "pbar-green" : project.status === "TERTUNGGAK" ? "pbar-red" : "pbar-blue"
+  const bilPct  = Math.round(project.billingProgress)
+
+  // ── Prevent body scroll ──
+  React.useEffect(() => {
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = "" }
+  }, [])
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="panel-bg" onClick={onClose} />
+    <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal">
 
-      {/* Panel */}
-      <div className="panel">
-
-        {/* ── Header ───────────────────────────────────────────────── */}
-        <div className="relative border-b px-6 pt-5 pb-4">
-          <button type="button" title="Tutup" aria-label="Tutup panel" onClick={onClose}
-            className="absolute top-4 right-4 h-8 w-8 flex items-center justify-center rounded-full bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground transition-all">
+        {/* ── Modal Header ─────────────────────────────── */}
+        <div className="relative px-7 pt-6 pb-4 border-b bg-gradient-to-r from-muted/30 to-transparent shrink-0">
+          <button type="button" onClick={onClose} aria-label="Tutup"
+            className="absolute top-5 right-5 h-8 w-8 flex items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-all z-10">
             <X className="h-4 w-4" />
           </button>
 
-          {/* Project name (editable) */}
-          {editingName ? (
-            <div className="flex items-center gap-2 pr-10 mb-2">
-              <input className="pinput text-base font-bold flex-1" value={editName}
-                onChange={e => setEditName(e.target.value)} autoFocus
-                onKeyDown={e => { if (e.key === "Enter") setEditingName(false) }} />
-              <button type="button" onClick={() => setEditingName(false)}
-                className="shrink-0 text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-colors">✓ OK</button>
+          <div className="flex items-start gap-4 pr-10">
+            {/* Status icon */}
+            <div className={`mt-0.5 shrink-0 h-12 w-12 rounded-xl flex items-center justify-center text-xl
+              ${project.status === "SELESAI"    ? "bg-green-500/15 border border-green-500/25"
+              : project.status === "TERTUNGGAK" ? "bg-destructive/12 border border-destructive/25"
+              :                                   "bg-primary/10 border border-primary/20"}`}>
+              {project.status === "SELESAI" ? "✅" : project.status === "TERTUNGGAK" ? "⚠️" : "🔵"}
             </div>
-          ) : (
-            <div className="flex items-center gap-2 pr-10 mb-1.5 group">
-              <h2 className="text-base font-bold leading-snug line-clamp-2 flex-1">{editName || project.clientName}</h2>
-              <button type="button" title="Ganti nama" aria-label="Ganti nama project" onClick={() => setEditingName(true)}
-                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-all shrink-0">
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold leading-tight mb-1">{editName || project.clientName}</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                {editSite && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3 w-3" /> {editSite}
+                  </span>
+                )}
+                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold border
+                  ${project.status === "SELESAI"    ? "bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-400"
+                  : project.status === "TERTUNGGAK" ? "bg-destructive/10 text-destructive border-destructive/25"
+                  :                                   "bg-primary/10 text-primary border-primary/20"}`}>
+                  {project.status === "SELESAI" ? <CheckCircle2 className="h-2.5 w-2.5" /> : project.status === "TERTUNGGAK" ? <AlertTriangle className="h-2.5 w-2.5" /> : <CircleDot className="h-2.5 w-2.5" />}
+                  {project.status}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted border border-border/60 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {CAT_ICON[project.category]} {CAT_LABEL[project.category]}
+                </span>
+              </div>
             </div>
-          )}
+          </div>
 
-          {/* Location */}
-          {project.location && (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground mb-3">
-              <MapPin className="h-3 w-3" /> {project.location}
-            </p>
-          )}
-
-          {/* Badges */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {project.status === "SELESAI" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-green-500/12 text-green-700 border border-green-500/25 px-2.5 py-1 text-[11px] font-bold dark:text-green-400">
-                <CheckCircle2 className="h-3 w-3" /> Selesai
-              </span>
-            )}
-            {project.status === "BERJALAN" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary border border-primary/25 px-2.5 py-1 text-[11px] font-bold">
-                <CircleDot className="h-3 w-3" /> Berjalan
-              </span>
-            )}
-            {project.status === "TERTUNGGAK" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive border border-destructive/25 px-2.5 py-1 text-[11px] font-bold">
-                <AlertTriangle className="h-3 w-3" /> Tertunggak
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-              {CAT_ICON[project.category]} {project.category}
-            </span>
-            <span className="text-[11px] text-muted-foreground font-medium">{project.invoiceCount} invoice</span>
+          {/* Quick stats strip */}
+          <div className="mt-4 grid grid-cols-4 gap-3">
+            {[
+              { label: "Nilai Kontrak",   val: fShort(contractVal),             cls: "text-foreground" },
+              { label: "Invoice Lunas",   val: `${project.paidCount}/${project.invoiceCount}`, cls: project.paidCount === project.invoiceCount ? "text-green-600" : "text-foreground" },
+              { label: "Outstanding",     val: project.totalOutstanding > 0 ? fShort(project.totalOutstanding) : "Lunas ✓", cls: project.totalOutstanding > 0 ? "text-destructive" : "text-green-600" },
+              { label: "Progres Fisik",   val: loading ? "…" : `${editProg}%`,  cls: editProg >= 80 ? "text-green-600" : editProg >= 40 ? "text-primary" : "text-foreground" },
+            ].map(s => (
+              <div key={s.label} className="text-center">
+                <p className="text-[10px] text-muted-foreground font-medium mb-0.5">{s.label}</p>
+                <p className={`text-sm font-black font-mono ${s.cls}`}>{s.val}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* ── Tabs ─────────────────────────────────────────────────── */}
-        <div className="flex border-b bg-muted/20">
-          {(["overview","biaya","invoice"] as const).map(t => (
-            <button key={t} type="button" className={`ptab ${tab===t?"on":""}`} onClick={() => setTab(t)}>
-              {t === "overview" ? "📊 Overview" : t === "biaya" ? "💰 Biaya" : "📄 Invoice"}
-            </button>
-          ))}
+        {/* ── Tabs ─────────────────────────────────────── */}
+        <div className="flex border-b shrink-0">
+          <button type="button" className={`mtab ${tab === "project" ? "on" : ""}`} onClick={() => setTab("project")}>
+            <ClipboardList className="h-3.5 w-3.5" /> Document Control
+          </button>
+          <button type="button" className={`mtab ${tab === "costcontrol" ? "on" : ""}`} onClick={() => setTab("costcontrol")}>
+            <BarChart3 className="h-3.5 w-3.5" /> Cost Control
+          </button>
+          <button type="button" className={`mtab ${tab === "invoice" ? "on" : ""}`} onClick={() => setTab("invoice")}>
+            <Receipt className="h-3.5 w-3.5" /> Invoice ({project.invoiceCount})
+          </button>
         </div>
 
-        {/* ── Content ──────────────────────────────────────────────── */}
+        {/* ── Tab Content ──────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-20 text-sm text-muted-foreground gap-2">
-              <div className="h-4 w-4 rounded-full border-2 border-primary border-r-transparent animate-spin" />
-              Memuat data...
-            </div>
-          ) : tab === "overview" ? (
+            <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">Memuat data…</div>
+          ) : tab === "project" ? (
 
-            /* ── OVERVIEW ─────────────────────────────────────────── */
-            <div className="p-5 space-y-4">
-
-              {/* Key metrics */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-border bg-card p-4">
-                  <p className="text-[11px] text-muted-foreground font-medium mb-1">Nilai Kontrak</p>
-                  <p className="text-base font-black font-mono">{fShort(contractVal)}</p>
-                </div>
-                <div className={`rounded-2xl border p-4 ${project.totalOutstanding > 0 ? "border-destructive/25 bg-destructive/5" : "border-green-500/25 bg-green-500/5"}`}>
-                  <p className="text-[11px] text-muted-foreground font-medium mb-1">Outstanding</p>
-                  <p className={`text-base font-black font-mono ${project.totalOutstanding > 0 ? "text-destructive" : "text-green-600"}`}>
-                    {project.totalOutstanding > 0 ? fShort(project.totalOutstanding) : "Lunas ✓"}
-                  </p>
-                </div>
+            /* ════════════ DOCUMENT CONTROL TAB ════════════ */
+            <div className="p-7">
+              <div className="flex items-center gap-2 mb-5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold div-badge-proj">
+                  <Users className="h-3 w-3" /> Divisi Project — Document Control
+                </span>
               </div>
 
-              {/* Billing progress */}
-              <div className="rounded-2xl border bg-card p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-foreground">Progress Tagihan</span>
-                  <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    {Math.round(project.billingProgress)}%
-                  </span>
-                </div>
-                <div className="pbar-bg">
-                  <div className={`pbar-fill ${project.status==="SELESAI"?"pbar-green":"pbar-blue"}`}
-                    style={{"--w":`${Math.round(project.billingProgress)}%`} as React.CSSProperties} />
-                </div>
-                <p className="text-[11px] text-muted-foreground">{project.paidCount} dari {project.invoiceCount} invoice terbayar</p>
-              </div>
-
-              {/* Physical progress */}
-              <div className="rounded-2xl border bg-card p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-foreground">Progress Fisik (di Lapangan)</span>
-                  <span className="text-xl font-black text-primary">{editProg}%</span>
-                </div>
-                <input type="range" min={0} max={100} step={1} value={editProg}
-                  onChange={e => setEditProg(Number(e.target.value))}
-                  className="pslider" title="Progress fisik" aria-label="Progress fisik di lapangan" />
-                <div className="flex justify-between text-[10px] text-muted-foreground/60">
-                  <span>0% — Belum mulai</span><span>50%</span><span>100% — Selesai</span>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-foreground block">Catatan PM</label>
-                <textarea className="pinput resize-none" rows={3}
-                  placeholder="Progress lapangan, kendala, catatan penting..."
-                  value={editNotes} onChange={e => setEditNotes(e.target.value)} />
-              </div>
-
-              <button type="button" onClick={save} disabled={saving}
-                className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-all disabled:opacity-60 ${savedOk ? "bg-green-500 text-white" : "bg-primary text-primary-foreground hover:bg-primary/90"}`}>
-                {saving ? <><div className="h-4 w-4 border-2 border-white/40 border-r-transparent rounded-full animate-spin" /> Menyimpan...</>
-                  : savedOk ? "✓ Tersimpan!" : <><Save className="h-4 w-4" /> Simpan Perubahan</>}
-              </button>
-
-              {/* Margin preview */}
-              {costs.length > 0 && (
-                <div className={`rounded-2xl border p-4 ${margin >= 0 ? "border-green-500/25 bg-green-500/5" : "border-destructive/25 bg-destructive/5"}`}>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Net Margin</p>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-[11px] text-muted-foreground mb-0.5">Kontrak − Total Biaya</p>
-                      <p className={`text-lg font-black font-mono ${margin >= 0 ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>
-                        {fIDR(margin)}
-                      </p>
-                    </div>
-                    <span className={`text-3xl font-black leading-none ${margin >= 0 ? "text-green-500" : "text-destructive"}`}>
-                      {marginPct >= 0 ? "+" : ""}{marginPct.toFixed(1)}%
-                    </span>
+              <div className="grid gap-5 md:grid-cols-2">
+                {/* Left column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nama Project / Klien</label>
+                    <input className="minput" value={editName} onChange={e => setEditName(e.target.value)} placeholder="Nama project atau klien" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Site / Lokasi</label>
+                    <input className="minput" value={editSite} onChange={e => setEditSite(e.target.value)} placeholder="Lokasi pekerjaan" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Deskripsi Pekerjaan</label>
+                    <textarea className="minput" value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Uraian singkat lingkup pekerjaan…" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Catatan Internal</label>
+                    <textarea className="minput" value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Catatan internal tim…" style={{ minHeight: 56 }} />
                   </div>
                 </div>
-              )}
-            </div>
 
-          ) : tab === "biaya" ? (
+                {/* Right column */}
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nilai PO / Kontrak (Rp)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-semibold pointer-events-none">Rp</span>
+                      <input className="minput" style={{ paddingLeft: 32 }} value={editPOManual}
+                        onChange={e => setEditPOManual(e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, "."))}
+                        placeholder="Contoh: 500.000.000" />
+                    </div>
+                    {project.poValue > 0 && (
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        Dari invoice: <span className="font-semibold">{fIDR(project.poValue)}</span>
+                      </p>
+                    )}
+                  </div>
 
-            /* ── BIAYA ────────────────────────────────────────────── */
-            <div className="p-5 space-y-5">
-              {/* Add form */}
-              <div className="rounded-2xl border bg-card p-4 space-y-3">
-                <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                  <Plus className="h-3.5 w-3.5 text-primary" /> Tambah Biaya
-                </p>
-                <div className="flex gap-1.5 flex-wrap">
-                  {COST_CATS.map(c => (
-                    <button key={c.key} type="button"
-                      className={`ccat-btn ${ccat===c.key?"on":""}`}
-                      onClick={() => setCcat(c.key)}>{c.label}</button>
-                  ))}
+                  {/* Progress Physical */}
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-2 block">
+                      Progres Fisik di Lapangan
+                      <span className="ml-2 font-black text-primary">{editProg}%</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {PROGRESS_STEPS.map(p => (
+                        <button key={p} type="button" className={`pbtn ${editProg === p ? "on" : ""}`}
+                          onClick={() => setEditProg(p)}>
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                    {editProg > 0 && (
+                      <div className="mt-3 pbar-bg">
+                        <div className={`pbar-fill ${editProg === 100 ? "pbar-green" : "pbar-blue"}`}
+                          style={{ "--w": `${editProg}%` } as React.CSSProperties} />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <input className="pinput" placeholder="Deskripsi biaya..." value={cdesc} onChange={e => setCdesc(e.target.value)} />
-                <div className="grid grid-cols-2 gap-2">
-                  <input className="pinput" placeholder="Jumlah (Rp)" value={camt} onChange={e => setCamt(e.target.value)} />
-                  <input type="date" className="pinput" title="Tanggal biaya" aria-label="Tanggal biaya" value={cdate} onChange={e => setCdate(e.target.value)} />
-                </div>
-                {cerr && <p className="text-xs text-destructive">{cerr}</p>}
-                <button type="button" onClick={addCost} disabled={adding}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-2.5 text-sm font-bold hover:bg-primary/90 transition-colors disabled:opacity-60">
-                  {adding ? "Menambahkan..." : <><Plus className="h-4 w-4" /> Tambah Biaya</>}
-                </button>
               </div>
 
-              {/* Cost list */}
-              {costs.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">
-                  <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm font-medium">Belum ada biaya dicatat</p>
-                  <p className="text-xs mt-1 opacity-60">Tambah material, subkon, orang harian, dll.</p>
+              {/* Save button */}
+              <div className="mt-6 flex items-center gap-3 pt-5 border-t">
+                <button type="button" onClick={save} disabled={saving} className="savebtn savebtn-primary">
+                  {saving ? <><span className="animate-spin">⟳</span> Menyimpan…</> : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Perubahan</>}
+                </button>
+                {savedOk && <span className="text-xs text-green-600 font-semibold">✓ Data berhasil disimpan</span>}
+              </div>
+            </div>
+
+          ) : tab === "costcontrol" ? (
+
+            /* ════════════ COST CONTROL TAB ════════════ */
+            <div className="p-7">
+              <div className="flex items-center gap-2 mb-5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold div-badge-fin">
+                  <DollarSign className="h-3 w-3" /> Divisi Finance — Cost Control
+                </span>
+              </div>
+
+              {/* Project info summary */}
+              <div className="grid grid-cols-3 gap-3 mb-6 p-4 rounded-2xl border bg-muted/20">
+                {[
+                  { label: "Nilai PO / Kontrak", val: fIDR(contractVal), cls: "text-foreground font-black" },
+                  { label: "Total Invoice",       val: fIDR(project.totalValue), cls: "text-foreground font-semibold" },
+                  { label: "Sudah Terbayar",      val: fIDR(project.totalPaid),  cls: "text-green-600 font-semibold" },
+                ].map(s => (
+                  <div key={s.label} className="text-center">
+                    <p className="text-[10px] font-medium text-muted-foreground mb-1">{s.label}</p>
+                    <p className={`text-sm font-mono ${s.cls}`}>{s.val}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Two-column: Gauge + Input */}
+              <div className="grid gap-6 md:grid-cols-2">
+
+                {/* Left: ROI Overview */}
+                <div className="rounded-2xl border bg-muted/10 p-5">
+                  <p className="text-sm font-bold mb-1">ROI Overview</p>
+                  <p className="text-[11px] text-muted-foreground mb-3">Return on Investment berdasarkan biaya yang diinput</p>
+                  <ROIGauge costPct={costPct} />
+                  <div className="grid grid-cols-3 gap-2 mt-4">
+                    {[
+                      { label: "NET PROFIT",  val: totalOpCosts > 0 ? fShort(netProfit)          : "—", cls: netProfit >= 0 ? "text-green-600" : "text-destructive" },
+                      { label: "NET MARGIN",  val: totalOpCosts > 0 ? `${netMargin.toFixed(1)}%` : "—", cls: netMargin >= 0 ? "text-green-600" : "text-destructive" },
+                      { label: "EFISIENSI",   val: totalOpCosts > 0 ? `${efisiensi.toFixed(0)}%` : "—", cls: efisiensi >= 100 ? "text-green-600" : "text-destructive" },
+                    ].map(m => (
+                      <div key={m.label} className="text-center p-2 rounded-xl border border-border/60 bg-background">
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{m.label}</p>
+                        <p className={`text-base font-black font-mono ${m.cls}`}>{m.val}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ) : (
-                <div>
-                  {costs.map(c => {
-                    const catInfo = COST_CATS.find(x => x.key === c.category)
-                    return (
-                      <div key={c.id} className="cost-row">
-                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                          <span className="shrink-0 mt-0.5 text-[10px] font-bold rounded-full bg-muted border px-2 py-0.5 text-muted-foreground whitespace-nowrap">
-                            {catInfo?.label ?? c.category}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold line-clamp-2">{c.description}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">
-                              {c.cost_date && `${c.cost_date} · `}{c.input_by}
-                            </p>
-                          </div>
+
+                {/* Right: Input Biaya Operasional */}
+                <div className="rounded-2xl border bg-muted/10 p-5">
+                  <p className="text-sm font-bold mb-1">Input Biaya Operasional</p>
+                  <p className="text-[11px] text-muted-foreground mb-4">Masukkan biaya rata-rata untuk menghitung ROI sejati</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {OP_FIELDS.map(f => (
+                      <div key={f.key}>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                          <span>{f.icon}</span> {f.label}
+                        </label>
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
+                          <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
+                            value={opVals[f.key]}
+                            placeholder={`Cth: ${(f.ex / 1_000_000).toFixed(0)}Jt`}
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^\d]/g, "")
+                              const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                              setOpVals(p => ({ ...p, [f.key]: fmt }))
+                            }}
+                          />
                         </div>
-                        <div className="text-right shrink-0 flex flex-col items-end gap-1">
-                          <p className="text-xs font-bold font-mono">{fIDR(c.amount)}</p>
-                          <button type="button" title="Hapus" aria-label="Hapus biaya" onClick={() => delCost(c.id)}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3">* Angka digunakan untuk menghitung ROI, tidak tersimpan permanen sampai klik Simpan</p>
+                </div>
+              </div>
+
+              {/* Actual cost log */}
+              <div className="mt-6">
+                <p className="text-sm font-bold mb-3 flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary" /> Log Biaya Aktual
+                </p>
+
+                {/* Add cost */}
+                <div className="rounded-xl border bg-muted/15 p-4 mb-4">
+                  <p className="text-xs font-semibold text-muted-foreground mb-3">Tambah Biaya Aktual</p>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">Kategori</label>
+                      <select className="minput" title="Kategori biaya" style={{ fontSize: 12 }} value={ccat} onChange={e => setCcat(e.target.value)}>
+                        <option value="material">Material</option>
+                        <option value="subkon">Subkon</option>
+                        <option value="harian">Orang Harian</option>
+                        <option value="pengiriman">Pengiriman</option>
+                        <option value="lainnya">Lainnya</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">Tanggal</label>
+                      <input type="date" className="minput" title="Tanggal biaya" style={{ fontSize: 12 }} value={cdate} onChange={e => setCdate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">Deskripsi</label>
+                      <input className="minput" style={{ fontSize: 12 }} value={cdesc} onChange={e => setCdesc(e.target.value)} placeholder="Keterangan biaya" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-muted-foreground mb-1 block">Jumlah (Rp)</label>
+                      <input className="minput" style={{ fontSize: 12 }} value={camt}
+                        onChange={e => setCamt(e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, "."))}
+                        placeholder="Contoh: 5.000.000" />
+                    </div>
+                  </div>
+                  <button type="button" disabled={adding || !cdesc || !camt} onClick={addCost}
+                    className="savebtn savebtn-primary text-sm" style={{ fontSize: 12, padding: "7px 16px" }}>
+                    <Plus className="h-3.5 w-3.5" /> {adding ? "Menambahkan…" : "Tambah"}
+                  </button>
+                </div>
+
+                {costs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">Belum ada biaya aktual tercatat</p>
+                ) : (
+                  <div>
+                    {costs.map(c => (
+                      <div key={c.id} className="inv-row flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-bold uppercase text-primary bg-primary/8 px-1.5 py-0.5 rounded">{c.category}</span>
+                            {c.cost_date && <span className="text-[10px] text-muted-foreground">{c.cost_date}</span>}
+                          </div>
+                          <p className="text-xs text-foreground font-medium truncate">{c.description}</p>
+                          <p className="text-[10px] text-muted-foreground">by {c.input_by}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <p className="text-sm font-bold font-mono">{fIDR(c.amount)}</p>
+                          <button type="button" title="Hapus biaya" aria-label="Hapus biaya" onClick={() => delCost(c.id)}
                             className="text-muted-foreground/30 hover:text-destructive transition-colors">
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Summary */}
-              {costs.length > 0 && (
-                <div className="rounded-2xl border bg-muted/20 p-4 space-y-2.5">
-                  {[
-                    { label: "Total Biaya", val: fIDR(totalCosts), cls: "text-destructive" },
-                    { label: "Nilai Kontrak", val: fIDR(contractVal), cls: "" },
-                  ].map(r => (
-                    <div key={r.label} className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">{r.label}</span>
-                      <span className={`font-bold font-mono ${r.cls}`}>{r.val}</span>
-                    </div>
-                  ))}
-                  <div className="border-t border-border/60 pt-2.5 flex justify-between items-end">
-                    <span className="text-sm font-bold">Net Margin</span>
-                    <div className="text-right">
-                      <p className={`text-base font-black font-mono ${margin >= 0 ? "text-green-600" : "text-destructive"}`}>
-                        {fIDR(margin)}
-                      </p>
-                      <p className={`text-xs font-bold ${margin >= 0 ? "text-green-600" : "text-destructive"}`}>
-                        {marginPct >= 0 ? "+" : ""}{marginPct.toFixed(1)}%
-                      </p>
+                    ))}
+                    <div className="mt-3 p-3 rounded-xl border border-border bg-muted/20 flex justify-between items-center">
+                      <span className="text-xs font-semibold text-muted-foreground">Total Biaya Aktual</span>
+                      <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + c.amount, 0))}</span>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* Save button for cost control */}
+              <div className="mt-6 flex items-center gap-3 pt-5 border-t">
+                <button type="button" onClick={save} disabled={saving} className="savebtn savebtn-primary">
+                  {saving ? <><span className="animate-spin">⟳</span> Menyimpan…</> : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Cost Control</>}
+                </button>
+                {savedOk && <span className="text-xs text-green-600 font-semibold">✓ Data berhasil disimpan</span>}
+              </div>
             </div>
 
           ) : (
 
-            /* ── INVOICE ──────────────────────────────────────────── */
-            <div className="p-5">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-primary mb-3">
-                {project.invoiceCount} Invoice dalam proyek ini
-              </p>
-              {project.invoices.map((inv, idx) => (
-                <div key={inv.invoice_no} className="inv-row">
-                  <div className="flex items-start gap-3">
-                    <span className={`mt-0.5 h-6 w-6 shrink-0 flex items-center justify-center rounded-full text-[10px] font-black ${inv.status === "PAID" ? "bg-green-500 text-white" : "bg-muted border text-muted-foreground"}`}>
-                      {inv.status === "PAID" ? "✓" : idx + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className="text-[11px] font-mono font-semibold text-muted-foreground">{inv.invoice_no}</span>
-                        {inv.po_number && (
-                          <span className="text-[10px] font-mono text-muted-foreground/50 bg-muted px-1.5 py-0.5 rounded">PO: {inv.po_number}</span>
-                        )}
+            /* ════════════ INVOICE TAB ════════════ */
+            <div className="p-7">
+              <div className="flex items-center gap-2 mb-5">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold div-badge-fin">
+                  <DollarSign className="h-3 w-3" /> Divisi Finance — Invoice
+                </span>
+                <span className="text-[11px] text-muted-foreground">{project.invoiceCount} invoice terhubung ke project ini</span>
+              </div>
+
+              {/* Billing progress */}
+              <div className="rounded-2xl border bg-muted/15 p-4 mb-5">
+                <div className="flex justify-between text-xs mb-2">
+                  <span className="text-muted-foreground font-medium">Billing Progress</span>
+                  <span className="font-bold">{project.paidCount}/{project.invoiceCount} terbayar · {bilPct}%</span>
+                </div>
+                <div className="pbar-bg">
+                  <div className={`pbar-fill ${barCls}`} style={{ "--w": `${bilPct}%` } as React.CSSProperties} />
+                </div>
+                <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
+                  <span>Total: <span className="font-semibold text-foreground">{fIDR(project.totalValue)}</span></span>
+                  <span>Terbayar: <span className="font-semibold text-green-600">{fIDR(project.totalPaid)}</span></span>
+                  {project.totalOutstanding > 0 && <span>Outstanding: <span className="font-semibold text-destructive">{fIDR(project.totalOutstanding)}</span></span>}
+                </div>
+              </div>
+
+              {/* Termin timeline */}
+              {project.invoiceCount > 1 && (
+                <div className="mb-5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Timeline Termin</p>
+                  <div className="tl">
+                    {project.termins.slice(0, 12).map((t, idx) => {
+                      const ok = t.invoice.status === "PAID"
+                      const warn = !ok && project.status === "TERTUNGGAK"
+                      const prevOk = idx > 0 && project.termins[idx - 1].invoice.status === "PAID"
+                      return (
+                        <div key={t.invoice.invoice_no}
+                          className={`tl-item ${ok ? "is-ok" : ""} ${prevOk ? "prev-ok" : ""}`}
+                          title={`${t.label} · ${fIDR(t.invoice.total)} · ${t.invoice.status}`}>
+                          <div className={`tl-dot ${ok ? "ok" : warn ? "warn" : "no"}`}>{ok ? "✓" : idx + 1}</div>
+                          <p className="tl-lbl">{t.label}</p>
+                        </div>
+                      )
+                    })}
+                    {project.invoiceCount > 12 && (
+                      <div className="tl-item" title={`+${project.invoiceCount - 12} lainnya`}>
+                        <div className="tl-dot no">+{project.invoiceCount - 12}</div>
+                        <p className="tl-lbl">lagi</p>
                       </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-snug">{inv.description}</p>
-                      <p className="text-[10px] text-muted-foreground/50 mt-0.5">{inv.date}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-bold font-mono">{fShort(inv.total)}</p>
-                      <p className={`text-[11px] font-bold ${inv.status === "PAID" ? "text-green-600" : "text-destructive"}`}>
-                        {inv.status === "PAID" ? "LUNAS" : "UNPAID"}
-                      </p>
-                      {inv.payment_value > 0 && (
-                        <p className="text-[10px] text-muted-foreground">Bayar: {fShort(inv.payment_value)}</p>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Invoice list */}
+              <div>
+                {project.invoices.map((inv, idx) => (
+                  <div key={inv.invoice_no} className="inv-row">
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-0.5 shrink-0 h-7 w-7 flex items-center justify-center rounded-full text-[10px] font-black
+                        ${inv.status === "PAID" ? "bg-green-500 text-white" : "bg-muted border border-border text-muted-foreground"}`}>
+                        {inv.status === "PAID" ? "✓" : idx + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                          <span className="text-xs font-mono font-semibold text-muted-foreground">{inv.invoice_no}</span>
+                          {inv.po_number && (
+                            <span className="text-[10px] font-mono text-muted-foreground/50 bg-muted px-1.5 py-0.5 rounded">PO: {inv.po_number}</span>
+                          )}
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${inv.status === "PAID" ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"}`}>
+                            {inv.status === "PAID" ? "LUNAS" : "UNPAID"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2 leading-snug">{inv.description}</p>
+                        <p className="text-[10px] text-muted-foreground/50 mt-0.5">{inv.date}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold font-mono">{fShort(inv.total)}</p>
+                        {inv.payment_value > 0 && (
+                          <p className="text-[10px] text-green-600">Bayar: {fShort(inv.payment_value)}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
+
       </div>
-    </>
+    </div>
   )
 }
 
 // ─── Project Card ─────────────────────────────────────────────────────────────
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
-  const pct  = Math.round(project.billingProgress)
-  const MAX  = 7
-  const stCls = project.status === "SELESAI" ? "st-selesai" : project.status === "TERTUNGGAK" ? "st-tertunggak" : "st-berjalan"
-  const accCls = project.status === "SELESAI" ? "acc-selesai" : project.status === "TERTUNGGAK" ? "acc-tertunggak" : "acc-berjalan"
+  const pct = Math.round(project.billingProgress)
+  const MAX = 6
+  const stCls  = project.status === "SELESAI" ? "st-selesai" : project.status === "TERTUNGGAK" ? "st-tertunggak" : "st-berjalan"
   const barCls = project.status === "SELESAI" ? "pbar-green" : project.status === "TERTUNGGAK" ? "pbar-red" : "pbar-blue"
 
   return (
     <div className={`pcard ${stCls}`} onClick={onClick}>
-      {/* Colored accent stripe */}
-      <div className={`pcard-accent ${accCls}`} />
-
       <div className="pcard-body">
-        {/* Top row: badges + count */}
+        {/* Top row */}
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 flex-wrap">
             {project.status === "SELESAI" && (
@@ -706,7 +944,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
               </span>
             )}
             {project.status === "BERJALAN" && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary border border-primary/25 px-2 py-0.5 text-[10px] font-bold">
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 text-[10px] font-bold">
                 <CircleDot className="h-2.5 w-2.5" /> BERJALAN
               </span>
             )}
@@ -715,16 +953,16 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
                 <AlertTriangle className="h-2.5 w-2.5" /> TERTUNGGAK
               </span>
             )}
-            <span className="inline-flex items-center gap-1 rounded-full bg-muted/70 border border-border/60 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted border border-border/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
               {CAT_ICON[project.category]} {CAT_LABEL[project.category]}
             </span>
           </div>
-          <span className="shrink-0 text-[10px] font-semibold text-muted-foreground bg-muted/50 rounded-full px-2 py-0.5 border border-border/50">
+          <span className="shrink-0 text-[10px] font-semibold text-muted-foreground bg-muted rounded-full px-2 py-0.5 border border-border/50">
             {project.invoiceCount} inv
           </span>
         </div>
 
-        {/* Client name */}
+        {/* Client / Project name */}
         <h3 className="text-[15px] font-bold leading-snug line-clamp-1 mb-0.5 tracking-tight">{project.clientName}</h3>
         {project.location && (
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground mb-3">
@@ -733,7 +971,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
         )}
 
         {/* Metrics */}
-        <div className="grid grid-cols-2 gap-2.5 mb-4">
+        <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="mbox">
             <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Total Kontrak</p>
             <p className="text-sm font-black font-mono">{fShort(project.totalValue)}</p>
@@ -748,31 +986,29 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           </div>
         </div>
 
-        {/* Progress */}
-        <div className="mb-4">
-          <div className="flex justify-between items-center mb-1.5 text-[11px]">
+        {/* Billing progress */}
+        <div className="mb-3">
+          <div className="flex justify-between text-[11px] mb-1.5">
             <span className="text-muted-foreground">{project.paidCount}/{project.invoiceCount} invoice terbayar</span>
-            <span className="font-bold text-foreground">{pct}%</span>
+            <span className="font-bold">{pct}%</span>
           </div>
           <div className="pbar-bg">
             <div className={`pbar-fill ${barCls}`} style={{ "--w": `${pct}%` } as React.CSSProperties} />
           </div>
         </div>
 
-        {/* Termins */}
+        {/* Termin dots */}
         {project.invoiceCount > 1 && (
-          <div className="tl mb-4">
+          <div className="tl mb-3">
             {project.termins.slice(0, MAX).map((t, idx) => {
-              const ok   = t.invoice.status === "PAID"
+              const ok = t.invoice.status === "PAID"
               const warn = !ok && project.status === "TERTUNGGAK"
               const prevOk = idx > 0 && project.termins[idx - 1].invoice.status === "PAID"
               return (
                 <div key={t.invoice.invoice_no}
                   className={`tl-item ${ok ? "is-ok" : ""} ${prevOk ? "prev-ok" : ""}`}
                   title={`${t.label} · ${fIDR(t.invoice.total)} · ${t.invoice.status}`}>
-                  <div className={`tl-dot ${ok ? "ok" : warn ? "warn" : "no"}`}>
-                    {ok ? "✓" : idx + 1}
-                  </div>
+                  <div className={`tl-dot ${ok ? "ok" : warn ? "warn" : "no"}`}>{ok ? "✓" : idx + 1}</div>
                   <p className="tl-lbl">{t.label}</p>
                 </div>
               )
@@ -787,7 +1023,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
         )}
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-border/50">
+        <div className="flex items-center justify-between pt-3 border-t border-border/40">
           <div className="flex items-center gap-1">
             <CalendarDays className="h-3 w-3 text-muted-foreground shrink-0" />
             <span className="text-[10px] text-muted-foreground">
@@ -796,8 +1032,8 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
                 : `${project.firstDate} — ${project.lastDate}`}
             </span>
           </div>
-          <span className="text-[11px] font-semibold text-primary flex items-center gap-0.5 hover:text-primary/80">
-            Detail →
+          <span className="text-[11px] font-semibold text-primary flex items-center gap-0.5">
+            Detail <ChevronRight className="h-3 w-3" />
           </span>
         </div>
       </div>
@@ -809,10 +1045,10 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 export default function ProjectsPage() {
   const { invoices: raw, periodLabel } = useFilteredInvoices()
   const allProjects = React.useMemo(() => buildProjects(raw), [raw])
-  const [search, setSearch]             = React.useState("")
+  const [search,       setSearch]       = React.useState("")
   const [filterStatus, setFilterStatus] = React.useState("Semua")
-  const [filterCat, setFilterCat]       = React.useState("Semua")
-  const [selected, setSelected]         = React.useState<Project | null>(null)
+  const [filterCat,    setFilterCat]    = React.useState("Semua")
+  const [selected,     setSelected]     = React.useState<Project | null>(null)
 
   const stats = React.useMemo(() => ({
     total:      allProjects.length,
@@ -838,13 +1074,13 @@ export default function ProjectsPage() {
       )
     }
     if (filterStatus !== "Semua") list = list.filter(p => p.status === filterStatus)
-    if (filterCat !== "Semua")    list = list.filter(p => p.category === filterCat)
+    if (filterCat    !== "Semua") list = list.filter(p => p.category === filterCat)
     return list
   }, [allProjects, search, filterStatus, filterCat])
 
   const hasFilter = !!search || filterStatus !== "Semua" || filterCat !== "Semua"
-  const STATUSES = ["Semua", "TERTUNGGAK", "BERJALAN", "SELESAI"]
-  const CATS     = ["Semua", "Maintenance", "Material/PAC", "Project/Instalasi", "Jasa"]
+  const STATUSES  = ["Semua", "TERTUNGGAK", "BERJALAN", "SELESAI"]
+  const CATS      = ["Semua", "Maintenance", "Material/PAC", "Project/Instalasi", "Jasa"]
 
   return (
     <SidebarProvider>
@@ -853,9 +1089,9 @@ export default function ProjectsPage() {
         <SiteHeader />
         <style dangerouslySetInnerHTML={{ __html: STYLES }} />
 
-        <div className="flex flex-1 flex-col gap-6 p-6">
+        <div className="flex flex-1 flex-col gap-5 p-6">
 
-          {/* ── Header ─────────────────────────────────────────────── */}
+          {/* ── Header ─────────────────────────────────────── */}
           <div className="u1 flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
@@ -870,29 +1106,32 @@ export default function ProjectsPage() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {stats.tertunggak > 0 && (
-                <button type="button" onClick={() => setFilterStatus(p => p==="TERTUNGGAK"?"Semua":"TERTUNGGAK")}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${filterStatus==="TERTUNGGAK"?"bg-destructive text-white border-destructive shadow-lg":"bg-destructive/8 text-destructive border-destructive/25 hover:bg-destructive/15"}`}>
+                <button type="button" onClick={() => setFilterStatus(p => p === "TERTUNGGAK" ? "Semua" : "TERTUNGGAK")}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all
+                    ${filterStatus === "TERTUNGGAK" ? "bg-destructive text-white border-destructive shadow-md" : "bg-destructive/8 text-destructive border-destructive/25 hover:bg-destructive/15"}`}>
                   <AlertTriangle className="h-3 w-3" /> {stats.tertunggak} tertunggak
                 </button>
               )}
-              <button type="button" onClick={() => setFilterStatus(p => p==="BERJALAN"?"Semua":"BERJALAN")}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${filterStatus==="BERJALAN"?"bg-primary text-primary-foreground border-primary shadow-lg":"bg-primary/8 text-primary border-primary/20 hover:bg-primary/15"}`}>
+              <button type="button" onClick={() => setFilterStatus(p => p === "BERJALAN" ? "Semua" : "BERJALAN")}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all
+                  ${filterStatus === "BERJALAN" ? "bg-primary text-primary-foreground border-primary shadow-md" : "bg-primary/8 text-primary border-primary/20 hover:bg-primary/15"}`}>
                 <CircleDot className="h-3 w-3" /> {stats.berjalan} berjalan
               </button>
-              <button type="button" onClick={() => setFilterStatus(p => p==="SELESAI"?"Semua":"SELESAI")}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all ${filterStatus==="SELESAI"?"bg-green-600 text-white border-green-600 shadow-lg":"bg-green-500/8 text-green-700 border-green-500/20 hover:bg-green-500/15 dark:text-green-400"}`}>
+              <button type="button" onClick={() => setFilterStatus(p => p === "SELESAI" ? "Semua" : "SELESAI")}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all
+                  ${filterStatus === "SELESAI" ? "bg-green-600 text-white border-green-600 shadow-md" : "bg-green-500/8 text-green-700 border-green-500/20 hover:bg-green-500/15 dark:text-green-400"}`}>
                 <CheckCircle2 className="h-3 w-3" /> {stats.selesai} selesai
               </button>
             </div>
           </div>
 
-          {/* ── KPI Cards ──────────────────────────────────────────── */}
+          {/* ── KPI Cards ───────────────────────────────────── */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {([
-              { sc:"s1", title:"Total Proyek",  val:stats.total,           fmt:(v: number)=>String(v), sub:`${raw.length} invoice`, icon:<FolderKanban className="h-4 w-4 text-muted-foreground"/>, cls:"" },
-              { sc:"s2", title:"Nilai Kontrak", val:stats.totalValue,      fmt:fShort,                 sub:`gross ${periodLabel}`,   icon:<Receipt className="h-4 w-4 text-muted-foreground"/>,        cls:"text-lg font-bold" },
-              { sc:"s3", title:"Selesai",       val:stats.selesai,         fmt:(v: number)=>String(v), sub:`${stats.total>0?((stats.selesai/stats.total)*100).toFixed(0):0}% dari total`, icon:<CheckCircle2 className="h-4 w-4 text-green-600"/>, cls:"text-green-600" },
-              { sc:"s4", title:"Outstanding",   val:stats.totalOut,        fmt:fShort,                 sub:`${stats.tertunggak+stats.berjalan} proyek belum lunas`, icon:<AlertTriangle className="h-4 w-4 text-destructive"/>, cls:stats.totalOut>0?"text-destructive text-lg font-bold":"text-green-600" },
+              { sc: "s1", title: "Total Proyek",  val: stats.total,      fmt: (v: number) => String(v),          sub: `${raw.length} invoice`,                  icon: <FolderKanban className="h-4 w-4 text-muted-foreground" />, cls: "" },
+              { sc: "s2", title: "Nilai Kontrak", val: stats.totalValue, fmt: fShort,                             sub: `gross ${periodLabel}`,                   icon: <Receipt className="h-4 w-4 text-muted-foreground" />,     cls: "text-lg font-bold" },
+              { sc: "s3", title: "Selesai",       val: stats.selesai,    fmt: (v: number) => String(v),          sub: `${stats.total > 0 ? ((stats.selesai / stats.total) * 100).toFixed(0) : 0}% dari total`, icon: <CheckCircle2 className="h-4 w-4 text-green-600" />, cls: "text-green-600" },
+              { sc: "s4", title: "Outstanding",   val: stats.totalOut,   fmt: fShort,                             sub: `${stats.tertunggak + stats.berjalan} proyek belum lunas`, icon: <AlertTriangle className="h-4 w-4 text-destructive" />, cls: stats.totalOut > 0 ? "text-destructive text-lg font-bold" : "text-green-600" },
             ] as const).map(c => (
               <div key={c.title} className={c.sc}>
                 <Card className="kcard">
@@ -909,9 +1148,9 @@ export default function ProjectsPage() {
             ))}
           </div>
 
-          {/* ── Status bar ─────────────────────────────────────────── */}
+          {/* ── Status distribution ─────────────────────────── */}
           <div className="u2">
-            <Card className="hvc rounded-2xl">
+            <Card>
               <CardContent className="py-4 px-6">
                 <div className="flex items-center gap-4 flex-wrap">
                   <div className="flex-1 min-w-[180px] space-y-2">
@@ -920,19 +1159,20 @@ export default function ProjectsPage() {
                       <span className="font-semibold text-foreground">{stats.total} proyek</span>
                     </div>
                     <div className="h-3 rounded-full overflow-hidden flex gap-0.5">
-                      {stats.tertunggak > 0 && <div className="h-full bg-destructive rounded-l-full" style={{ width:`${(stats.tertunggak/stats.total)*100}%` }} />}
-                      {stats.berjalan   > 0 && <div className="h-full bg-primary" style={{ width:`${(stats.berjalan/stats.total)*100}%` }} />}
-                      {stats.selesai    > 0 && <div className="h-full bg-green-500 rounded-r-full" style={{ width:`${(stats.selesai/stats.total)*100}%` }} />}
+                      {stats.tertunggak > 0 && <div className="h-full bg-destructive rounded-l-full" style={{ width: `${(stats.tertunggak / stats.total) * 100}%` }} />}
+                      {stats.berjalan   > 0 && <div className="h-full bg-primary"     style={{ width: `${(stats.berjalan   / stats.total) * 100}%` }} />}
+                      {stats.selesai    > 0 && <div className="h-full bg-green-500 rounded-r-full" style={{ width: `${(stats.selesai / stats.total) * 100}%` }} />}
                     </div>
                   </div>
                   <div className="flex gap-5 shrink-0 flex-wrap">
                     {[
-                      {l:"Tertunggak",c:stats.tertunggak,bg:"bg-destructive",s:"TERTUNGGAK"},
-                      {l:"Berjalan",  c:stats.berjalan,  bg:"bg-primary",    s:"BERJALAN"},
-                      {l:"Selesai",   c:stats.selesai,   bg:"bg-green-500",  s:"SELESAI"},
+                      { l: "Tertunggak", c: stats.tertunggak, bg: "bg-destructive", s: "TERTUNGGAK" },
+                      { l: "Berjalan",   c: stats.berjalan,   bg: "bg-primary",     s: "BERJALAN"   },
+                      { l: "Selesai",    c: stats.selesai,    bg: "bg-green-500",   s: "SELESAI"    },
                     ].map(x => (
-                      <button key={x.l} type="button" onClick={() => setFilterStatus(p => p===x.s?"Semua":x.s)}
-                        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-all ${filterStatus===x.s?"bg-primary/10 text-primary font-black ring-1 ring-primary/30":"text-muted-foreground hover:text-foreground"}`}>
+                      <button key={x.l} type="button" onClick={() => setFilterStatus(p => p === x.s ? "Semua" : x.s)}
+                        className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-all
+                          ${filterStatus === x.s ? "bg-primary/10 text-primary font-black ring-1 ring-primary/30" : "text-muted-foreground hover:text-foreground"}`}>
                         <span className={`h-2 w-2 rounded-full ${x.bg}`} />
                         {x.l} <span className="font-bold text-foreground ml-0.5">{x.c}</span>
                       </button>
@@ -943,9 +1183,9 @@ export default function ProjectsPage() {
             </Card>
           </div>
 
-          {/* ── Filter ─────────────────────────────────────────────── */}
+          {/* ── Filter & Search ─────────────────────────────── */}
           <div className="u3">
-            <Card className="hvc rounded-2xl overflow-hidden">
+            <Card className="overflow-hidden">
               <div className="px-6 py-3 border-b bg-primary/5 flex items-center gap-2">
                 <Filter className="h-3.5 w-3.5 text-primary/70" />
                 <span className="text-[11px] font-black uppercase tracking-wider text-primary/80">Filter & Cari</span>
@@ -954,26 +1194,28 @@ export default function ProjectsPage() {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
                   <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-                    placeholder="Cari klien, no. invoice, no. PO..."
-                    className="sbox w-full" />
+                    placeholder="Cari klien, no. invoice, no. PO, site…"
+                    className="sbox" />
                   {search && (
-                    <button type="button" title="Hapus" onClick={() => setSearch("")}
+                    <button type="button" title="Hapus pencarian" aria-label="Hapus pencarian" onClick={() => setSearch("")}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap text-xs">
-                  <span className="text-muted-foreground font-medium mr-1">Status:</span>
+                  <span className="text-muted-foreground font-medium">Status:</span>
                   {STATUSES.map(s => (
-                    <button key={s} type="button" onClick={() => setFilterStatus(s)} className={`chip ${filterStatus===s?"on":""}`}>
+                    <button key={s} type="button" onClick={() => setFilterStatus(s)}
+                      className={`chip ${filterStatus === s ? "on" : ""}`}>
                       {s === "Semua" ? `Semua (${stats.total})` : s}
                     </button>
                   ))}
                   <span className="mx-1 h-4 w-px bg-border" />
-                  <span className="text-muted-foreground font-medium mr-1">Tipe:</span>
+                  <span className="text-muted-foreground font-medium">Tipe:</span>
                   {CATS.map(c => (
-                    <button key={c} type="button" onClick={() => setFilterCat(c)} className={`chip ${filterCat===c?"on":""}`}>{c}</button>
+                    <button key={c} type="button" onClick={() => setFilterCat(c)}
+                      className={`chip ${filterCat === c ? "on" : ""}`}>{c}</button>
                   ))}
                 </div>
                 <div className="flex items-center justify-between">
@@ -989,7 +1231,7 @@ export default function ProjectsPage() {
             </Card>
           </div>
 
-          {/* ── Grid ───────────────────────────────────────────────── */}
+          {/* ── Project Grid ────────────────────────────────── */}
           <div className="u4">
             {displayed.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -1015,8 +1257,8 @@ export default function ProjectsPage() {
           </div>
         </div>
 
-        {/* Detail Panel */}
-        {selected && <DetailPanel project={selected} onClose={() => setSelected(null)} />}
+        {/* Detail Modal */}
+        {selected && <DetailModal project={selected} onClose={() => setSelected(null)} />}
 
       </SidebarInset>
     </SidebarProvider>

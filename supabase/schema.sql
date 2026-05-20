@@ -122,13 +122,35 @@ on public.activity_logs for select to authenticated using (true);
 
 -- ─── project_details ─────────────────────────────────────────────────────────
 create table if not exists public.project_details (
-  project_key       text        primary key,
-  display_name      text        not null default '',
-  physical_progress integer     not null default 0,
-  notes             text        not null default '',
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now()
+  project_key       text          primary key,
+  display_name      text          not null default '',
+  physical_progress integer       not null default 0,
+  notes             text          not null default '',
+  -- Document Control fields
+  site_location     text          not null default '',
+  description       text          not null default '',
+  po_value_manual   numeric(18,2) not null default 0,
+  -- Cost Control (Finance) - biaya operasional bulanan rata-rata
+  op_gaji           numeric(18,2) not null default 0,
+  op_material       numeric(18,2) not null default 0,
+  op_transport      numeric(18,2) not null default 0,
+  op_operasional    numeric(18,2) not null default 0,
+  op_sewa           numeric(18,2) not null default 0,
+  op_lainnya        numeric(18,2) not null default 0,
+  created_at        timestamptz   not null default now(),
+  updated_at        timestamptz   not null default now()
 );
+
+-- Migration: run these on existing DB
+-- alter table public.project_details add column if not exists site_location   text          not null default '';
+-- alter table public.project_details add column if not exists description      text          not null default '';
+-- alter table public.project_details add column if not exists po_value_manual  numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_gaji          numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_material      numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_transport     numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_operasional   numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_sewa          numeric(18,2) not null default 0;
+-- alter table public.project_details add column if not exists op_lainnya       numeric(18,2) not null default 0;
 
 drop trigger if exists trg_project_details_updated_at on public.project_details;
 create trigger trg_project_details_updated_at

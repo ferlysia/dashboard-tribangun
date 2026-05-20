@@ -37,9 +37,18 @@ export async function POST(
 
     const payload = {
       project_key: projectKey,
-      display_name: String(body.display_name ?? ""),
+      display_name:      String(body.display_name ?? ""),
       physical_progress: Math.min(100, Math.max(0, Number(body.physical_progress ?? 0))),
-      notes: String(body.notes ?? ""),
+      notes:             String(body.notes ?? ""),
+      site_location:     String(body.site_location ?? ""),
+      description:       String(body.description ?? ""),
+      po_value_manual:   Number(body.po_value_manual ?? 0),
+      op_gaji:           Number(body.op_gaji ?? 0),
+      op_material:       Number(body.op_material ?? 0),
+      op_transport:      Number(body.op_transport ?? 0),
+      op_operasional:    Number(body.op_operasional ?? 0),
+      op_sewa:           Number(body.op_sewa ?? 0),
+      op_lainnya:        Number(body.op_lainnya ?? 0),
     }
 
     const url = `${supabaseConfig.url}/rest/v1/project_details?on_conflict=project_key`
