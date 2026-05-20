@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell } from "recharts"
 import {
   Download, RefreshCw, DollarSign, CreditCard, AlertCircle, Receipt,
-  ChevronUp, ChevronDown, Minus, ArrowRight, Sparkles, Info,
+  ChevronUp, ChevronDown, Minus, ArrowRight, Sparkles, Info, BarChart3,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
@@ -262,11 +262,16 @@ export default function AnalyticsPage() {
 
           {/* ── Header ── */}
           <div className="a-up-1 flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-xl font-semibold">Analytics</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Analisis keuangan strategis · Rekap Invoice {periodLabel}
-              </p>
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
+                <BarChart3 className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold">Analytics</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Analisis keuangan strategis · Rekap Invoice {periodLabel}
+                </p>
+              </div>
             </div>
             <button
               onClick={handleExportPDF}

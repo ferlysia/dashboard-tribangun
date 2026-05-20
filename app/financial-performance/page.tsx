@@ -544,16 +544,21 @@ export default function FinancialPerformancePage() {
 
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="fp-u1 flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h1 className="text-xl font-semibold">Financial Performance</h1>
-                <span className="section-badge bg-primary/10 text-primary border border-primary/20">
-                  <TrendingUp className="h-3 w-3" /> ROI Dashboard
-                </span>
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
+                <TrendingUp className="h-6 w-6 text-primary" />
               </div>
-              <p className="text-sm text-muted-foreground">
-                Analisis profitabilitas, margin, dan Return on Investment · {periodLabel}
-              </p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="text-xl font-semibold">Financial Performance</h1>
+                  <span className="section-badge bg-primary/10 text-primary border border-primary/20">
+                    ROI Dashboard
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Analisis profitabilitas, margin, dan Return on Investment · {periodLabel}
+                </p>
+              </div>
             </div>
             {!costData.hasData && (
               <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-600 font-medium needs-input">

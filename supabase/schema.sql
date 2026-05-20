@@ -119,3 +119,49 @@ on public.app_user_profiles for select to authenticated using (true);
 drop policy if exists "activity_logs_select_authenticated" on public.activity_logs;
 create policy "activity_logs_select_authenticated"
 on public.activity_logs for select to authenticated using (true);
+
+-- ─── project_details ─────────────────────────────────────────────────────────
+create table if not exists public.project_details (
+  project_key       text        primary key,
+  display_name      text        not null default '',
+  physical_progress integer     not null default 0,
+  notes             text        not null default '',
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+drop trigger if exists trg_project_details_updated_at on public.project_details;
+create trigger trg_project_details_updated_at
+before update on public.project_details
+for each row execute function public.set_updated_at();
+
+-- ─── project_costs ───────────────────────────────────────────────────────────
+create table if not exists public.project_costs (
+  id           uuid          primary key default gen_random_uuid(),
+  project_key  text          not null,
+  category     text          not null default 'lainnya',
+  description  text          not null default '',
+  amount       numeric(18,2) not null default 0,
+  cost_date    date,
+  input_by     text          not null default '',
+  created_at   timestamptz   not null default now(),
+  updated_at   timestamptz   not null default now()
+);
+
+create index if not exists project_costs_key_idx on public.project_costs (project_key);
+
+drop trigger if exists trg_project_costs_updated_at on public.project_costs;
+create trigger trg_project_costs_updated_at
+before update on public.project_costs
+for each row execute function public.set_updated_at();
+
+alter table public.project_details enable row level security;
+alter table public.project_costs   enable row level security;
+
+drop policy if exists "project_details_all" on public.project_details;
+create policy "project_details_all"
+on public.project_details for all to anon, authenticated using (true) with check (true);
+
+drop policy if exists "project_costs_all" on public.project_costs;
+create policy "project_costs_all"
+on public.project_costs for all to anon, authenticated using (true) with check (true);

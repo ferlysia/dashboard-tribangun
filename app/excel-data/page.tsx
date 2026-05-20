@@ -226,7 +226,7 @@ export default function ExcelDataPage() {
     if (!keyword) return invoices.slice(0, 12)
     return invoices
       .filter((invoice) =>
-        [invoice.invoice_no, invoice.customer, invoice.site_name, invoice.description]
+        [invoice.invoice_no, invoice.po_number, invoice.customer, invoice.site_name, invoice.description]
           .join(" ")
           .toLowerCase()
           .includes(keyword)

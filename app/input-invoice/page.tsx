@@ -14,6 +14,7 @@ import {
   FileText, Users, DollarSign, CreditCard, ClipboardList,
 } from "lucide-react"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
+import { useInvoices } from "@/components/providers/invoices-provider"
 
 type InvoiceFormState = {
   invoice_no: string
@@ -141,6 +142,31 @@ const PAGE_STYLES = `
     background: hsl(var(--primary) / 0.04);
     border-color: hsl(var(--primary) / 0.3) !important;
   }
+
+  /* Customer autocomplete dropdown */
+  .ac-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0; right: 0;
+    z-index: 50;
+    background: hsl(var(--popover));
+    border: 1px solid hsl(var(--border));
+    border-radius: 8px;
+    box-shadow: 0 8px 24px -4px hsl(var(--foreground)/.12);
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .ac-item {
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border-bottom: 1px solid hsl(var(--border)/.5);
+    color: hsl(var(--foreground));
+  }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover { background: hsl(var(--primary)/.08); color: hsl(var(--primary)); }
 `
 
 const fIDR = (n: number) =>
@@ -148,10 +174,26 @@ const fIDR = (n: number) =>
 
 export default function InputInvoicePage() {
   const { user } = useCurrentUser()
+  const { invoices: allInvoices } = useInvoices()
   const [form, setForm] = React.useState<InvoiceFormState>(EMPTY_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [result, setResult] = React.useState<{ type: "success" | "error"; message: string } | null>(null)
   const [submitCount, setSubmitCount] = React.useState(0)
+  const [showSuggestions, setShowSuggestions] = React.useState(false)
+
+  const uniqueCustomers = React.useMemo(() => {
+    const seen = new Set<string>()
+    return allInvoices
+      .map(i => i.customer)
+      .filter(c => { if (seen.has(c)) return false; seen.add(c); return true })
+      .sort()
+  }, [allInvoices])
+
+  const suggestions = React.useMemo(() => {
+    if (!form.customer.trim() || !showSuggestions) return []
+    const q = form.customer.toLowerCase()
+    return uniqueCustomers.filter(c => c.toLowerCase().includes(q)).slice(0, 8)
+  }, [form.customer, uniqueCustomers, showSuggestions])
 
   const set = React.useCallback(<K extends keyof InvoiceFormState>(field: K, value: InvoiceFormState[K]) => {
     setForm(curr => ({ ...curr, [field]: value }))
@@ -394,7 +436,7 @@ export default function InputInvoicePage() {
                 </CardHeader>
                 <CardContent className="px-6 pb-6 space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
+                    <div className="space-y-1.5 relative">
                       <Label htmlFor="customer" className="text-xs font-semibold">
                         Nama Customer <span className="text-destructive">*</span>
                       </Label>
@@ -402,9 +444,22 @@ export default function InputInvoicePage() {
                         id="customer"
                         placeholder="PT / CV / Nama Perusahaan"
                         value={form.customer}
-                        onChange={e => set("customer", e.target.value)}
+                        autoComplete="off"
+                        onChange={e => { set("customer", e.target.value); setShowSuggestions(true) }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                         className="h-10"
                       />
+                      {suggestions.length > 0 && (
+                        <div className="ac-dropdown">
+                          {suggestions.map(c => (
+                            <div key={c} className="ac-item"
+                              onMouseDown={() => { set("customer", c); setShowSuggestions(false) }}>
+                              {c}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="site_name" className="text-xs font-semibold">Nama Site / Lokasi</Label>

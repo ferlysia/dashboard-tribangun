@@ -500,11 +500,16 @@ export default function ClientsPage() {
 
           {/* ── Page Title ─────────────────────────────────────────────── */}
           <div className="c-up-1 flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-xl font-semibold">Klien</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {allClients.length} klien · {raw.length} invoice · {periodLabel}
-              </p>
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
+                <Users className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold">Klien</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {allClients.length} klien · {raw.length} invoice · {periodLabel}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <span className="flex items-center gap-1.5 rounded-full bg-green-500/10 border border-green-500/20 px-3 py-1 text-xs font-semibold text-green-600">

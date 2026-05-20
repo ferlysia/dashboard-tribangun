@@ -4,7 +4,7 @@ import * as React from "react"
 import {
   AlertTriangle, Clock, CheckCircle2, TrendingDown,
   Search, Bell, X, Download, RefreshCw,
-  Calendar, FileText, ChevronRight, Tag,
+  Calendar, FileText, ChevronRight, Tag, Timer,
 } from "lucide-react"
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
@@ -436,11 +436,16 @@ export default function LifecyclePage() {
 
           {/* ── Header ─────────────────────────────────────────────── */}
           <div className="a-u1 flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-xl font-semibold">Lifecycle & Aging</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Monitoring piutang · Outstanding tracker · Follow-up {periodLabel}
-              </p>
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 shadow-sm">
+                <Timer className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold">Lifecycle & Aging</h1>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Monitoring piutang · Outstanding tracker · Follow-up {periodLabel}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {stats.buckets["90+"].length > 0 && (
