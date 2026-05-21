@@ -708,8 +708,9 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [detail, setDetail] = React.useState<ProjectDetail | null>(initDetail)
   const [costs, setCosts]   = React.useState<ProjectCost[]>([])
   const [loading, setLoading] = React.useState(true)
-  const [saving, setSaving]  = React.useState(false)
-  const [savedOk, setSavedOk] = React.useState(false)
+  const [saving,   setSaving]   = React.useState(false)
+  const [savedOk,  setSavedOk]  = React.useState(false)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
 
   const [editName,     setEditName]     = React.useState("")
   const [editSite,     setEditSite]     = React.useState("")
@@ -859,8 +860,12 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       })
       const d = await r.json()
-      if (d.data) { setDetail(d.data); onDetailSaved(d.data) }
+      if (d.error || !d.data) throw new Error(d.error || "Data tidak dikembalikan dari server")
+      setDetail(d.data); onDetailSaved(d.data)
+      setSaveError(null)
       setSavedOk(true); setTimeout(() => setSavedOk(false), 2500)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Gagal menyimpan")
     } finally { setSaving(false) }
   }
 
@@ -1202,11 +1207,18 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
               </div>
 
               {/* ── Save Basic Info ── */}
-              <div className="mt-6 flex items-center gap-3 pb-6 border-b border-border">
-                <button type="button" onClick={save} disabled={saving} className="savebtn savebtn-primary">
-                  {saving ? "Menyimpan…" : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Info Proyek</>}
-                </button>
-                {savedOk && <span className="text-xs text-green-600 font-semibold">✓ Berhasil disimpan</span>}
+              <div className="mt-6 pb-6 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => { setSaveError(null); save() }} disabled={saving} className="savebtn savebtn-primary">
+                    {saving ? "Menyimpan…" : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Info Proyek</>}
+                  </button>
+                  {savedOk && <span className="text-xs text-green-600 font-semibold">✓ Berhasil disimpan</span>}
+                </div>
+                {saveError && (
+                  <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/6 px-3 py-2 text-xs text-destructive font-medium">
+                    ⚠️ Gagal menyimpan: {saveError}
+                  </div>
+                )}
               </div>
 
               {/* ── Dual Sub-Tab: Log Mingguan | Jadwal & Rencana ── */}
@@ -2200,7 +2212,8 @@ export default function ProjectsPage() {
   const combinedProjects = React.useMemo(() => {
     const result = [...allProjects]
     for (const det of detailMap.values()) {
-      if (det.created_manually && !result.find(p => p.id === det.project_key)) {
+      const isManual = det.created_manually === true || det.project_key?.startsWith("MANUAL::")
+      if (isManual && !result.find(p => p.id === det.project_key)) {
         result.push(buildManualProject(det))
       }
     }
