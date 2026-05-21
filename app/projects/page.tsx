@@ -275,16 +275,16 @@ function ROIGauge({ costPct }: { costPct: number }) {
           <circle cx={nx} cy={ny} r="3.5" fill="#64748b" />
         </>
       )}
-      <text x="22"  y="107" fontSize="9" fill="#94a3b8" textAnchor="middle">0%</text>
-      <text x="110" y="12"  fontSize="9" fill="#94a3b8" textAnchor="middle">100%</text>
-      <text x="200" y="107" fontSize="9" fill="#94a3b8" textAnchor="middle">200%</text>
+      <text x="15"  y="105" fontSize="9" fill="#94a3b8" textAnchor="middle">0%</text>
+      <text x="110" y="13"  fontSize="9" fill="#94a3b8" textAnchor="middle">100%</text>
+      <text x="205" y="105" fontSize="9" fill="#94a3b8" textAnchor="middle">200%</text>
       {costPct > 0 ? (
         <>
-          <text x={cx} y={cy + 18} fontSize="12" fontWeight="bold" fill="#1e293b" textAnchor="middle" className="dark-gauge-text">{costPct.toFixed(0)}%</text>
-          <text x={cx} y={cy + 29} fontSize="7.5" fill="#94a3b8" textAnchor="middle">rasio biaya</text>
+          <text x={cx} y={cy - 24} fontSize="16" fontWeight="800" fill="#1e293b" textAnchor="middle" className="dark-gauge-text">{costPct.toFixed(0)}%</text>
+          <text x={cx} y={cy - 10} fontSize="7.5" fill="#94a3b8" textAnchor="middle">rasio biaya/PO</text>
         </>
       ) : (
-        <text x={cx} y={cy + 18} fontSize="9" fill="#94a3b8" textAnchor="middle">Input cost →</text>
+        <text x={cx} y={cy - 18} fontSize="9" fill="#94a3b8" textAnchor="middle">Input estimasi →</text>
       )}
     </svg>
   )
@@ -1055,16 +1055,11 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const netMarginVOLive = budgetVO > 0 ? (netProfitVOLive / budgetVO) * 100 : 0
   const costPctVOLive   = budgetVO > 0 ? (totalOpVOLive / budgetVO) * 100 : 0
 
-  // Budget Utilization (Penyerapan Anggaran): actual costs / PM budget estimate
-  const budgetUtilMain = totalOpLive > 0 ? (totalMain / totalOpLive) * 100 : 0
-  const budgetUtilVO   = totalOpVOLive > 0 ? (totalVO / totalOpVOLive) * 100 : 0
-
   // Active-stream vars driven by opStream toggle
-  const activeCostPct     = opStream === "main" ? costPctLive    : costPctVOLive
-  const activeNetProfit   = opStream === "main" ? netProfitLive  : netProfitVOLive
-  const activeNetMargin   = opStream === "main" ? netMarginLive  : netMarginVOLive
-  const activeTotalOp     = opStream === "main" ? totalOpLive    : totalOpVOLive
-  const activeBudgetUtil  = opStream === "main" ? budgetUtilMain : budgetUtilVO
+  const activeCostPct   = opStream === "main" ? costPctLive   : costPctVOLive
+  const activeNetProfit = opStream === "main" ? netProfitLive : netProfitVOLive
+  const activeNetMargin = opStream === "main" ? netMarginLive : netMarginVOLive
+  const activeTotalOp   = opStream === "main" ? totalOpLive   : totalOpVOLive
 
   return (
     <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -1522,16 +1517,44 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   <p className="text-[11px] text-muted-foreground mb-3">Berdasarkan estimasi biaya operasional PM</p>
                   <ROIGauge costPct={activeCostPct} />
                   <div className="grid grid-cols-3 gap-2 mt-4">
-                    {[
-                      { label: "NET PROFIT", val: activeTotalOp > 0 ? fShort(activeNetProfit)           : "—", cls: activeNetProfit >= 0 ? "text-green-600" : "text-destructive" },
-                      { label: "NET MARGIN", val: activeTotalOp > 0 ? `${activeNetMargin.toFixed(1)}%`  : "—", cls: activeNetMargin >= 0 ? "text-green-600" : "text-destructive" },
-                      { label: "PENYERAPAN", val: activeTotalOp > 0 ? `${activeBudgetUtil.toFixed(0)}%` : "—", cls: activeBudgetUtil <= 80 ? "text-green-600" : activeBudgetUtil <= 100 ? "text-amber-500" : "text-destructive" },
-                    ].map(m => (
-                      <div key={m.label} className="text-center p-2.5 rounded-xl border border-border bg-card">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{m.label}</p>
-                        <p className={`text-base font-black font-mono ${m.cls}`}>{m.val}</p>
-                      </div>
-                    ))}
+                    {/* NET PROFIT */}
+                    <div className="text-center p-2.5 rounded-xl border border-border bg-card">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">NET PROFIT</p>
+                      <p className={`text-base font-black font-mono ${activeTotalOp > 0 ? (activeNetProfit >= 0 ? "text-green-600" : "text-destructive") : "text-muted-foreground"}`}>
+                        {activeTotalOp > 0 ? fShort(activeNetProfit) : "—"}
+                      </p>
+                    </div>
+                    {/* NET MARGIN */}
+                    <div className="text-center p-2.5 rounded-xl border border-border bg-card">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">NET MARGIN</p>
+                      <p className={`text-base font-black font-mono ${activeTotalOp > 0 ? (activeNetMargin >= 0 ? "text-green-600" : "text-destructive") : "text-muted-foreground"}`}>
+                        {activeTotalOp > 0 ? `${activeNetMargin.toFixed(1)}%` : "—"}
+                      </p>
+                    </div>
+                    {/* MARGIN SAFETY LEVEL */}
+                    <div className="text-center p-2.5 rounded-xl border border-border bg-card flex flex-col items-center justify-center">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">SAFETY</p>
+                      {activeTotalOp > 0 ? (
+                        <div className="flex flex-col items-center gap-0.5">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-black ${
+                            activeNetMargin > 25  ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                            : activeNetMargin >= 10 ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            : "bg-destructive/12 text-destructive"
+                          }`}>
+                            {activeNetMargin > 25 ? "AMAN" : activeNetMargin >= 10 ? "WASPADA" : "BAHAYA"}
+                          </span>
+                          <span className={`text-[8px] font-semibold ${
+                            activeNetMargin > 25  ? "text-green-600"
+                            : activeNetMargin >= 10 ? "text-amber-500"
+                            : "text-destructive"
+                          }`}>
+                            {activeNetMargin > 25 ? "Low Risk" : activeNetMargin >= 10 ? "Mid Risk" : "High Risk"}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-base font-black font-mono text-muted-foreground">—</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
