@@ -6,7 +6,7 @@ import {
   CalendarDays, Receipt, Package, Wrench, Briefcase, X, Filter,
   Hash, Plus, Trash2, TrendingUp, MapPin, ChevronRight,
   ClipboardList, BarChart3, DollarSign, Save, CheckCheck,
-  Link2, FolderOpen, Camera, ListChecks,
+  Link2, FolderOpen, Camera, ListChecks, RotateCcw,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
@@ -14,6 +14,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { useFilteredInvoices } from "@/lib/use-filtered-invoices"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
+import { useInvoices } from "@/components/providers/invoices-provider"
 import type { InvoiceRecord as Invoice } from "@/types/invoice"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -77,6 +78,29 @@ type ScheduleItem = {
   is_done: boolean
   completed_at: string | null
   created_at: string
+}
+
+type FinanceInvoiceForm = {
+  invoice_no: string
+  project_type: string
+  customer: string
+  site_name: string
+  description: string
+  date: string
+  invoice_sent_date: string
+  terms_of_payment: string
+  po_number: string
+  po_date: string
+  po_value: string
+  tax_type: "PPN" | "NON_PPN"
+  dpp: string
+  ppn: string
+  total: string
+  payment_date: string
+  payment_value: string
+  selisih: string
+  status: "PAID" | "UNPAID"
+  keterangan: string
 }
 
 type ProjectCost = {
@@ -202,6 +226,14 @@ const OP_FIELDS = [
 ] as const
 
 const PROGRESS_STEPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+const EMPTY_FINANCE_FORM: FinanceInvoiceForm = {
+  invoice_no: "", project_type: "", customer: "", site_name: "",
+  description: "", date: "", invoice_sent_date: "", terms_of_payment: "",
+  po_number: "", po_date: "", po_value: "", tax_type: "PPN",
+  dpp: "", ppn: "", total: "", payment_date: "", payment_value: "",
+  selisih: "", status: "UNPAID", keterangan: "",
+}
 
 // ─── ROI Gauge ────────────────────────────────────────────────────────────────
 function ROIGauge({ costPct }: { costPct: number }) {
@@ -505,6 +537,49 @@ const STYLES = `
   /* dark gauge text */
   .dark .dark-gauge-text { fill: #e2e8f0; }
 
+  /* ════ FINANCE TAB ══════════════════════════════════════════════════════════ */
+  /* PO Reference Panel */
+  .po-ref-panel {
+    border-radius: 10px;
+    border: 1.5px solid color-mix(in oklch, #3b82f6 30%, transparent);
+    background: color-mix(in oklch, #3b82f6 5%, transparent);
+    padding: 10px 14px; margin-top: 8px;
+  }
+  .dark .po-ref-panel {
+    background: color-mix(in oklch, #3b82f6 8%, transparent);
+    border-color: color-mix(in oklch, #3b82f6 25%, transparent);
+  }
+  /* Billing Lock Banner */
+  .billing-lock-banner {
+    border-radius: 10px;
+    border: 1.5px solid color-mix(in oklch, var(--destructive) 35%, transparent);
+    background: color-mix(in oklch, var(--destructive) 6%, transparent);
+    padding: 10px 14px; margin-bottom: 16px;
+  }
+  /* Finance form section box */
+  .fin-section {
+    border-radius: 12px; border: 1.5px solid var(--border);
+    padding: 14px 16px; margin-bottom: 14px;
+    background: color-mix(in oklch, var(--muted) 10%, transparent);
+  }
+  .fin-section-lbl {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 800; letter-spacing: 0.07em;
+    text-transform: uppercase; margin-bottom: 12px;
+    color: var(--muted-foreground);
+  }
+  /* Status toggle */
+  .stat-opt {
+    flex: 1; padding: 8px 10px; border-radius: 9px;
+    border: 2px solid var(--border); text-align: center;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    transition: all .14s; background: transparent;
+  }
+  .stat-opt.paid   { border-color: #16a34a; background: #16a34a10; color: #16a34a; }
+  .stat-opt.unpaid { border-color: hsl(var(--destructive)); background: hsl(var(--destructive)/.08); color: hsl(var(--destructive)); }
+  .stat-opt.inact  { border-color: var(--border); color: var(--muted-foreground); }
+  .stat-opt.inact:hover { background: color-mix(in oklch,var(--muted) 40%,transparent); }
+
   /* ════ DOCUMENT CONTROL SUB-TABS ════════════════════════════════════════════ */
   .dtab {
     padding: 7px 14px; border-radius: 9px; font-size: 12px; font-weight: 600;
@@ -566,7 +641,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   onDetailSaved: (d: ProjectDetail) => void
 }) {
   const { user } = useCurrentUser()
-  const [tab, setTab] = React.useState<"project" | "costcontrol" | "invoice">("project")
+  const [tab, setTab] = React.useState<"project" | "costcontrol" | "finance">("project")
   const [detail, setDetail] = React.useState<ProjectDetail | null>(initDetail)
   const [costs, setCosts]   = React.useState<ProjectCost[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -605,6 +680,28 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [schedTask,      setSchedTask]      = React.useState("")
   const [schedWeight,    setSchedWeight]    = React.useState(10)
   const [addingSched,    setAddingSched]    = React.useState(false)
+
+  // ── Finance Tab state ─────────────────────────────────────────────────────
+  const [financeForm,       setFinanceForm]       = React.useState<FinanceInvoiceForm>(EMPTY_FINANCE_FORM)
+  const [financeSubmitting, setFinanceSubmitting] = React.useState(false)
+  const [financeResult,     setFinanceResult]     = React.useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [financeShowSugg,   setFinanceShowSugg]   = React.useState(false)
+
+  const setF = React.useCallback(<K extends keyof FinanceInvoiceForm>(field: K, val: FinanceInvoiceForm[K]) => {
+    setFinanceForm(curr => ({ ...curr, [field]: val }))
+  }, [])
+
+  // Customer autocomplete for Finance form
+  const { invoices: allInvoices } = useInvoices()
+  const financeCustomers = React.useMemo(() => {
+    const seen = new Set<string>()
+    return allInvoices.map(i => i.customer).filter(c => { if (seen.has(c)) return false; seen.add(c); return true }).sort()
+  }, [allInvoices])
+  const financeSuggestions = React.useMemo(() => {
+    if (!financeForm.customer.trim() || !financeShowSugg) return []
+    const q = financeForm.customer.toLowerCase()
+    return financeCustomers.filter(c => c.toLowerCase().includes(q)).slice(0, 8)
+  }, [financeForm.customer, financeCustomers, financeShowSugg])
 
   function applyDetail(det: ProjectDetail) {
     setDetail(det)
@@ -651,6 +748,26 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     document.body.style.overflow = "hidden"
     return () => { document.body.style.overflow = "" }
   }, [])
+
+  // Finance form auto-calc: PPN & Total from DPP
+  React.useEffect(() => {
+    const dpp = Number(financeForm.dpp) || 0
+    if (financeForm.tax_type === "PPN" && dpp > 0) {
+      const ppn = Math.round(dpp * 0.11)
+      setFinanceForm(c => ({ ...c, ppn: String(ppn), total: String(dpp + ppn) }))
+    } else if (financeForm.tax_type === "NON_PPN" && dpp > 0) {
+      setFinanceForm(c => ({ ...c, ppn: "0", total: String(dpp) }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [financeForm.dpp, financeForm.tax_type])
+
+  // Finance form auto-calc: Selisih from Total & Payment
+  React.useEffect(() => {
+    const total = Number(financeForm.total) || 0
+    const paid  = Number(financeForm.payment_value) || 0
+    if (total > 0 && paid > 0) setFinanceForm(c => ({ ...c, selisih: String(total - paid) }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [financeForm.total, financeForm.payment_value])
 
   async function save() {
     setSaving(true); setSavedOk(false)
@@ -770,6 +887,51 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     setSchedItems(p => p.filter(s => s.id !== id))
   }
 
+  // ── Finance Invoice Submit ────────────────────────────────────────────────
+  async function submitFinanceInvoice() {
+    const missing = [
+      !financeForm.invoice_no.trim() && "No. Invoice",
+      !financeForm.customer.trim()   && "Nama Customer",
+      !financeForm.description.trim() && "Deskripsi",
+      !financeForm.date              && "Tanggal Invoice",
+    ].filter(Boolean)
+    if (missing.length > 0) {
+      setFinanceResult({ type: "error", message: `Field wajib belum diisi: ${missing.join(", ")}` })
+      return
+    }
+    setFinanceSubmitting(true); setFinanceResult(null)
+    try {
+      const payload = {
+        ...financeForm,
+        invoice_no:        financeForm.invoice_no.trim(),
+        customer:          financeForm.customer.trim(),
+        site_name:         financeForm.site_name.trim(),
+        description:       financeForm.description.trim(),
+        keterangan:        financeForm.keterangan.trim(),
+        po_number:         financeForm.po_number.trim(),
+        po_date:           financeForm.po_date || null,
+        invoice_sent_date: financeForm.invoice_sent_date || null,
+        terms_of_payment:  financeForm.terms_of_payment ? Number(financeForm.terms_of_payment) : null,
+        po_value:          Number(financeForm.po_value   || 0),
+        dpp:               Number(financeForm.dpp        || 0),
+        ppn:               Number(financeForm.ppn        || 0),
+        total:             Number(financeForm.total      || 0),
+        payment_value:     Number(financeForm.payment_value || 0),
+        selisih:           Number(financeForm.selisih    || 0),
+        actor_email:       user?.email || "",
+      }
+      const res = await fetch("/api/invoices", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Gagal membuat invoice")
+      setFinanceResult({ type: "success", message: `✓ Invoice ${financeForm.invoice_no} berhasil dibuat dan tersimpan ke database.` })
+      setFinanceForm(EMPTY_FINANCE_FORM)
+    } catch (err) {
+      setFinanceResult({ type: "error", message: err instanceof Error ? err.message : "Gagal membuat invoice." })
+    } finally { setFinanceSubmitting(false) }
+  }
+
   const cc = calcCC(detail, project.poValue || project.totalValue)
   const bilPct = Math.round(project.billingProgress)
   const barCls = project.status === "SELESAI" ? "pbar-green" : project.status === "TERTUNGGAK" ? "pbar-red" : "pbar-blue"
@@ -848,8 +1010,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
           <button type="button" className={`mtab ${tab === "costcontrol" ? "on" : ""}`} onClick={() => setTab("costcontrol")}>
             <BarChart3 className="h-3.5 w-3.5" /> Cost Control
           </button>
-          <button type="button" className={`mtab ${tab === "invoice" ? "on" : ""}`} onClick={() => setTab("invoice")}>
-            <Receipt className="h-3.5 w-3.5" /> Invoice ({project.invoiceCount})
+          <button type="button" className={`mtab ${tab === "finance" ? "on" : ""}`} onClick={() => setTab("finance")}>
+            <DollarSign className="h-3.5 w-3.5" /> Finance
           </button>
         </div>
 
@@ -1330,85 +1492,336 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
               </div>
             </div>
 
-          ) : (
+          ) : (() => {
+            /* ═══ FINANCE — INPUT INVOICE ═══ */
+            const finDpp   = Number(financeForm.dpp)           || 0
+            const finTotal = Number(financeForm.total)         || 0
+            const finPaid  = Number(financeForm.payment_value) || 0
 
-            /* ═══ INVOICE ═══ */
-            <div className="p-7">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold mb-5 div-badge-fin">
-                <span className="h-2 w-2 rounded-full bg-green-500" /> Divisi Finance — Invoice
-              </span>
+            // Billing lock: both conditions must be true to enable submit
+            const canSubmit  = editProg >= 100 && !!editOneDrive.trim()
+            const lockReason = editProg < 100 && !editOneDrive.trim()
+              ? `Progress fisik ${editProg}% (butuh 100%) dan OneDrive link belum diisi`
+              : editProg < 100
+              ? `Progress fisik ${editProg}% — butuh 100% sebelum Finance bisa generate invoice`
+              : "OneDrive link Doc Con belum diisi — wajib ada sebelum invoice digenerate"
 
-              {/* Billing progress */}
-              <div className="rounded-2xl border border-border bg-muted/15 p-4 mb-5">
-                <div className="flex justify-between text-xs mb-2">
-                  <span className="text-muted-foreground font-medium">Billing Progress</span>
-                  <span className="font-bold text-foreground">{project.paidCount}/{project.invoiceCount} terbayar · {bilPct}%</span>
-                </div>
-                <div className="pbar-bg">
-                  <div className={`pbar-fill ${barCls}`} style={{ "--w": `${bilPct}%` } as React.CSSProperties} />
-                </div>
-                <div className="flex justify-between mt-2 text-[10px] text-muted-foreground">
-                  <span>Total: <span className="font-semibold text-foreground">{fIDR(project.totalValue)}</span></span>
-                  <span>Terbayar: <span className="font-semibold text-green-600">{fIDR(project.totalPaid)}</span></span>
-                  {project.totalOutstanding > 0 && <span>Outstanding: <span className="font-semibold text-destructive">{fIDR(project.totalOutstanding)}</span></span>}
+            return (
+              <div className="p-7">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold mb-4 div-badge-fin">
+                  <span className="h-2 w-2 rounded-full bg-green-500" /> Divisi Finance — Input Invoice Baru
+                </span>
+
+                {/* Billing Lock Banner */}
+                {!canSubmit && (
+                  <div className="billing-lock-banner flex items-start gap-2.5">
+                    <span className="text-lg shrink-0">🔒</span>
+                    <div>
+                      <p className="text-xs font-bold text-destructive mb-0.5">Invoice terkunci — syarat belum terpenuhi</p>
+                      <p className="text-[11px] text-muted-foreground">{lockReason}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Result Banner */}
+                {financeResult && (
+                  <div className={`flex items-start gap-2 rounded-xl border px-4 py-3 text-xs font-medium mb-4 ${
+                    financeResult.type === "success"
+                      ? "border-green-500/25 bg-green-500/8 text-green-700 dark:text-green-400"
+                      : "border-destructive/25 bg-destructive/6 text-destructive"
+                  }`}>
+                    {financeResult.message}
+                  </div>
+                )}
+
+                <div className="grid gap-5 xl:grid-cols-[1fr_260px]">
+
+                  {/* ── LEFT: Form Sections ── */}
+                  <div>
+
+                    {/* Section 1: Identitas Invoice */}
+                    <div className="fin-section">
+                      <div className="fin-section-lbl">📄 Identitas Invoice</div>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">No. Invoice <span className="text-destructive">*</span></label>
+                          <input className="minput" style={{ fontSize: 12 }} placeholder="INV/2025/001"
+                            value={financeForm.invoice_no} onChange={e => setF("invoice_no", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tanggal Invoice <span className="text-destructive">*</span></label>
+                          <input type="date" className="minput" title="Tanggal Invoice" style={{ fontSize: 12 }}
+                            value={financeForm.date} onChange={e => setF("date", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tanggal Kirim Invoice</label>
+                          <input type="date" className="minput" title="Tanggal Kirim Invoice" style={{ fontSize: 12 }}
+                            value={financeForm.invoice_sent_date} onChange={e => setF("invoice_sent_date", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tipe Proyek</label>
+                          <select className="minput" title="Tipe Proyek" style={{ fontSize: 12 }}
+                            value={financeForm.project_type} onChange={e => setF("project_type", e.target.value)}>
+                            <option value="">— Pilih Tipe —</option>
+                            <option value="Maintenance">🔧 Maintenance</option>
+                            <option value="Material/PAC">📦 Material / PAC</option>
+                            <option value="Project/Instalasi">🏗️ Project / Instalasi</option>
+                            <option value="Jasa">⚙️ Jasa</option>
+                            <option value="Lainnya">📋 Lainnya</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Terms of Payment</label>
+                          <select className="minput" title="Terms of Payment" style={{ fontSize: 12 }}
+                            value={financeForm.terms_of_payment} onChange={e => setF("terms_of_payment", e.target.value)}>
+                            <option value="">— Pilih TOP —</option>
+                            <option value="15">15 hari</option>
+                            <option value="30">30 hari</option>
+                            <option value="45">45 hari</option>
+                            <option value="60">60 hari</option>
+                            <option value="90">90 hari</option>
+                            <option value="120">120 hari</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tipe Pajak</label>
+                          <select className="minput" title="Tipe Pajak" style={{ fontSize: 12 }}
+                            value={financeForm.tax_type} onChange={e => setF("tax_type", e.target.value as "PPN" | "NON_PPN")}>
+                            <option value="PPN">PPN (11%)</option>
+                            <option value="NON_PPN">Non PPN</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Section 2: Customer */}
+                    <div className="fin-section">
+                      <div className="fin-section-lbl">👤 Customer &amp; Deskripsi</div>
+                      <p className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mb-3 flex items-center gap-1">
+                        ℹ️ Isi Nama Customer dengan nama resmi/legal entity untuk penagihan. Gunakan referensi Doc Con di bawah sebagai panduan.
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2 mb-3">
+                        <div className="relative">
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nama Customer (Legal) <span className="text-destructive">*</span></label>
+                          <input className="minput" style={{ fontSize: 12 }} placeholder="PT / CV / Nama Perusahaan Resmi"
+                            value={financeForm.customer} autoComplete="off"
+                            onChange={e => { setF("customer", e.target.value); setFinanceShowSugg(true) }}
+                            onFocus={() => setFinanceShowSugg(true)}
+                            onBlur={() => setTimeout(() => setFinanceShowSugg(false), 150)} />
+                          {financeSuggestions.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 z-50 rounded-lg border border-border shadow-lg mt-1 max-h-40 overflow-y-auto"
+                              style={{ background: "var(--popover)" }}>
+                              {financeSuggestions.map(c => (
+                                <div key={c} className="px-3 py-2 text-xs cursor-pointer hover:bg-primary/8 border-b border-border/50 last:border-0"
+                                  onMouseDown={() => { setF("customer", c); setFinanceShowSugg(false) }}>
+                                  {c}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nama Site / Lokasi (Resmi)</label>
+                          <input className="minput" style={{ fontSize: 12 }} placeholder="Contoh: Data Center Cikarang Phase 1"
+                            value={financeForm.site_name} onChange={e => setF("site_name", e.target.value)} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Deskripsi Pekerjaan <span className="text-destructive">*</span></label>
+                        <textarea className="minput" style={{ fontSize: 12, minHeight: 72 }}
+                          placeholder="Tuliskan deskripsi pekerjaan atau layanan yang ditagihkan..."
+                          value={financeForm.description} onChange={e => setF("description", e.target.value)} />
+                      </div>
+                    </div>
+
+                    {/* Section 3: PO & Nilai */}
+                    <div className="fin-section">
+                      <div className="fin-section-lbl">📋 PO &amp; Nilai Invoice</div>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">No. PO</label>
+                          <input className="minput" style={{ fontSize: 12 }} placeholder="PO-2025-XXX"
+                            value={financeForm.po_number} onChange={e => setF("po_number", e.target.value)} />
+                          {/* PO Reference Panel — shown once Finance types a PO number */}
+                          {financeForm.po_number.trim() && (
+                            <div className="po-ref-panel">
+                              <p className="text-[10px] font-black text-blue-700 dark:text-blue-400 mb-1.5 uppercase tracking-wide">📋 Referensi Data Doc Con</p>
+                              <div className="space-y-1">
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="text-muted-foreground">Site Lapangan (kasual):</span>
+                                  <span className="font-semibold text-foreground">{editSite || "—"}</span>
+                                </div>
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="text-muted-foreground">Progress Fisik:</span>
+                                  <span className={`font-bold ${editProg >= 100 ? "text-green-600" : "text-amber-500"}`}>{editProg}%</span>
+                                </div>
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="text-muted-foreground">Nilai PO (Doc Con):</span>
+                                  <span className="font-semibold text-foreground">{fIDR(parseNum(editPOManual) || project.poValue || 0)}</span>
+                                </div>
+                                <div className="flex justify-between text-[11px]">
+                                  <span className="text-muted-foreground">OneDrive:</span>
+                                  <span className={`font-bold ${editOneDrive ? "text-green-600" : "text-destructive"}`}>
+                                    {editOneDrive ? "✓ Ada" : "✗ Belum diisi"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tanggal PO</label>
+                          <input type="date" className="minput" title="Tanggal PO" style={{ fontSize: 12 }}
+                            value={financeForm.po_date} onChange={e => setF("po_date", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nilai PO (Rp)</label>
+                          <input type="number" className="minput" style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.po_value} onChange={e => setF("po_value", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">DPP (Rp) <span className="text-[10px] font-normal">→ PPN &amp; Total auto-hitung</span></label>
+                          <input type="number" className="minput" style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.dpp} onChange={e => setF("dpp", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">PPN {financeForm.tax_type === "PPN" ? "(11%)" : "(0%)"}</label>
+                          <input type="number" className={`minput ${finDpp > 0 ? "border-primary/30" : ""}`} style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.ppn} onChange={e => setF("ppn", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Total Invoice (Rp)</label>
+                          <input type="number" className={`minput ${finDpp > 0 ? "border-primary/30" : ""}`} style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.total} onChange={e => setF("total", e.target.value)} />
+                        </div>
+                      </div>
+                      {finDpp > 0 && (
+                        <div className="mt-3 rounded-xl bg-muted/30 border border-border p-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Ringkasan Nilai</p>
+                          {[
+                            { l: "DPP", v: fIDR(finDpp) },
+                            { l: `PPN (${financeForm.tax_type === "PPN" ? "11%" : "0%"})`, v: fIDR(Number(financeForm.ppn) || 0) },
+                            { l: "Total", v: fIDR(finTotal), bold: true },
+                          ].map(r => (
+                            <div key={r.l} className="flex justify-between text-xs py-1 border-b border-border/40 last:border-0">
+                              <span className="text-muted-foreground">{r.l}</span>
+                              <span className={`font-mono ${r.bold ? "font-black text-primary text-sm" : "font-semibold"}`}>{r.v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Section 4: Pembayaran */}
+                    <div className="fin-section">
+                      <div className="fin-section-lbl">💳 Pembayaran</div>
+                      <div className="grid gap-3 sm:grid-cols-2 mb-3">
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nilai Pembayaran (Rp)</label>
+                          <input type="number" className="minput" style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.payment_value} onChange={e => setF("payment_value", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tanggal Pembayaran</label>
+                          <input type="date" className="minput" title="Tanggal Pembayaran" style={{ fontSize: 12 }}
+                            value={financeForm.payment_date} onChange={e => setF("payment_date", e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Selisih / Variance (Rp)</label>
+                          <input type="number" className={`minput ${finPaid > 0 && finTotal > 0 ? "border-primary/30" : ""}`} style={{ fontSize: 12 }} placeholder="0"
+                            value={financeForm.selisih} onChange={e => setF("selisih", e.target.value)} />
+                          {finPaid > 0 && finTotal > 0 && <p className="text-[10px] text-muted-foreground mt-0.5">Auto: Total − Pembayaran</p>}
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Status Invoice</label>
+                          <div className="flex gap-2">
+                            <button type="button" className={`stat-opt ${financeForm.status === "PAID" ? "paid" : "inact"}`}
+                              onClick={() => setF("status", "PAID")}>✓ LUNAS</button>
+                            <button type="button" className={`stat-opt ${financeForm.status === "UNPAID" ? "unpaid" : "inact"}`}
+                              onClick={() => setF("status", "UNPAID")}>⏳ BELUM BAYAR</button>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Keterangan (opsional)</label>
+                        <textarea className="minput" style={{ fontSize: 12, minHeight: 60 }}
+                          placeholder="Catatan tambahan…"
+                          value={financeForm.keterangan} onChange={e => setF("keterangan", e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── RIGHT: Preview + Action ── */}
+                  <div>
+                    <div className="sticky top-4 rounded-2xl border border-border p-4 space-y-3" style={{ background: "color-mix(in oklch, var(--muted) 20%, transparent)" }}>
+                      <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                        <DollarSign className="h-3.5 w-3.5 text-primary" /> Preview Invoice
+                      </p>
+                      {[
+                        { l: "Invoice No",  v: financeForm.invoice_no || "—",  c: financeForm.invoice_no ? "text-foreground" : "text-muted-foreground/50" },
+                        { l: "Customer",    v: financeForm.customer || "—",    c: financeForm.customer ? "text-foreground" : "text-muted-foreground/50" },
+                        { l: "Tanggal",     v: financeForm.date ? new Date(financeForm.date).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—", c: financeForm.date ? "text-foreground" : "text-muted-foreground/50" },
+                        { l: "Total",       v: finTotal ? fIDR(finTotal) : "—", c: finTotal ? "text-primary font-black" : "text-muted-foreground/50" },
+                        { l: "Status",      v: financeForm.status === "PAID" ? "✓ LUNAS" : "⏳ BELUM BAYAR", c: financeForm.status === "PAID" ? "text-green-600 font-bold" : "text-destructive font-bold" },
+                      ].map(r => (
+                        <div key={r.l} className="flex justify-between text-xs border-b border-border/40 pb-2 last:border-0 last:pb-0">
+                          <span className="text-muted-foreground">{r.l}</span>
+                          <span className={`font-mono text-right max-w-[120px] truncate ${r.c}`}>{r.v}</span>
+                        </div>
+                      ))}
+
+                      <div className="pt-2 space-y-2">
+                        {/* Submit / Locked Button */}
+                        <button
+                          type="button"
+                          onClick={canSubmit ? submitFinanceInvoice : undefined}
+                          disabled={!canSubmit || financeSubmitting}
+                          className="savebtn w-full justify-center"
+                          style={{
+                            background: canSubmit ? "var(--primary)" : "var(--muted)",
+                            color: canSubmit ? "var(--primary-foreground)" : "var(--muted-foreground)",
+                            opacity: canSubmit ? 1 : 0.7,
+                            cursor: canSubmit ? "pointer" : "not-allowed",
+                            fontSize: 13, padding: "10px 16px",
+                          }}
+                        >
+                          {financeSubmitting ? (
+                            <><span className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> Menyimpan…</>
+                          ) : canSubmit ? (
+                            <><Plus className="h-4 w-4" /> Generate Invoice</>
+                          ) : (
+                            <>🔒 Terkunci — Syarat Belum Terpenuhi</>
+                          )}
+                        </button>
+
+                        {/* Lock explanation below button */}
+                        {!canSubmit && (
+                          <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
+                            {editProg < 100 && <span className="block">⚠ Progress {editProg}% (butuh 100%)</span>}
+                            {!editOneDrive.trim() && <span className="block">⚠ OneDrive link belum diisi</span>}
+                          </p>
+                        )}
+
+                        {/* Reset Form */}
+                        <button type="button" onClick={() => { setFinanceForm(EMPTY_FINANCE_FORM); setFinanceResult(null) }}
+                          className="savebtn w-full justify-center" style={{ background: "var(--muted)", color: "var(--muted-foreground)", fontSize: 12, padding: "8px 16px" }}>
+                          <RotateCcw className="h-3.5 w-3.5" /> Reset Form
+                        </button>
+                      </div>
+
+                      {/* Helper */}
+                      <div className="pt-1 border-t border-border/50 space-y-1.5 text-[10px] text-muted-foreground">
+                        <p className="flex gap-1.5"><span className="text-destructive font-bold">*</span> Field merah wajib diisi</p>
+                        <p className="flex gap-1.5"><span className="text-primary">→</span> Isi DPP — PPN &amp; Total otomatis terhitung</p>
+                        <p className="flex gap-1.5"><span className="text-primary">→</span> Invoice tersimpan &amp; langsung tampil di semua halaman</p>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
-
-              {/* Termin dots */}
-              {project.invoiceCount > 1 && (
-                <div className="mb-5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Timeline Termin</p>
-                  <div className="tl">
-                    {project.termins.slice(0, 12).map((t, idx) => {
-                      const ok = t.invoice.status === "PAID"
-                      const warn = !ok && project.status === "TERTUNGGAK"
-                      const prevOk = idx > 0 && project.termins[idx - 1].invoice.status === "PAID"
-                      return (
-                        <div key={t.invoice.invoice_no}
-                          className={`tl-item ${ok ? "is-ok" : ""} ${prevOk ? "prev-ok" : ""}`}
-                          title={`${t.label} · ${fIDR(t.invoice.total)} · ${t.invoice.status}`}>
-                          <div className={`tl-dot ${ok ? "ok" : warn ? "warn" : "no"}`}>{ok ? "✓" : idx + 1}</div>
-                          <p className="tl-lbl">{t.label}</p>
-                        </div>
-                      )
-                    })}
-                    {project.invoiceCount > 12 && (
-                      <div className="tl-item">
-                        <div className="tl-dot no">+{project.invoiceCount - 12}</div>
-                        <p className="tl-lbl">lagi</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {project.invoices.map((inv, idx) => (
-                <div key={inv.invoice_no} className="inv-row">
-                  <div className="flex items-start gap-3">
-                    <span className={`mt-0.5 shrink-0 h-7 w-7 flex items-center justify-center rounded-full text-[10px] font-black
-                      ${inv.status === "PAID" ? "bg-green-500 text-white" : "bg-muted border border-border text-muted-foreground"}`}>
-                      {inv.status === "PAID" ? "✓" : idx + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className="text-xs font-mono font-semibold text-muted-foreground">{inv.invoice_no}</span>
-                        {inv.po_number && <span className="text-[10px] font-mono text-muted-foreground/50 bg-muted px-1.5 py-0.5 rounded">PO: {inv.po_number}</span>}
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${inv.status === "PAID" ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"}`}>
-                          {inv.status === "PAID" ? "LUNAS" : "UNPAID"}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-snug">{inv.description}</p>
-                      <p className="text-[10px] text-muted-foreground/50 mt-0.5">{inv.date}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-bold font-mono text-foreground">{fShort(inv.total)}</p>
-                      {inv.payment_value > 0 && <p className="text-[10px] text-green-600">Bayar: {fShort(inv.payment_value)}</p>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+            )
+          })()}
         </div>
       </div>
     </div>
