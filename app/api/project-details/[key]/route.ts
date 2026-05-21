@@ -35,8 +35,8 @@ export async function POST(
     const projectKey = decodeURIComponent(key)
     const body = await request.json()
 
-    const payload = {
-      project_key: projectKey,
+    const payload: Record<string, unknown> = {
+      project_key:       projectKey,
       display_name:      String(body.display_name ?? ""),
       physical_progress: Math.min(100, Math.max(0, Number(body.physical_progress ?? 0))),
       notes:             String(body.notes ?? ""),
@@ -50,6 +50,11 @@ export async function POST(
       op_sewa:           Number(body.op_sewa ?? 0),
       op_lainnya:        Number(body.op_lainnya ?? 0),
     }
+    if (body.onedrive_folder_url !== undefined)
+      payload.onedrive_folder_url = body.onedrive_folder_url ? String(body.onedrive_folder_url) : null
+    if (body.created_manually !== undefined) payload.created_manually = Boolean(body.created_manually)
+    if (body.customer_name    !== undefined) payload.customer_name    = String(body.customer_name)
+    if (body.project_status   !== undefined) payload.project_status   = String(body.project_status)
 
     const url = `${supabaseConfig.url}/rest/v1/project_details?on_conflict=project_key`
     const res = await fetch(url, {
