@@ -58,6 +58,7 @@ type ProjectDetail = {
   customer_name?: string
   project_status?: string
   op_budget_vo?: number
+  po_number?: string | null
 }
 
 type WeeklyLog = {
@@ -716,6 +717,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [editProg,     setEditProg]     = React.useState(0)
   const [editNotes,    setEditNotes]    = React.useState("")
   const [editPOManual, setEditPOManual] = React.useState("")
+  const [editPoNumber, setEditPoNumber] = React.useState("")
   const [opVals, setOpVals] = React.useState<Record<string, string>>({
     op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
   })
@@ -777,6 +779,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     setEditPOManual(fNum(det.po_value_manual || 0))
     setEditOneDrive(det.onedrive_folder_url || "")
     setEditBudgetVO(fNum(det.op_budget_vo || 0))
+    setEditPoNumber(det.po_number || "")
     setOpVals({
       op_gaji:        fNum(det.op_gaji || 0),
       op_material:    fNum(det.op_material || 0),
@@ -842,6 +845,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         notes: editNotes, site_location: editSite, description: editDesc,
         po_value_manual: parseNum(editPOManual),
         onedrive_folder_url: editOneDrive.trim() || null,
+        po_number: editPoNumber.trim() || null,
         op_gaji:        parseNum(opVals.op_gaji),
         op_material:    parseNum(opVals.op_material),
         op_transport:   parseNum(opVals.op_transport),
@@ -1122,6 +1126,23 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   </div>
                 </div>
                 <div className="space-y-4">
+                  {/* ── Nomor PO — Anchor ID ── */}
+                  <div className="rounded-xl p-3"
+                    style={{ background: "color-mix(in oklch, #3b82f6 6%, transparent)", border: "2px solid color-mix(in oklch, #3b82f6 30%, transparent)" }}>
+                    <label className="text-xs font-black mb-1.5 flex items-center gap-1.5" style={{ color: "#2563eb" }}>
+                      <Hash className="h-3.5 w-3.5" /> Nomor PO
+                      <span className="ml-auto font-normal text-[10px] px-1.5 py-0.5 rounded-full"
+                        style={{ background: "color-mix(in oklch, #3b82f6 12%, transparent)", color: "#2563eb" }}>
+                        Anchor ID
+                      </span>
+                    </label>
+                    <input className="minput" value={editPoNumber} onChange={e => setEditPoNumber(e.target.value)}
+                      placeholder="Contoh: PO/TBUP/2025/001"
+                      style={{ borderColor: "color-mix(in oklch, #3b82f6 35%, transparent)", fontSize: 13, fontWeight: 600 }} />
+                    <p className="text-[10px] mt-1.5" style={{ color: "color-mix(in oklch, #2563eb 70%, var(--muted-foreground))" }}>
+                      ID unik penghubung antara Doc Con, Cost Control, dan Finance
+                    </p>
+                  </div>
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nilai PO / Kontrak (Rp)</label>
                     <div className="relative">
@@ -1810,31 +1831,44 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                           <input className="minput" style={{ fontSize: 12 }} placeholder="PO-2025-XXX"
                             value={financeForm.po_number} onChange={e => setF("po_number", e.target.value)} />
                           {/* PO Reference Panel — shown once Finance types a PO number */}
-                          {financeForm.po_number.trim() && (
-                            <div className="po-ref-panel">
-                              <p className="text-[10px] font-black text-blue-700 dark:text-blue-400 mb-1.5 uppercase tracking-wide">📋 Referensi Data Doc Con</p>
-                              <div className="space-y-1">
-                                <div className="flex justify-between text-[11px]">
-                                  <span className="text-muted-foreground">Site Lapangan (kasual):</span>
-                                  <span className="font-semibold text-foreground">{editSite || "—"}</span>
-                                </div>
-                                <div className="flex justify-between text-[11px]">
-                                  <span className="text-muted-foreground">Progress Fisik:</span>
-                                  <span className={`font-bold ${editProg >= 100 ? "text-green-600" : "text-amber-500"}`}>{editProg}%</span>
-                                </div>
-                                <div className="flex justify-between text-[11px]">
-                                  <span className="text-muted-foreground">Nilai PO (Doc Con):</span>
-                                  <span className="font-semibold text-foreground">{fIDR(parseNum(editPOManual) || project.poValue || 0)}</span>
-                                </div>
-                                <div className="flex justify-between text-[11px]">
-                                  <span className="text-muted-foreground">OneDrive:</span>
-                                  <span className={`font-bold ${editOneDrive ? "text-green-600" : "text-destructive"}`}>
-                                    {editOneDrive ? "✓ Ada" : "✗ Belum diisi"}
-                                  </span>
+                          {financeForm.po_number.trim() && (() => {
+                            const poMatch = editPoNumber.trim()
+                              ? financeForm.po_number.trim().toLowerCase() === editPoNumber.trim().toLowerCase()
+                              : null
+                            return (
+                              <div className="po-ref-panel">
+                                <p className="text-[10px] font-black text-blue-700 dark:text-blue-400 mb-1.5 uppercase tracking-wide">📋 Referensi Data Doc Con</p>
+                                <div className="space-y-1">
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Nomor PO (Doc Con):</span>
+                                    <span className="flex items-center gap-1.5">
+                                      <span className="font-bold text-foreground font-mono">{editPoNumber || "—"}</span>
+                                      {poMatch === true  && <span className="text-[10px] font-bold text-green-600">✓ Cocok</span>}
+                                      {poMatch === false && <span className="text-[10px] font-bold text-destructive">✗ Beda!</span>}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Site Lapangan (kasual):</span>
+                                    <span className="font-semibold text-foreground">{editSite || "—"}</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Progress Fisik:</span>
+                                    <span className={`font-bold ${editProg >= 100 ? "text-green-600" : "text-amber-500"}`}>{editProg}%</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Nilai PO (Doc Con):</span>
+                                    <span className="font-semibold text-foreground">{fIDR(parseNum(editPOManual) || project.poValue || 0)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-[11px]">
+                                    <span className="text-muted-foreground">OneDrive:</span>
+                                    <span className={`font-bold ${editOneDrive ? "text-green-600" : "text-destructive"}`}>
+                                      {editOneDrive ? "✓ Ada" : "✗ Belum diisi"}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
+                            )
+                          })()}
                         </div>
                         <div>
                           <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Tanggal PO</label>
