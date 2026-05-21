@@ -73,3 +73,20 @@ ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_transport   NUMERIC D
 ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_operasional NUMERIC DEFAULT 0;
 ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_sewa        NUMERIC DEFAULT 0;
 ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_lainnya     NUMERIC DEFAULT 0;
+
+-- ── 10. Tabel project_escalations (VO Escalation Gate) ──────────────────────
+--  Rekam jejak setiap kali biaya VO mendekati/melewati budget yang disetujui.
+--  escalation_type: 'vo_budget_80pct' | 'vo_budget_exceeded'
+CREATE TABLE IF NOT EXISTS project_escalations (
+  id               UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  project_key      TEXT        NOT NULL,
+  escalation_type  TEXT        NOT NULL DEFAULT 'vo_budget_80pct',
+  threshold_pct    NUMERIC     NOT NULL DEFAULT 80,
+  triggered_at     TIMESTAMPTZ DEFAULT NOW(),
+  acknowledged_by  TEXT,
+  acknowledged_at  TIMESTAMPTZ,
+  notes            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_escalations_project_key
+  ON project_escalations(project_key);

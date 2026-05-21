@@ -19,6 +19,7 @@ import {
   TrendingUp,
   History,
   Database,
+  ShieldAlert,
 } from "lucide-react"
 import {
   Sidebar,
@@ -49,6 +50,7 @@ const NAV_MAIN = [
   { title: "Lifecycle",               url: "/lifecycle",             icon: Clock           },
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
   { title: "Financial Performance",    url: "/financial-performance", icon: TrendingUp      },
+  { title: "Executive Dashboard",      url: "/executive",             icon: ShieldAlert     },
 ]
 
 const NAV_DOCS = [
@@ -408,6 +410,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Lifecycle",   url: "/lifecycle",             icon: Clock,           desc: "Aging, follow-up, and outstanding risk" },
     { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
     { title: "Financial Performance",  url: "/financial-performance", icon: TrendingUp,      desc: "ROI, profitability, and financial analysis" },
+    { title: "Executive Dashboard",    url: "/executive",             icon: ShieldAlert,     desc: "Cash flow forecast & VO escalation alerts" },
     { title: "New Invoice",            url: "/input-invoice",         icon: Plus,            desc: "Create a new invoice record" },
     { title: "Invoice Records",        url: "/excel-data",            icon: Database,        desc: "Review, edit, delete, and restore invoices" },
     { title: "Reports",                url: "/reports",               icon: FileText,        desc: "Reports and invoice recaps" },

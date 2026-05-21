@@ -123,6 +123,17 @@ type ProjectCost = {
   cost_stream?: string
 }
 
+type Escalation = {
+  id: string
+  project_key: string
+  escalation_type: string
+  threshold_pct: number
+  triggered_at: string
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+  notes: string | null
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fIDR = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n)
@@ -755,6 +766,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [adding,    setAdding]    = React.useState(false)
   const [ccStream,  setCcStream]  = React.useState<"main" | "vo">("main")
   const [editBudgetVO, setEditBudgetVO] = React.useState("")
+  const [escalations,      setEscalations]      = React.useState<Escalation[]>([])
+  const [escalationWarning, setEscalationWarning] = React.useState<string | null>(null)
 
   // ── Document Control extra state ──────────────────────────────────────────
   const [docSubTab,      setDocSubTab]      = React.useState<"log" | "schedule">("log")
@@ -833,12 +846,14 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
       fetch(`/api/project-costs?key=${encodeURIComponent(project.id)}`).then(r => r.json()),
       fetch(`/api/project-weekly-logs/${encodeURIComponent(project.id)}`).then(r => r.json()),
       fetch(`/api/project-schedule/${encodeURIComponent(project.id)}`).then(r => r.json()),
-    ]).then(([d, c, logs, sched]) => {
+      fetch(`/api/project-escalations/${encodeURIComponent(project.id)}`).then(r => r.json()),
+    ]).then(([d, c, logs, sched, esc]) => {
       const det: ProjectDetail = d.data ?? { project_key: project.id }
       applyDetail(det)
       setCosts(c.data ?? [])
       setWeeklyLogs(logs.data ?? [])
       setSchedItems(sched.data ?? [])
+      setEscalations(esc.data ?? [])
     }).finally(() => {
       setLoading(false)
       setDocDataLoading(false)
@@ -919,13 +934,32 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         body: JSON.stringify({ project_key: project.id, category: ccat, description: cdesc.trim(), amount: amt, cost_date: cdate || null, input_by: user?.email || "", cost_stream: ccStream }),
       })
       const d = await r.json()
-      if (d.data) { setCosts(p => [...p, d.data]); setCdesc(""); setCamt(""); setCdate("") }
+      if (d.data) {
+        setCosts(p => [...p, d.data])
+        setCdesc(""); setCamt(""); setCdate("")
+        if (d.escalationWarning) {
+          setEscalationWarning(d.escalationWarning)
+          // Reload escalations so the banner shows immediately
+          fetch(`/api/project-escalations/${encodeURIComponent(project.id)}`).then(r => r.json()).then(e => setEscalations(e.data ?? []))
+        }
+      }
     } finally { setAdding(false) }
   }
 
   async function delCost(id: string) {
     await fetch(`/api/project-costs/${id}`, { method: "DELETE" })
     setCosts(p => p.filter(c => c.id !== id))
+  }
+
+  async function acknowledgeEscalation(id: string) {
+    await fetch(`/api/project-escalations/${encodeURIComponent(project.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, acknowledged_by: user?.email || "unknown" }),
+    })
+    setEscalations(p => p.map(e =>
+      e.id === id ? { ...e, acknowledged_at: new Date().toISOString(), acknowledged_by: user?.email || "unknown" } : e
+    ))
   }
 
   // ── Weekly Log handlers ───────────────────────────────────────────────────
@@ -1076,6 +1110,24 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const activeNetProfit = opStream === "main" ? netProfitLive : netProfitVOLive
   const activeNetMargin = opStream === "main" ? netMarginLive : netMarginVOLive
   const activeTotalOp   = opStream === "main" ? totalOpLive   : totalOpVOLive
+
+  // ── Function 1: Burn-Rate Index (BRI) ────────────────────────────────────
+  // BRI = (actual_cost / progress%) / (pm_budget / 100)
+  // BRI > 1.0 → burning faster than plan; project will overrun at this pace.
+  const briMain = editProg > 0 && totalOpLive > 0
+    ? (totalMain * 100) / (editProg * totalOpLive) : null
+  const briVO = editProg > 0 && totalOpVOLive > 0
+    ? (totalVO * 100) / (editProg * totalOpVOLive) : null
+  const activeBRI           = opStream === "main" ? briMain    : briVO
+  const activeActualCost    = opStream === "main" ? totalMain  : totalVO
+  const activeContractVal   = opStream === "main" ? contractVal : budgetVO
+  const projectedFinalCost  = activeBRI !== null && activeTotalOp > 0
+    ? activeBRI * activeTotalOp : null
+  const projectedOverrun    = projectedFinalCost !== null && projectedFinalCost > activeContractVal
+    ? projectedFinalCost - activeContractVal : null
+
+  // ── Function 2: unacknowledged escalations ────────────────────────────────
+  const openEscalations = escalations.filter(e => !e.acknowledged_at)
 
   return (
     <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -1519,6 +1571,76 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   </div>
                 ))}
               </div>
+
+              {/* ── Escalation warning toast (baru ditrigger) ── */}
+              {escalationWarning && (
+                <div className="mb-4 p-4 rounded-2xl border border-destructive/40 bg-destructive/8 flex items-start gap-3">
+                  <span className="text-xl shrink-0">🚨</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-black text-destructive mb-0.5">
+                      {escalationWarning === "vo_budget_exceeded" ? "Budget VO Terlampaui!" : "Peringatan: Budget VO Hampir Habis (80%)"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {escalationWarning === "vo_budget_exceeded"
+                        ? "Biaya Kerja Tambah aktual sudah melebihi budget VO yang disetujui. Diperlukan persetujuan Owner sebelum menambah biaya lebih lanjut."
+                        : "Biaya Kerja Tambah aktual sudah mencapai 80% dari budget VO. Segera review bersama Owner."
+                      }
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setEscalationWarning(null)}
+                    className="shrink-0 text-xs font-semibold text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg border border-border hover:border-destructive/40 transition-colors">
+                    OK
+                  </button>
+                </div>
+              )}
+
+              {/* ── Open escalation banners (dari DB, belum di-acknowledge) ── */}
+              {openEscalations.map(esc => (
+                <div key={esc.id} className="mb-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/8 flex items-start gap-3">
+                  <span className="text-base shrink-0">⚠️</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-0.5">
+                      {esc.escalation_type === "vo_budget_exceeded" ? "Budget VO Terlampaui" : "VO Hampir Habis (≥80%)"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground leading-relaxed">{esc.notes}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(esc.triggered_at).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" })}
+                    </p>
+                  </div>
+                  <button type="button"
+                    onClick={() => acknowledgeEscalation(esc.id)}
+                    className="shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 transition-colors border border-amber-500/25">
+                    Acknowledge
+                  </button>
+                </div>
+              ))}
+
+              {/* ── BRI Alert (Burn-Rate Index) ── */}
+              {activeBRI !== null && activeBRI > 1.0 && activeActualCost > 0 && (
+                <div className={`mb-4 p-4 rounded-2xl border flex items-start gap-3 ${
+                  activeBRI > 1.2
+                    ? "bg-destructive/8 border-destructive/30"
+                    : "bg-amber-500/8 border-amber-500/25"
+                }`}>
+                  <span className="text-xl shrink-0">{activeBRI > 1.2 ? "🔴" : "🟡"}</span>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-black mb-0.5 ${activeBRI > 1.2 ? "text-destructive" : "text-amber-700 dark:text-amber-400"}`}>
+                      {activeBRI > 1.2 ? "BAHAYA: Trajetori Jebol Budget" : "WASPADA: Burn Rate Tinggi"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Biaya aktual {opStream === "main" ? "PO Utama" : "Kerja Tambah"} berjalan{" "}
+                      <span className="font-bold text-foreground">{((activeBRI - 1) * 100).toFixed(0)}% lebih cepat</span>{" "}
+                      dari estimasi PM (progress {editProg}%).
+                      {projectedFinalCost !== null && (
+                        <> Proyeksi biaya akhir: <span className="font-bold text-foreground">{fIDR(projectedFinalCost)}</span>
+                        {projectedOverrun !== null && (
+                          <span className="text-destructive font-bold"> (+{fIDR(projectedOverrun)} overrun)</span>
+                        )}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* ROI + Input two-column */}
               <div className="grid gap-6 md:grid-cols-2">
