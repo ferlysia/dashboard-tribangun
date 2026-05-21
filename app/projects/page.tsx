@@ -59,6 +59,12 @@ type ProjectDetail = {
   project_status?: string
   op_budget_vo?: number
   po_number?: string | null
+  op_vo_gaji?: number
+  op_vo_material?: number
+  op_vo_transport?: number
+  op_vo_operasional?: number
+  op_vo_sewa?: number
+  op_vo_lainnya?: number
 }
 
 type WeeklyLog = {
@@ -220,12 +226,12 @@ const CAT_ICON: Record<Project["category"], React.ReactNode> = {
 }
 
 const OP_FIELDS = [
-  { key: "op_gaji",        label: "Gaji & Tunjangan",     icon: "👤", ex: 150_000_000 },
-  { key: "op_operasional", label: "Biaya Operasional",    icon: "⚙️", ex: 50_000_000  },
-  { key: "op_material",    label: "Biaya Material/Bahan", icon: "🧱", ex: 80_000_000  },
-  { key: "op_sewa",        label: "Sewa & Utilitas",      icon: "🏢", ex: 20_000_000  },
-  { key: "op_transport",   label: "Transport & Logistik", icon: "🚛", ex: 15_000_000  },
-  { key: "op_lainnya",     label: "Biaya Lainnya",        icon: "📦", ex: 10_000_000  },
+  { key: "op_gaji",        voKey: "op_vo_gaji",        label: "Gaji & Tunjangan",     icon: "👤", ex: 150_000_000 },
+  { key: "op_operasional", voKey: "op_vo_operasional", label: "Biaya Operasional",    icon: "⚙️", ex: 50_000_000  },
+  { key: "op_material",    voKey: "op_vo_material",    label: "Biaya Material/Bahan", icon: "🧱", ex: 80_000_000  },
+  { key: "op_sewa",        voKey: "op_vo_sewa",        label: "Sewa & Utilitas",      icon: "🏢", ex: 20_000_000  },
+  { key: "op_transport",   voKey: "op_vo_transport",   label: "Transport & Logistik", icon: "🚛", ex: 15_000_000  },
+  { key: "op_lainnya",     voKey: "op_vo_lainnya",     label: "Biaya Lainnya",        icon: "📦", ex: 10_000_000  },
 ] as const
 
 const PROGRESS_STEPS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
@@ -663,16 +669,15 @@ const STYLES = `
 
 // ─── Cost helpers ─────────────────────────────────────────────────────────────
 function calcCC(det: ProjectDetail | null | undefined, fallbackPO: number) {
-  if (!det) return { totalOp: 0, hasCC: false, netMargin: 0, efisiensi: 0, contractVal: fallbackPO }
+  if (!det) return { totalOp: 0, hasCC: false, netMargin: 0, contractVal: fallbackPO, netProfit: 0, costPct: 0 }
   const contractVal = (det.po_value_manual ?? 0) > 0 ? (det.po_value_manual ?? 0) : fallbackPO
   const totalOp = (det.op_gaji ?? 0) + (det.op_material ?? 0) + (det.op_transport ?? 0) +
                   (det.op_operasional ?? 0) + (det.op_sewa ?? 0) + (det.op_lainnya ?? 0)
   const hasCC     = totalOp > 0
   const netProfit = contractVal - totalOp
   const netMargin = contractVal > 0 ? (netProfit / contractVal) * 100 : 0
-  const efisiensi = totalOp > 0 ? (contractVal / totalOp) * 100 : 0
   const costPct   = contractVal > 0 ? (totalOp / contractVal) * 100 : 0
-  return { totalOp, hasCC, netMargin, efisiensi, contractVal, netProfit, costPct }
+  return { totalOp, hasCC, netMargin, contractVal, netProfit, costPct }
 }
 
 function buildManualProject(det: ProjectDetail): Project {
@@ -721,6 +726,10 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [editPoNumber, setEditPoNumber] = React.useState("")
   const [opVals, setOpVals] = React.useState<Record<string, string>>({
     op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
+  })
+  const [opStream, setOpStream] = React.useState<"main" | "vo">("main")
+  const [opVOVals, setOpVOVals] = React.useState<Record<string, string>>({
+    op_vo_gaji: "", op_vo_material: "", op_vo_transport: "", op_vo_operasional: "", op_vo_sewa: "", op_vo_lainnya: ""
   })
 
   const [ccat,      setCcat]      = React.useState("material")
@@ -789,6 +798,14 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
       op_sewa:        fNum(det.op_sewa || 0),
       op_lainnya:     fNum(det.op_lainnya || 0),
     })
+    setOpVOVals({
+      op_vo_gaji:        fNum(det.op_vo_gaji || 0),
+      op_vo_material:    fNum(det.op_vo_material || 0),
+      op_vo_transport:   fNum(det.op_vo_transport || 0),
+      op_vo_operasional: fNum(det.op_vo_operasional || 0),
+      op_vo_sewa:        fNum(det.op_vo_sewa || 0),
+      op_vo_lainnya:     fNum(det.op_vo_lainnya || 0),
+    })
   }
 
   React.useEffect(() => {
@@ -852,8 +869,14 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         op_transport:   parseNum(opVals.op_transport),
         op_operasional: parseNum(opVals.op_operasional),
         op_sewa:        parseNum(opVals.op_sewa),
-        op_lainnya:     parseNum(opVals.op_lainnya),
-        op_budget_vo:   parseNum(editBudgetVO),
+        op_lainnya:        parseNum(opVals.op_lainnya),
+        op_budget_vo:      parseNum(editBudgetVO),
+        op_vo_gaji:        parseNum(opVOVals.op_vo_gaji),
+        op_vo_material:    parseNum(opVOVals.op_vo_material),
+        op_vo_transport:   parseNum(opVOVals.op_vo_transport),
+        op_vo_operasional: parseNum(opVOVals.op_vo_operasional),
+        op_vo_sewa:        parseNum(opVOVals.op_vo_sewa),
+        op_vo_lainnya:     parseNum(opVOVals.op_vo_lainnya),
         ...(project.id.startsWith("MANUAL::") && { created_manually: true }),
       }
       const r = await fetch(`/api/project-details/${encodeURIComponent(project.id)}`, {
@@ -1013,11 +1036,10 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const barCls = project.status === "SELESAI" ? "pbar-green" : project.status === "TERTUNGGAK" ? "pbar-red" : "pbar-blue"
 
   // op vals for Cost Control section
-  const contractVal = parseNum(editPOManual) || project.poValue || project.totalValue
-  const totalOpLive = Object.keys(opVals).reduce((s, k) => s + parseNum(opVals[k]), 0)
+  const contractVal   = parseNum(editPOManual) || project.poValue || project.totalValue
+  const totalOpLive   = Object.keys(opVals).reduce((s, k) => s + parseNum(opVals[k]), 0)
   const netProfitLive = contractVal - totalOpLive
   const netMarginLive = contractVal > 0 ? (netProfitLive / contractVal) * 100 : 0
-  const efisiensiLive = totalOpLive > 0 ? (contractVal / totalOpLive) * 100 : 0
   const costPctLive   = contractVal > 0 ? (totalOpLive / contractVal) * 100 : 0
 
   // Cost Control dual-stream computed values
@@ -1026,6 +1048,23 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const totalMain = costsMain.reduce((s, c) => s + c.amount, 0)
   const totalVO   = costsVO.reduce((s, c) => s + c.amount, 0)
   const budgetVO  = parseNum(editBudgetVO)
+
+  // VO stream computed values
+  const totalOpVOLive   = Object.keys(opVOVals).reduce((s, k) => s + parseNum(opVOVals[k]), 0)
+  const netProfitVOLive = budgetVO - totalOpVOLive
+  const netMarginVOLive = budgetVO > 0 ? (netProfitVOLive / budgetVO) * 100 : 0
+  const costPctVOLive   = budgetVO > 0 ? (totalOpVOLive / budgetVO) * 100 : 0
+
+  // Budget Utilization (Penyerapan Anggaran): actual costs / PM budget estimate
+  const budgetUtilMain = totalOpLive > 0 ? (totalMain / totalOpLive) * 100 : 0
+  const budgetUtilVO   = totalOpVOLive > 0 ? (totalVO / totalOpVOLive) * 100 : 0
+
+  // Active-stream vars driven by opStream toggle
+  const activeCostPct     = opStream === "main" ? costPctLive    : costPctVOLive
+  const activeNetProfit   = opStream === "main" ? netProfitLive  : netProfitVOLive
+  const activeNetMargin   = opStream === "main" ? netMarginLive  : netMarginVOLive
+  const activeTotalOp     = opStream === "main" ? totalOpLive    : totalOpVOLive
+  const activeBudgetUtil  = opStream === "main" ? budgetUtilMain : budgetUtilVO
 
   return (
     <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -1474,14 +1513,19 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
               <div className="grid gap-6 md:grid-cols-2">
                 {/* ROI Gauge */}
                 <div className="rounded-2xl border border-border bg-muted/10 p-5">
-                  <p className="text-sm font-bold text-foreground mb-1">ROI Overview</p>
-                  <p className="text-[11px] text-muted-foreground mb-3">Return on Investment berdasarkan biaya yang diinput</p>
-                  <ROIGauge costPct={costPctLive} />
+                  <p className="text-sm font-bold text-foreground mb-1">
+                    ROI Overview —{" "}
+                    <span className={opStream === "main" ? "text-amber-500" : "text-violet-500"}>
+                      {opStream === "main" ? "PO Utama" : "Kerja Tambah"}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mb-3">Berdasarkan estimasi biaya operasional PM</p>
+                  <ROIGauge costPct={activeCostPct} />
                   <div className="grid grid-cols-3 gap-2 mt-4">
                     {[
-                      { label: "NET PROFIT",  val: totalOpLive > 0 ? fShort(netProfitLive)          : "—", cls: netProfitLive >= 0 ? "text-green-600" : "text-destructive" },
-                      { label: "NET MARGIN",  val: totalOpLive > 0 ? `${netMarginLive.toFixed(1)}%` : "—", cls: netMarginLive >= 0 ? "text-green-600" : "text-destructive" },
-                      { label: "EFISIENSI",   val: totalOpLive > 0 ? `${efisiensiLive.toFixed(0)}%` : "—", cls: efisiensiLive >= 100 ? "text-green-600" : "text-destructive" },
+                      { label: "NET PROFIT", val: activeTotalOp > 0 ? fShort(activeNetProfit)           : "—", cls: activeNetProfit >= 0 ? "text-green-600" : "text-destructive" },
+                      { label: "NET MARGIN", val: activeTotalOp > 0 ? `${activeNetMargin.toFixed(1)}%`  : "—", cls: activeNetMargin >= 0 ? "text-green-600" : "text-destructive" },
+                      { label: "PENYERAPAN", val: activeTotalOp > 0 ? `${activeBudgetUtil.toFixed(0)}%` : "—", cls: activeBudgetUtil <= 80 ? "text-green-600" : activeBudgetUtil <= 100 ? "text-amber-500" : "text-destructive" },
                     ].map(m => (
                       <div key={m.label} className="text-center p-2.5 rounded-xl border border-border bg-card">
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{m.label}</p>
@@ -1494,46 +1538,72 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                 {/* Op Cost Input */}
                 <div className="rounded-2xl border border-border bg-muted/10 p-5">
                   <p className="text-sm font-bold text-foreground mb-1">Input Biaya Operasional</p>
-                  <p className="text-[11px] text-muted-foreground mb-4">Masukkan biaya rata-rata untuk menghitung ROI sejati</p>
+                  <p className="text-[11px] text-muted-foreground mb-3">Estimasi biaya PM per stream untuk hitung ROI</p>
+
+                  {/* Stream toggle for OP budget */}
+                  <div className="cc-seg mb-4">
+                    <button type="button"
+                      className={`cc-seg-btn ${opStream === "main" ? "on stream-main" : ""}`}
+                      onClick={() => setOpStream("main")}>
+                      🔶 PO Utama
+                    </button>
+                    <button type="button"
+                      className={`cc-seg-btn ${opStream === "vo" ? "on stream-vo" : ""}`}
+                      onClick={() => setOpStream("vo")}>
+                      🔷 Kerja Tambah
+                    </button>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
-                    {OP_FIELDS.map(f => (
-                      <div key={f.key}>
-                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
-                          <span>{f.icon}</span> {f.label}
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
-                          <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
-                            value={opVals[f.key]}
-                            placeholder={`Cth: ${(f.ex / 1_000_000).toFixed(0)}Jt`}
-                            onChange={e => {
-                              const raw = e.target.value.replace(/[^\d]/g, "")
-                              const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-                              setOpVals(p => ({ ...p, [f.key]: fmt }))
-                            }}
-                          />
+                    {OP_FIELDS.map(f => {
+                      const fieldVal = opStream === "main" ? opVals[f.key] : opVOVals[f.voKey]
+                      const onCh = opStream === "main"
+                        ? (e: React.ChangeEvent<HTMLInputElement>) => {
+                            const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                            setOpVals(p => ({ ...p, [f.key]: fmt }))
+                          }
+                        : (e: React.ChangeEvent<HTMLInputElement>) => {
+                            const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                            setOpVOVals(p => ({ ...p, [f.voKey]: fmt }))
+                          }
+                      return (
+                        <div key={opStream === "main" ? f.key : f.voKey}>
+                          <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                            <span>{f.icon}</span> {f.label}
+                          </label>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
+                            <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
+                              value={fieldVal}
+                              placeholder={`Cth: ${(f.ex / 1_000_000).toFixed(0)}Jt`}
+                              onChange={onCh}
+                            />
+                          </div>
                         </div>
+                      )
+                    })}
+                  </div>
+
+                  {opStream === "vo" && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1.5">
+                        <span className="badge-vo">VO</span> Nilai Kontrak Kerja Tambah (Rp)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
+                        <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
+                          value={editBudgetVO}
+                          placeholder="Cth: 50.000.000"
+                          onChange={e => {
+                            const raw = e.target.value.replace(/[^\d]/g, "")
+                            const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                            setEditBudgetVO(fmt)
+                          }}
+                        />
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-border">
-                    <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1.5">
-                      <span className="badge-vo">VO</span> Budget Alokasi Kerja Tambah (Rp)
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
-                      <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
-                        value={editBudgetVO}
-                        placeholder="Cth: 50.000.000"
-                        onChange={e => {
-                          const raw = e.target.value.replace(/[^\d]/g, "")
-                          const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-                          setEditBudgetVO(fmt)
-                        }}
-                      />
+                      <p className="text-[10px] text-muted-foreground mt-1">Nilai kontrak Variation Order yang disetujui PM</p>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-1">Nilai kontrak Variation Order yang disetujui PM</p>
-                  </div>
+                  )}
                   <p className="text-[10px] text-muted-foreground mt-3">* Klik Simpan untuk menyimpan data cost control</p>
                 </div>
               </div>
@@ -2173,8 +2243,8 @@ function ProjectCard({ project, detail, onClick }: {
               <p className={`text-[11px] font-black ${cc.netMargin >= 0 ? "text-green-600" : "text-destructive"}`}>{cc.netMargin.toFixed(1)}%</p>
             </div>
             <div className="text-center">
-              <p className="text-[9px] font-bold uppercase text-muted-foreground mb-0.5">Efisiensi</p>
-              <p className={`text-[11px] font-black ${cc.efisiensi >= 100 ? "text-green-600" : "text-amber-500"}`}>{cc.efisiensi.toFixed(0)}%</p>
+              <p className="text-[9px] font-bold uppercase text-muted-foreground mb-0.5">Cost Ratio</p>
+              <p className={`text-[11px] font-black ${cc.costPct <= 80 ? "text-green-600" : cc.costPct <= 100 ? "text-amber-500" : "text-destructive"}`}>{cc.costPct.toFixed(0)}%</p>
             </div>
           </div>
         ) : (

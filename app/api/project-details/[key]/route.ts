@@ -57,6 +57,12 @@ export async function POST(
     if (body.project_status   !== undefined) payload.project_status   = String(body.project_status)
     if (body.op_budget_vo     !== undefined) payload.op_budget_vo     = Number(body.op_budget_vo)
     if (body.po_number        !== undefined) payload.po_number        = body.po_number ? String(body.po_number) : null
+    if (body.op_vo_gaji        !== undefined) payload.op_vo_gaji        = Number(body.op_vo_gaji)
+    if (body.op_vo_material    !== undefined) payload.op_vo_material    = Number(body.op_vo_material)
+    if (body.op_vo_transport   !== undefined) payload.op_vo_transport   = Number(body.op_vo_transport)
+    if (body.op_vo_operasional !== undefined) payload.op_vo_operasional = Number(body.op_vo_operasional)
+    if (body.op_vo_sewa        !== undefined) payload.op_vo_sewa        = Number(body.op_vo_sewa)
+    if (body.op_vo_lainnya     !== undefined) payload.op_vo_lainnya     = Number(body.op_vo_lainnya)
 
     const url = `${supabaseConfig.url}/rest/v1/project_details?on_conflict=project_key`
     const res = await fetch(url, {

@@ -65,3 +65,11 @@ ALTER TABLE project_costs
 -- ── 8. Kolom budget VO di project_details (Modul 4) ─────────
 ALTER TABLE project_details
   ADD COLUMN IF NOT EXISTS op_budget_vo NUMERIC DEFAULT 0;
+
+-- ── 9. Kolom biaya operasional stream Kerja Tambah/VO ────────
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_gaji        NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_material    NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_transport   NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_operasional NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_sewa        NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_lainnya     NUMERIC DEFAULT 0;
