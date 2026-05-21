@@ -6,6 +6,7 @@ import {
   CalendarDays, Receipt, Package, Wrench, Briefcase, X, Filter,
   Hash, Plus, Trash2, TrendingUp, MapPin, ChevronRight,
   ClipboardList, BarChart3, DollarSign, Save, CheckCheck,
+  Link2, FolderOpen, Camera, ListChecks,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
@@ -51,6 +52,31 @@ type ProjectDetail = {
   op_operasional?: number
   op_sewa?: number
   op_lainnya?: number
+  onedrive_folder_url?: string | null
+  created_manually?: boolean
+  customer_name?: string
+  project_status?: string
+}
+
+type WeeklyLog = {
+  id: string
+  project_key: string
+  week_number: number
+  description: string
+  photo_url: string
+  created_by: string
+  created_at: string
+}
+
+type ScheduleItem = {
+  id: string
+  project_key: string
+  week_number: number
+  task_description: string
+  progress_weight: number
+  is_done: boolean
+  completed_at: string | null
+  created_at: string
 }
 
 type ProjectCost = {
@@ -478,6 +504,44 @@ const STYLES = `
 
   /* dark gauge text */
   .dark .dark-gauge-text { fill: #e2e8f0; }
+
+  /* ════ DOCUMENT CONTROL SUB-TABS ════════════════════════════════════════════ */
+  .dtab {
+    padding: 7px 14px; border-radius: 9px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all .14s; border: none;
+    color: var(--muted-foreground); background: transparent;
+    display: flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .dtab:hover { color: var(--foreground); background: color-mix(in oklch, var(--muted) 50%, transparent); }
+  .dtab.on {
+    background: var(--card); color: var(--primary); font-weight: 700;
+    box-shadow: 0 1px 4px rgba(0,0,0,.10);
+  }
+  .dark .dtab.on { box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+
+  /* Weekly log card */
+  .log-card {
+    padding: 12px 14px; border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: color-mix(in oklch, var(--muted) 15%, transparent);
+    transition: border-color .13s;
+  }
+  .log-card:hover { border-color: color-mix(in oklch, var(--primary) 40%, transparent); }
+
+  /* Schedule checklist row */
+  .sched-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: 10px;
+    border: 1.5px solid var(--border);
+    background: color-mix(in oklch, var(--muted) 10%, transparent);
+    transition: all .13s;
+  }
+  .sched-row:hover { border-color: var(--primary); }
+  .sched-row.done {
+    background: color-mix(in oklch, #22c55e 5%, transparent);
+    border-color: color-mix(in oklch, #22c55e 25%, transparent);
+    opacity: .82;
+  }
 `
 
 // ─── Cost helpers ─────────────────────────────────────────────────────────────
@@ -525,6 +589,23 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [cdate,  setCdate]  = React.useState("")
   const [adding, setAdding] = React.useState(false)
 
+  // ── Document Control extra state ──────────────────────────────────────────
+  const [docSubTab,      setDocSubTab]      = React.useState<"log" | "schedule">("log")
+  const [editOneDrive,   setEditOneDrive]   = React.useState("")
+  const [weeklyLogs,     setWeeklyLogs]     = React.useState<WeeklyLog[]>([])
+  const [schedItems,     setSchedItems]     = React.useState<ScheduleItem[]>([])
+  const [docDataLoading, setDocDataLoading] = React.useState(false)
+  const [showAddLog,     setShowAddLog]     = React.useState(false)
+  const [logWeek,        setLogWeek]        = React.useState(1)
+  const [logDesc,        setLogDesc]        = React.useState("")
+  const [logPhoto,       setLogPhoto]       = React.useState<File | null>(null)
+  const [addingLog,      setAddingLog]      = React.useState(false)
+  const [showAddSched,   setShowAddSched]   = React.useState(false)
+  const [schedWeek,      setSchedWeek]      = React.useState(1)
+  const [schedTask,      setSchedTask]      = React.useState("")
+  const [schedWeight,    setSchedWeight]    = React.useState(10)
+  const [addingSched,    setAddingSched]    = React.useState(false)
+
   function applyDetail(det: ProjectDetail) {
     setDetail(det)
     setEditName(det.display_name || project.clientName)
@@ -533,6 +614,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     setEditProg(det.physical_progress || 0)
     setEditNotes(det.notes || "")
     setEditPOManual(fNum(det.po_value_manual || 0))
+    setEditOneDrive(det.onedrive_folder_url || "")
     setOpVals({
       op_gaji:        fNum(det.op_gaji || 0),
       op_material:    fNum(det.op_material || 0),
@@ -545,15 +627,23 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
 
   React.useEffect(() => {
     setLoading(true)
+    setDocDataLoading(true)
     if (initDetail) applyDetail(initDetail)
     Promise.all([
       fetch(`/api/project-details/${encodeURIComponent(project.id)}`).then(r => r.json()),
       fetch(`/api/project-costs?key=${encodeURIComponent(project.id)}`).then(r => r.json()),
-    ]).then(([d, c]) => {
+      fetch(`/api/project-weekly-logs/${encodeURIComponent(project.id)}`).then(r => r.json()),
+      fetch(`/api/project-schedule/${encodeURIComponent(project.id)}`).then(r => r.json()),
+    ]).then(([d, c, logs, sched]) => {
       const det: ProjectDetail = d.data ?? { project_key: project.id }
       applyDetail(det)
       setCosts(c.data ?? [])
-    }).finally(() => setLoading(false))
+      setWeeklyLogs(logs.data ?? [])
+      setSchedItems(sched.data ?? [])
+    }).finally(() => {
+      setLoading(false)
+      setDocDataLoading(false)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id])
 
@@ -569,6 +659,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         display_name: editName, physical_progress: editProg,
         notes: editNotes, site_location: editSite, description: editDesc,
         po_value_manual: parseNum(editPOManual),
+        onedrive_folder_url: editOneDrive.trim() || null,
         op_gaji:        parseNum(opVals.op_gaji),
         op_material:    parseNum(opVals.op_material),
         op_transport:   parseNum(opVals.op_transport),
@@ -603,6 +694,80 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   async function delCost(id: string) {
     await fetch(`/api/project-costs/${id}`, { method: "DELETE" })
     setCosts(p => p.filter(c => c.id !== id))
+  }
+
+  // ── Weekly Log handlers ───────────────────────────────────────────────────
+  async function addLog() {
+    if (!logDesc.trim()) return
+    setAddingLog(true)
+    try {
+      let photoUrl = ""
+      if (logPhoto) {
+        const fd = new FormData()
+        fd.append("file", logPhoto)
+        fd.append("path", `${project.id}/week${logWeek}_${Date.now()}.${logPhoto.name.split(".").pop() ?? "jpg"}`)
+        const up = await fetch("/api/upload-photo", { method: "POST", body: fd })
+        const upData = await up.json()
+        photoUrl = upData.url || ""
+      }
+      const r = await fetch(`/api/project-weekly-logs/${encodeURIComponent(project.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week_number: logWeek, description: logDesc.trim(), photo_url: photoUrl, created_by: user?.email || "" }),
+      })
+      const d = await r.json()
+      if (d.data) {
+        setWeeklyLogs(p => [...p, d.data].sort((a, b) => a.week_number - b.week_number))
+        setLogDesc(""); setLogPhoto(null); setLogWeek(1); setShowAddLog(false)
+      }
+    } finally { setAddingLog(false) }
+  }
+
+  // ── Schedule Item handlers ────────────────────────────────────────────────
+  async function addSchedItem() {
+    if (!schedTask.trim()) return
+    setAddingSched(true)
+    try {
+      const r = await fetch(`/api/project-schedule/${encodeURIComponent(project.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week_number: schedWeek, task_description: schedTask.trim(), progress_weight: schedWeight }),
+      })
+      const d = await r.json()
+      if (d.data) {
+        setSchedItems(p => [...p, d.data].sort((a, b) => a.week_number - b.week_number))
+        setSchedTask(""); setSchedWeek(1); setSchedWeight(10); setShowAddSched(false)
+      }
+    } finally { setAddingSched(false) }
+  }
+
+  async function toggleSchedItem(id: string, isDone: boolean) {
+    const r = await fetch(`/api/project-schedule/item/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_done: isDone }),
+    })
+    const d = await r.json()
+    if (d.data) {
+      const updated = schedItems.map(s => s.id === id ? d.data : s)
+      setSchedItems(updated)
+      // Auto-calculate progress by weighted completion
+      const totalW = updated.reduce((s, i) => s + i.progress_weight, 0)
+      const doneW  = updated.filter(i => i.is_done).reduce((s, i) => s + i.progress_weight, 0)
+      if (totalW > 0) {
+        const raw = Math.round(Math.min(100, (doneW / totalW) * 100))
+        // Snap to nearest PROGRESS_STEPS value
+        const snapped = PROGRESS_STEPS.reduce((prev, curr) =>
+          Math.abs(curr - raw) < Math.abs(prev - raw) ? curr : prev
+        )
+        setEditProg(snapped)
+      }
+    }
+  }
+
+  async function delSchedItem(id: string) {
+    await fetch(`/api/project-schedule/item/${id}`, { method: "DELETE" })
+    setSchedItems(p => p.filter(s => s.id !== id))
   }
 
   const cc = calcCC(detail, project.poValue || project.totalValue)
@@ -700,7 +865,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                 <span className="h-2 w-2 rounded-full bg-blue-500" /> Divisi Project — Document Control
               </span>
 
-              <div className="grid gap-5 md:grid-cols-2">
+              {/* ── Basic Project Info (2-col) ── */}
+              <div className="grid gap-5 md:grid-cols-2 mb-0">
                 <div className="space-y-4">
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground mb-1.5 block">Nama Project / Klien</label>
@@ -749,14 +915,267 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     )}
                   </div>
+
+                  {/* ── OneDrive URL ── */}
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1.5">
+                      <Link2 className="h-3 w-3" /> Link Folder OneDrive
+                    </label>
+                    <input
+                      className="minput"
+                      value={editOneDrive}
+                      onChange={e => setEditOneDrive(e.target.value)}
+                      placeholder="Paste share link OneDrive proyek…"
+                    />
+                    {editOneDrive.trim() && (
+                      <div className="mt-2">
+                        <a
+                          href={editOneDrive.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                          📁 Buka Dokumen Pendukung (OneDrive)
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-6 flex items-center gap-3 pt-5 border-t border-border">
+              {/* ── Save Basic Info ── */}
+              <div className="mt-6 flex items-center gap-3 pb-6 border-b border-border">
                 <button type="button" onClick={save} disabled={saving} className="savebtn savebtn-primary">
-                  {saving ? "Menyimpan…" : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Perubahan</>}
+                  {saving ? "Menyimpan…" : savedOk ? <><CheckCheck className="h-4 w-4" /> Tersimpan!</> : <><Save className="h-4 w-4" /> Simpan Info Proyek</>}
                 </button>
                 {savedOk && <span className="text-xs text-green-600 font-semibold">✓ Berhasil disimpan</span>}
+              </div>
+
+              {/* ── Dual Sub-Tab: Log Mingguan | Jadwal & Rencana ── */}
+              <div className="mt-6">
+                <div className="flex gap-1 mb-5 p-1 rounded-xl border border-border w-fit" style={{ background: "color-mix(in oklch, var(--muted) 30%, transparent)" }}>
+                  <button type="button" onClick={() => setDocSubTab("log")} className={`dtab ${docSubTab === "log" ? "on" : ""}`}>
+                    <ClipboardList className="h-3.5 w-3.5" /> 📋 Log Mingguan
+                  </button>
+                  <button type="button" onClick={() => setDocSubTab("schedule")} className={`dtab ${docSubTab === "schedule" ? "on" : ""}`}>
+                    <ListChecks className="h-3.5 w-3.5" /> 📅 Jadwal &amp; Rencana
+                  </button>
+                </div>
+
+                {/* ────── SUB-TAB A: LOG MINGGUAN ────── */}
+                {docSubTab === "log" && (
+                  <div>
+                    {!showAddLog ? (
+                      <button type="button" onClick={() => setShowAddLog(true)}
+                        className="savebtn savebtn-primary mb-5" style={{ fontSize: 12, padding: "8px 16px" }}>
+                        <Plus className="h-3.5 w-3.5" /> Tambah Log Mingguan
+                      </button>
+                    ) : (
+                      <div className="rounded-xl border border-border p-4 mb-5" style={{ background: "color-mix(in oklch, var(--muted) 15%, transparent)" }}>
+                        <p className="text-xs font-bold text-foreground mb-3 flex items-center gap-1.5">
+                          <Plus className="h-3.5 w-3.5 text-primary" /> Form Log Mingguan Baru
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2 mb-3">
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block font-semibold">Minggu ke-</label>
+                            <select className="minput" title="Pilih minggu" style={{ fontSize: 12 }}
+                              value={logWeek} onChange={e => setLogWeek(Number(e.target.value))}>
+                              {Array.from({ length: 20 }, (_, i) => i + 1).map(w => (
+                                <option key={w} value={w}>Week {w}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block font-semibold flex items-center gap-1">
+                              <Camera className="h-3 w-3" /> Foto Bukti Lapangan
+                            </label>
+                            <input type="file" accept="image/*" title="Upload foto bukti"
+                              className="minput" style={{ fontSize: 12, padding: "6px 10px" }}
+                              onChange={e => setLogPhoto(e.target.files?.[0] ?? null)} />
+                            {logPhoto && <p className="text-[10px] text-green-600 mt-1">✓ {logPhoto.name}</p>}
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <label className="text-[11px] text-muted-foreground mb-1 block font-semibold">Deskripsi Aktual (apa yang sudah selesai)</label>
+                          <textarea className="minput" style={{ fontSize: 12, minHeight: 80 }}
+                            value={logDesc} onChange={e => setLogDesc(e.target.value)}
+                            placeholder="Contoh: Done replace air filter dari 64 unit PAC. Semua filter sudah diganti dan diuji." />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" disabled={addingLog || !logDesc.trim()} onClick={addLog}
+                            className="savebtn savebtn-primary" style={{ fontSize: 12, padding: "7px 16px" }}>
+                            {addingLog ? "Menyimpan…" : <><Save className="h-3.5 w-3.5" /> Simpan Log</>}
+                          </button>
+                          <button type="button"
+                            onClick={() => { setShowAddLog(false); setLogDesc(""); setLogPhoto(null); setLogWeek(1) }}
+                            className="savebtn" style={{ fontSize: 12, padding: "7px 16px", background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Log list */}
+                    {docDataLoading ? (
+                      <p className="text-xs text-muted-foreground py-4 text-center">Memuat log…</p>
+                    ) : weeklyLogs.length === 0 ? (
+                      <div className="text-center py-10 text-muted-foreground">
+                        <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                        <p className="text-xs">Belum ada log mingguan. Mulai tambah laporan pertama!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {weeklyLogs.map(log => (
+                          <div key={log.id} className="log-card">
+                            <div className="flex items-start gap-3">
+                              <span className="shrink-0 h-9 w-9 rounded-lg flex items-center justify-center text-[11px] font-black"
+                                style={{ background: "color-mix(in oklch, #3b82f6 12%, transparent)", border: "1px solid color-mix(in oklch, #3b82f6 25%, transparent)", color: "#2563eb" }}>
+                                W{log.week_number}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-foreground mb-0.5">Week {log.week_number}</p>
+                                <p className="text-xs text-muted-foreground leading-relaxed">{log.description}</p>
+                                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                  {log.photo_url && (
+                                    <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
+                                      className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 font-semibold">
+                                      <Camera className="h-2.5 w-2.5" /> Lihat Foto
+                                    </a>
+                                  )}
+                                  <span className="text-[10px] text-muted-foreground/50">
+                                    {log.created_by ? `by ${log.created_by} · ` : ""}
+                                    {new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ────── SUB-TAB B: JADWAL & RENCANA ────── */}
+                {docSubTab === "schedule" && (
+                  <div>
+                    {!showAddSched ? (
+                      <button type="button" onClick={() => setShowAddSched(true)}
+                        className="savebtn savebtn-primary mb-5" style={{ fontSize: 12, padding: "8px 16px" }}>
+                        <Plus className="h-3.5 w-3.5" /> Tambah Rencana Tugas
+                      </button>
+                    ) : (
+                      <div className="rounded-xl border border-border p-4 mb-5" style={{ background: "color-mix(in oklch, var(--muted) 15%, transparent)" }}>
+                        <p className="text-xs font-bold text-foreground mb-3 flex items-center gap-1.5">
+                          <ListChecks className="h-3.5 w-3.5 text-primary" /> Tambah Rencana Tugas Mingguan
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2 mb-3">
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block font-semibold">Minggu ke-</label>
+                            <select className="minput" title="Pilih minggu" style={{ fontSize: 12 }}
+                              value={schedWeek} onChange={e => setSchedWeek(Number(e.target.value))}>
+                              {Array.from({ length: 20 }, (_, i) => i + 1).map(w => (
+                                <option key={w} value={w}>Week {w}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-muted-foreground mb-1 block font-semibold">Bobot Progress (%)</label>
+                            <input type="number" className="minput" style={{ fontSize: 12 }} min={1} max={100}
+                              value={schedWeight} onChange={e => setSchedWeight(Number(e.target.value))} />
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Total bobot semua tugas idealnya = 100%</p>
+                          </div>
+                        </div>
+                        <div className="mb-3">
+                          <label className="text-[11px] text-muted-foreground mb-1 block font-semibold">Deskripsi Rencana Tugas</label>
+                          <input className="minput" style={{ fontSize: 12 }} value={schedTask}
+                            onChange={e => setSchedTask(e.target.value)}
+                            placeholder="Contoh: Pengadaan material pipa tembaga PAC" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" disabled={addingSched || !schedTask.trim()} onClick={addSchedItem}
+                            className="savebtn savebtn-primary" style={{ fontSize: 12, padding: "7px 16px" }}>
+                            {addingSched ? "Menambahkan…" : <><Plus className="h-3.5 w-3.5" /> Tambah</>}
+                          </button>
+                          <button type="button"
+                            onClick={() => { setShowAddSched(false); setSchedTask(""); setSchedWeek(1); setSchedWeight(10) }}
+                            className="savebtn" style={{ fontSize: 12, padding: "7px 16px", background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                            Batal
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Checklist */}
+                    {docDataLoading ? (
+                      <p className="text-xs text-muted-foreground py-4 text-center">Memuat jadwal…</p>
+                    ) : schedItems.length === 0 ? (
+                      <div className="text-center py-10 text-muted-foreground">
+                        <ListChecks className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                        <p className="text-xs">Belum ada rencana tugas. Tambahkan jadwal kerja mingguan!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Progress summary bar */}
+                        <div className="flex items-center justify-between mb-3 p-3 rounded-xl border border-border" style={{ background: "color-mix(in oklch, var(--muted) 20%, transparent)" }}>
+                          <span className="text-xs text-muted-foreground">
+                            {schedItems.filter(s => s.is_done).length} / {schedItems.length} tugas selesai
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 pbar-bg">
+                              <div className="pbar-fill pbar-blue" style={{ "--w": `${schedItems.length > 0 ? Math.round(schedItems.filter(s => s.is_done).length / schedItems.length * 100) : 0}%` } as React.CSSProperties} />
+                            </div>
+                            <span className="text-xs font-bold text-primary">
+                              {schedItems.length > 0 ? Math.round(schedItems.filter(s => s.is_done).length / schedItems.length * 100) : 0}%
+                            </span>
+                          </div>
+                        </div>
+                        {schedItems.map(item => (
+                          <div key={item.id} className={`sched-row ${item.is_done ? "done" : ""}`}>
+                            <button
+                              type="button"
+                              title={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                              aria-label={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                              onClick={() => toggleSchedItem(item.id, !item.is_done)}
+                              className="shrink-0 mt-0.5 h-5 w-5 rounded flex items-center justify-center border transition-all"
+                              style={{
+                                background: item.is_done ? "var(--primary)" : "transparent",
+                                borderColor: item.is_done ? "var(--primary)" : "var(--muted-foreground)",
+                              }}
+                            >
+                              {item.is_done && <CheckCheck className="h-3 w-3" style={{ color: "var(--primary-foreground)" }} />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                  style={{ background: "color-mix(in oklch, var(--primary) 10%, transparent)", color: "var(--primary)" }}>
+                                  Week {item.week_number}
+                                </span>
+                                <span className={`text-xs font-medium ${item.is_done ? "line-through text-muted-foreground/50" : "text-foreground"}`}>
+                                  {item.task_description}
+                                </span>
+                              </div>
+                              {item.is_done && item.completed_at && (
+                                <p className="text-[10px] text-green-600 mt-0.5">
+                                  ✓ Selesai {new Date(item.completed_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
+                                </p>
+                              )}
+                            </div>
+                            <div className="shrink-0 flex items-center gap-2">
+                              <span className="text-[10px] text-muted-foreground/60 font-mono">{item.progress_weight}%</span>
+                              <button type="button" title="Hapus tugas" aria-label="Hapus tugas"
+                                onClick={() => delSchedItem(item.id)}
+                                className="text-muted-foreground/30 hover:text-destructive transition-colors">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
