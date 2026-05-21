@@ -633,6 +633,27 @@ function calcCC(det: ProjectDetail | null | undefined, fallbackPO: number) {
   return { totalOp, hasCC, netMargin, efisiensi, contractVal, netProfit, costPct }
 }
 
+function buildManualProject(det: ProjectDetail): Project {
+  return {
+    id: det.project_key,
+    clientName: det.display_name || det.customer_name || "Proyek Baru",
+    clientFull: det.customer_name || det.display_name || "",
+    location: det.site_location || "",
+    category: "Jasa",
+    invoices: [],
+    totalValue: det.po_value_manual || 0,
+    totalPaid: 0,
+    totalOutstanding: det.po_value_manual || 0,
+    billingProgress: 0,
+    status: (det.project_status as Project["status"]) || "BERJALAN",
+    firstDate: new Date().toISOString().slice(0, 10),
+    lastDate: new Date().toISOString().slice(0, 10),
+    invoiceCount: 0, paidCount: 0, unpaidCount: 0,
+    termins: [],
+    poValue: det.po_value_manual || 0,
+  }
+}
+
 // ─── Detail Modal ─────────────────────────────────────────────────────────────
 function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   project: Project
@@ -772,7 +793,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   async function save() {
     setSaving(true); setSavedOk(false)
     try {
-      const body = {
+      const body: Record<string, unknown> = {
         display_name: editName, physical_progress: editProg,
         notes: editNotes, site_location: editSite, description: editDesc,
         po_value_manual: parseNum(editPOManual),
@@ -783,6 +804,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         op_operasional: parseNum(opVals.op_operasional),
         op_sewa:        parseNum(opVals.op_sewa),
         op_lainnya:     parseNum(opVals.op_lainnya),
+        ...(project.id.startsWith("MANUAL::") && { created_manually: true }),
       }
       const r = await fetch(`/api/project-details/${encodeURIComponent(project.id)}`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -964,7 +986,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
             </div>
             <div className="flex-1 min-w-0">
               <h2 className="text-xl font-bold leading-tight text-foreground mb-1">
-                {editName || project.clientName}
+                {editName || project.clientName || "Proyek Baru"}
               </h2>
               <div className="flex items-center gap-2 flex-wrap">
                 {(editSite || project.location) && (
@@ -1989,11 +2011,22 @@ function ProjectCard({ project, detail, onClick }: {
 export default function ProjectsPage() {
   const { invoices: raw, periodLabel } = useFilteredInvoices()
   const allProjects = React.useMemo(() => buildProjects(raw), [raw])
-  const [detailMap, setDetailMap] = React.useState<Map<string, ProjectDetail>>(new Map())
+  const [detailMap,    setDetailMap]    = React.useState<Map<string, ProjectDetail>>(new Map())
   const [search,       setSearch]       = React.useState("")
   const [filterStatus, setFilterStatus] = React.useState("Semua")
   const [filterCat,    setFilterCat]    = React.useState("Semua")
   const [selected,     setSelected]     = React.useState<Project | null>(null)
+  const [createProject, setCreateProject] = React.useState<Project | null>(null)
+
+  const combinedProjects = React.useMemo(() => {
+    const result = [...allProjects]
+    for (const det of detailMap.values()) {
+      if (det.created_manually && !result.find(p => p.id === det.project_key)) {
+        result.push(buildManualProject(det))
+      }
+    }
+    return result
+  }, [allProjects, detailMap])
 
   // Fetch all project details in one bulk request
   React.useEffect(() => {
@@ -2016,16 +2049,16 @@ export default function ProjectsPage() {
   }
 
   const stats = React.useMemo(() => ({
-    total:      allProjects.length,
-    selesai:    allProjects.filter(p => p.status === "SELESAI").length,
-    berjalan:   allProjects.filter(p => p.status === "BERJALAN").length,
-    tertunggak: allProjects.filter(p => p.status === "TERTUNGGAK").length,
-    totalValue: allProjects.reduce((s, p) => s + p.totalValue, 0),
-    totalOut:   allProjects.reduce((s, p) => s + p.totalOutstanding, 0),
-  }), [allProjects])
+    total:      combinedProjects.length,
+    selesai:    combinedProjects.filter(p => p.status === "SELESAI").length,
+    berjalan:   combinedProjects.filter(p => p.status === "BERJALAN").length,
+    tertunggak: combinedProjects.filter(p => p.status === "TERTUNGGAK").length,
+    totalValue: combinedProjects.reduce((s, p) => s + p.totalValue, 0),
+    totalOut:   combinedProjects.reduce((s, p) => s + p.totalOutstanding, 0),
+  }), [combinedProjects])
 
   const displayed = React.useMemo(() => {
-    let list = [...allProjects]
+    let list = [...combinedProjects]
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(p =>
@@ -2041,7 +2074,7 @@ export default function ProjectsPage() {
     if (filterStatus !== "Semua") list = list.filter(p => p.status === filterStatus)
     if (filterCat    !== "Semua") list = list.filter(p => p.category === filterCat)
     return list
-  }, [allProjects, search, filterStatus, filterCat])
+  }, [combinedProjects, search, filterStatus, filterCat])
 
   const hasFilter = !!search || filterStatus !== "Semua" || filterCat !== "Semua"
   const STATUSES  = ["Semua", "TERTUNGGAK", "BERJALAN", "SELESAI"]
@@ -2065,11 +2098,27 @@ export default function ProjectsPage() {
               <div>
                 <h1 className="text-xl font-semibold tracking-tight text-foreground">Projects</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {allProjects.length} proyek · {raw.length} invoice · {periodLabel}
+                  {combinedProjects.length} proyek · {raw.length} invoice · {periodLabel}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <button type="button"
+                onClick={() => {
+                  const key = `MANUAL::${Date.now()}`
+                  setSelected(null)
+                  setCreateProject({
+                    id: key, clientName: "", clientFull: "", location: "", category: "Jasa",
+                    invoices: [], totalValue: 0, totalPaid: 0, totalOutstanding: 0,
+                    billingProgress: 0, status: "BERJALAN",
+                    firstDate: new Date().toISOString().slice(0, 10),
+                    lastDate:  new Date().toISOString().slice(0, 10),
+                    invoiceCount: 0, paidCount: 0, unpaidCount: 0, termins: [], poValue: 0,
+                  })
+                }}
+                className="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all bg-primary text-primary-foreground border-primary hover:opacity-85 shadow-sm">
+                <Plus className="h-3.5 w-3.5" /> Buat Proyek Baru
+              </button>
               {stats.tertunggak > 0 && (
                 <button type="button" onClick={() => setFilterStatus(p => p === "TERTUNGGAK" ? "Semua" : "TERTUNGGAK")}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-all
@@ -2230,6 +2279,16 @@ export default function ProjectsPage() {
             project={selected}
             initDetail={detailMap.get(selected.id) ?? null}
             onClose={() => setSelected(null)}
+            onDetailSaved={handleDetailSaved}
+          />
+        )}
+
+        {/* Create New Project Modal */}
+        {createProject && (
+          <DetailModal
+            project={createProject}
+            initDetail={null}
+            onClose={() => setCreateProject(null)}
             onDetailSaved={handleDetailSaved}
           />
         )}
