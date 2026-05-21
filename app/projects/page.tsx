@@ -246,45 +246,61 @@ const EMPTY_FINANCE_FORM: FinanceInvoiceForm = {
 
 // ─── ROI Gauge ────────────────────────────────────────────────────────────────
 function ROIGauge({ costPct }: { costPct: number }) {
-  const clamped = Math.min(200, Math.max(0, costPct))
-  const angleDeg = (clamped / 200) * 180 - 180
-  const rad = (angleDeg * Math.PI) / 180
-  const cx = 110, cy = 95, r = 78
+  // cx=110 cy=82 r=70 — flat diameter at y=82, needle always sweeps ABOVE y=82.
+  // All display text lives BELOW y=82: permanently outside the needle's reach.
+  const cx = 110, cy = 82, r = 70
+  const clamped   = Math.min(200, Math.max(0, costPct))
+  const angleDeg  = (clamped / 200) * 180 - 180
+  const rad       = (angleDeg * Math.PI) / 180
+  const nx = cx + r * Math.cos(rad)
+  const ny = cy + r * Math.sin(rad)
 
   function arcPath(startPct: number, endPct: number) {
     const a1 = ((startPct / 200) * 180 - 180) * (Math.PI / 180)
     const a2 = ((endPct   / 200) * 180 - 180) * (Math.PI / 180)
     const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1)
     const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2)
-    const large = endPct - startPct > 100 ? 1 : 0
-    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${endPct - startPct > 100 ? 1 : 0} 1 ${x2} ${y2}`
   }
 
-  const nx = cx + r * Math.cos(rad), ny = cy + r * Math.sin(rad)
-
   return (
-    <svg viewBox="0 0 220 110" className="w-full max-w-[220px] mx-auto" aria-label="ROI Gauge">
-      <path d={arcPath(0, 200)} fill="none" stroke="#e2e8f0" strokeWidth="10" strokeLinecap="round" />
-      <path d={arcPath(0, 70)}   fill="none" stroke="#22c55e" strokeWidth="10" />
-      <path d={arcPath(70, 100)} fill="none" stroke="#f59e0b" strokeWidth="10" />
-      <path d={arcPath(100, 200)} fill="none" stroke="#ef4444" strokeWidth="10" />
+    // viewBox height=122 gives 40 px of safe space below cy=82 for text
+    <svg viewBox="0 0 220 122" className="w-full max-w-[220px] mx-auto" aria-label="ROI Gauge">
+      {/* Track + colour zones */}
+      <path d={arcPath(0, 200)}   fill="none" stroke="#e2e8f0" strokeWidth="11" strokeLinecap="round" />
+      <path d={arcPath(0, 70)}    fill="none" stroke="#22c55e" strokeWidth="11" />
+      <path d={arcPath(70, 100)}  fill="none" stroke="#f59e0b" strokeWidth="11" />
+      <path d={arcPath(100, 200)} fill="none" stroke="#ef4444" strokeWidth="11" />
+
+      {/* Needle — sweeps only above cy; never crosses below */}
       {costPct > 0 && (
         <>
-          <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" />
-          <circle cx={cx} cy={cy} r="5" fill="#64748b" />
-          <circle cx={nx} cy={ny} r="3.5" fill="#64748b" />
+          <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#334155" strokeWidth="2.5" strokeLinecap="round" />
+          <circle cx={cx} cy={cy} r="5.5" fill="#1e293b" />
+          <circle cx={nx} cy={ny} r="3"   fill="#475569" />
         </>
       )}
-      <text x="15"  y="105" fontSize="9" fill="#94a3b8" textAnchor="middle">0%</text>
-      <text x="110" y="13"  fontSize="9" fill="#94a3b8" textAnchor="middle">100%</text>
-      <text x="205" y="105" fontSize="9" fill="#94a3b8" textAnchor="middle">200%</text>
+
+      {/* Scale tick labels — flanking outside arc endpoints */}
+      <text x="12"  y="96" fontSize="8.5" fill="#94a3b8" textAnchor="middle">0%</text>
+      <text x="110" y="11" fontSize="8.5" fill="#94a3b8" textAnchor="middle">100%</text>
+      <text x="208" y="96" fontSize="8.5" fill="#94a3b8" textAnchor="middle">200%</text>
+
+      {/* ── Value display — BELOW flat diameter, zero collision risk ── */}
       {costPct > 0 ? (
         <>
-          <text x={cx} y={cy - 24} fontSize="16" fontWeight="800" fill="#1e293b" textAnchor="middle" className="dark-gauge-text">{costPct.toFixed(0)}%</text>
-          <text x={cx} y={cy - 10} fontSize="7.5" fill="#94a3b8" textAnchor="middle">rasio biaya/PO</text>
+          <text x={cx} y={cy + 22} fontSize="19" fontWeight="800" textAnchor="middle"
+                fill="#0f172a" className="dark-gauge-text">
+            {costPct.toFixed(0)}%
+          </text>
+          <text x={cx} y={cy + 35} fontSize="8" fill="#94a3b8" textAnchor="middle">
+            rasio biaya / PO
+          </text>
         </>
       ) : (
-        <text x={cx} y={cy - 18} fontSize="9" fill="#94a3b8" textAnchor="middle">Input estimasi →</text>
+        <text x={cx} y={cy + 22} fontSize="9" fill="#94a3b8" textAnchor="middle">
+          input estimasi →
+        </text>
       )}
     </svg>
   )
