@@ -57,6 +57,7 @@ type ProjectDetail = {
   created_manually?: boolean
   customer_name?: string
   project_status?: string
+  op_budget_vo?: number
 }
 
 type WeeklyLog = {
@@ -112,6 +113,7 @@ type ProjectCost = {
   cost_date: string | null
   input_by: string
   created_at: string
+  cost_stream?: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -603,6 +605,45 @@ const STYLES = `
   }
   .log-card:hover { border-color: color-mix(in oklch, var(--primary) 40%, transparent); }
 
+  /* ════ COST CONTROL DUAL-STREAM ════════════════════════════════════════════ */
+  .cc-seg {
+    display: flex; gap: 3px; padding: 3px; border-radius: 11px;
+    background: color-mix(in oklch, var(--muted) 60%, transparent);
+    border: 1.5px solid var(--border);
+  }
+  .cc-seg-btn {
+    flex: 1; padding: 7px 12px; border-radius: 8px; font-size: 12px; font-weight: 600;
+    cursor: pointer; border: none; background: transparent; color: var(--muted-foreground);
+    transition: all .14s; text-align: center; white-space: nowrap;
+  }
+  .cc-seg-btn:hover { color: var(--foreground); background: color-mix(in oklch, var(--muted) 50%, transparent); }
+  .cc-seg-btn.on.stream-main {
+    background: #f97316; color: #fff;
+    box-shadow: 0 2px 8px -2px rgba(249,115,22,.45);
+  }
+  .cc-seg-btn.on.stream-vo {
+    background: #8b5cf6; color: #fff;
+    box-shadow: 0 2px 8px -2px rgba(139,92,246,.45);
+  }
+
+  /* Stream badges in cost log */
+  .badge-main {
+    display: inline-flex; align-items: center;
+    font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 5px;
+    background: color-mix(in oklch, #f97316 12%, transparent);
+    border: 1px solid color-mix(in oklch, #f97316 30%, transparent);
+    color: #ea580c; white-space: nowrap;
+  }
+  .badge-vo {
+    display: inline-flex; align-items: center;
+    font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 5px;
+    background: color-mix(in oklch, #8b5cf6 12%, transparent);
+    border: 1px solid color-mix(in oklch, #8b5cf6 30%, transparent);
+    color: #7c3aed; white-space: nowrap;
+  }
+  .dark .badge-main { color: #fb923c; }
+  .dark .badge-vo   { color: #a78bfa; }
+
   /* Schedule checklist row */
   .sched-row {
     display: flex; align-items: flex-start; gap: 10px;
@@ -679,11 +720,13 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
   })
 
-  const [ccat,   setCcat]   = React.useState("material")
-  const [cdesc,  setCdesc]  = React.useState("")
-  const [camt,   setCamt]   = React.useState("")
-  const [cdate,  setCdate]  = React.useState("")
-  const [adding, setAdding] = React.useState(false)
+  const [ccat,      setCcat]      = React.useState("material")
+  const [cdesc,     setCdesc]     = React.useState("")
+  const [camt,      setCamt]      = React.useState("")
+  const [cdate,     setCdate]     = React.useState("")
+  const [adding,    setAdding]    = React.useState(false)
+  const [ccStream,  setCcStream]  = React.useState<"main" | "vo">("main")
+  const [editBudgetVO, setEditBudgetVO] = React.useState("")
 
   // ── Document Control extra state ──────────────────────────────────────────
   const [docSubTab,      setDocSubTab]      = React.useState<"log" | "schedule">("log")
@@ -733,6 +776,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     setEditNotes(det.notes || "")
     setEditPOManual(fNum(det.po_value_manual || 0))
     setEditOneDrive(det.onedrive_folder_url || "")
+    setEditBudgetVO(fNum(det.op_budget_vo || 0))
     setOpVals({
       op_gaji:        fNum(det.op_gaji || 0),
       op_material:    fNum(det.op_material || 0),
@@ -804,6 +848,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         op_operasional: parseNum(opVals.op_operasional),
         op_sewa:        parseNum(opVals.op_sewa),
         op_lainnya:     parseNum(opVals.op_lainnya),
+        op_budget_vo:   parseNum(editBudgetVO),
         ...(project.id.startsWith("MANUAL::") && { created_manually: true }),
       }
       const r = await fetch(`/api/project-details/${encodeURIComponent(project.id)}`, {
@@ -823,7 +868,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     try {
       const r = await fetch("/api/project-costs", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_key: project.id, category: ccat, description: cdesc.trim(), amount: amt, cost_date: cdate || null, input_by: user?.email || "" }),
+        body: JSON.stringify({ project_key: project.id, category: ccat, description: cdesc.trim(), amount: amt, cost_date: cdate || null, input_by: user?.email || "", cost_stream: ccStream }),
       })
       const d = await r.json()
       if (d.data) { setCosts(p => [...p, d.data]); setCdesc(""); setCamt(""); setCdate("") }
@@ -965,6 +1010,13 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const netMarginLive = contractVal > 0 ? (netProfitLive / contractVal) * 100 : 0
   const efisiensiLive = totalOpLive > 0 ? (contractVal / totalOpLive) * 100 : 0
   const costPctLive   = contractVal > 0 ? (totalOpLive / contractVal) * 100 : 0
+
+  // Cost Control dual-stream computed values
+  const costsMain = costs.filter(c => !c.cost_stream || c.cost_stream === "main")
+  const costsVO   = costs.filter(c => c.cost_stream === "vo")
+  const totalMain = costsMain.reduce((s, c) => s + c.amount, 0)
+  const totalVO   = costsVO.reduce((s, c) => s + c.amount, 0)
+  const budgetVO  = parseNum(editBudgetVO)
 
   return (
     <div className="modal-bg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -1431,18 +1483,88 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     ))}
                   </div>
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1.5">
+                      <span className="badge-vo">VO</span> Budget Alokasi Kerja Tambah (Rp)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
+                      <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
+                        value={editBudgetVO}
+                        placeholder="Cth: 50.000.000"
+                        onChange={e => {
+                          const raw = e.target.value.replace(/[^\d]/g, "")
+                          const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                          setEditBudgetVO(fmt)
+                        }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">Nilai kontrak Variation Order yang disetujui PM</p>
+                  </div>
                   <p className="text-[10px] text-muted-foreground mt-3">* Klik Simpan untuk menyimpan data cost control</p>
                 </div>
               </div>
 
-              {/* Actual cost log */}
+              {/* Actual cost log — dual stream */}
               <div className="mt-6">
                 <p className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
                   <ClipboardList className="h-4 w-4 text-primary" /> Log Biaya Aktual
                 </p>
 
-                <div className="rounded-xl border border-border bg-muted/15 p-4 mb-4">
-                  <p className="text-xs font-semibold text-muted-foreground mb-3">Tambah Biaya Aktual</p>
+                {/* Segmented stream control */}
+                <div className="cc-seg mb-4">
+                  <button type="button"
+                    className={`cc-seg-btn ${ccStream === "main" ? "on stream-main" : ""}`}
+                    onClick={() => setCcStream("main")}>
+                    🔶 Log PO Utama
+                  </button>
+                  <button type="button"
+                    className={`cc-seg-btn ${ccStream === "vo" ? "on stream-vo" : ""}`}
+                    onClick={() => setCcStream("vo")}>
+                    🔷 Log Kerja Tambah (VO)
+                  </button>
+                </div>
+
+                {/* Budget check panel per stream */}
+                {ccStream === "main" ? (
+                  <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
+                    style={{ background: "color-mix(in oklch, #f97316 5%, transparent)", border: "1.5px solid color-mix(in oklch, #f97316 20%, transparent)" }}>
+                    <span className="badge-main">PO Utama</span>
+                    <span className="text-muted-foreground">Budget: <span className="font-bold text-foreground">{contractVal > 0 ? fIDR(contractVal) : "—"}</span></span>
+                    <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#ea580c" }}>{fIDR(totalMain)}</span></span>
+                    {contractVal > 0 && (
+                      <span className={`font-bold ml-auto ${contractVal - totalMain < 0 ? "text-destructive" : "text-green-600"}`}>
+                        Sisa: {fIDR(contractVal - totalMain)}{contractVal - totalMain < 0 ? " ⚠️" : ""}
+                      </span>
+                    )}
+                  </div>
+                ) : budgetVO > 0 ? (
+                  <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
+                    style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
+                    <span className="badge-vo">Kerja Tambah</span>
+                    <span className="text-muted-foreground">Budget VO: <span className="font-bold text-foreground">{fIDR(budgetVO)}</span></span>
+                    <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span></span>
+                    <span className={`font-bold ml-auto ${budgetVO - totalVO < 0 ? "text-destructive" : "text-green-600"}`}>
+                      Sisa: {fIDR(budgetVO - totalVO)}{budgetVO - totalVO < 0 ? " ⚠️" : ""}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs mb-4 p-3 rounded-xl text-muted-foreground"
+                    style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
+                    <span className="badge-vo">Kerja Tambah</span>
+                    Budget VO belum diset — isi kolom &ldquo;Budget Alokasi Kerja Tambah&rdquo; di panel kanan lalu Simpan.
+                  </div>
+                )}
+
+                {/* Form: Tambah Biaya Aktual */}
+                <div className="rounded-xl border bg-muted/15 p-4 mb-4"
+                  style={{ borderColor: ccStream === "vo" ? "color-mix(in oklch, #8b5cf6 25%, var(--border))" : "color-mix(in oklch, #f97316 20%, var(--border))" }}>
+                  <p className="text-xs font-semibold mb-3 flex items-center gap-2">
+                    <span className={ccStream === "vo" ? "badge-vo" : "badge-main"}>
+                      {ccStream === "vo" ? "Kerja Tambah (VO)" : "PO Utama"}
+                    </span>
+                    Tambah Biaya Aktual
+                  </p>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
                       <label className="text-[11px] text-muted-foreground mb-1 block">Kategori</label>
@@ -1475,6 +1597,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   </button>
                 </div>
 
+                {/* Cost list with stream badges */}
                 {costs.length === 0 ? (
                   <p className="text-xs text-muted-foreground text-center py-4">Belum ada biaya aktual tercatat</p>
                 ) : (
@@ -1482,7 +1605,10 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                     {costs.map(c => (
                       <div key={c.id} className="inv-row flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className={c.cost_stream === "vo" ? "badge-vo" : "badge-main"}>
+                              {c.cost_stream === "vo" ? "Kerja Tambah" : "PO Utama"}
+                            </span>
                             <span className="text-[10px] font-bold uppercase text-primary bg-primary/10 px-1.5 py-0.5 rounded">{c.category}</span>
                             {c.cost_date && <span className="text-[10px] text-muted-foreground">{c.cost_date}</span>}
                           </div>
@@ -1498,9 +1624,28 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                         </div>
                       </div>
                     ))}
-                    <div className="mt-3 p-3 rounded-xl border border-border bg-muted/20 flex justify-between items-center">
-                      <span className="text-xs font-semibold text-muted-foreground">Total Biaya Aktual</span>
-                      <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + c.amount, 0))}</span>
+                    {/* Split totals per stream */}
+                    <div className="mt-3 p-3 rounded-xl border border-border bg-muted/20 space-y-2">
+                      {totalMain > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                            <span className="badge-main">PO Utama</span> Total
+                          </span>
+                          <span className="text-sm font-bold font-mono" style={{ color: "#ea580c" }}>{fIDR(totalMain)}</span>
+                        </div>
+                      )}
+                      {totalVO > 0 && (
+                        <div className="flex justify-between items-center">
+                          <span className="flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                            <span className="badge-vo">Kerja Tambah</span> Total
+                          </span>
+                          <span className="text-sm font-bold font-mono" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center pt-1.5 border-t border-border/60">
+                        <span className="text-xs font-semibold text-muted-foreground">Grand Total Biaya Aktual</span>
+                        <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + c.amount, 0))}</span>
+                      </div>
                     </div>
                   </>
                 )}

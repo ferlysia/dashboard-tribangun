@@ -39,6 +39,7 @@ export async function POST(request: Request) {
       amount: Number(body.amount),
       cost_date: body.cost_date || null,
       input_by: String(body.input_by || ""),
+      cost_stream: body.cost_stream === "vo" ? "vo" : "main",
     }
 
     const url = `${supabaseConfig.url}/rest/v1/project_costs`

@@ -55,6 +55,7 @@ export async function POST(
     if (body.created_manually !== undefined) payload.created_manually = Boolean(body.created_manually)
     if (body.customer_name    !== undefined) payload.customer_name    = String(body.customer_name)
     if (body.project_status   !== undefined) payload.project_status   = String(body.project_status)
+    if (body.op_budget_vo     !== undefined) payload.op_budget_vo     = Number(body.op_budget_vo)
 
     const url = `${supabaseConfig.url}/rest/v1/project_details?on_conflict=project_key`
     const res = await fetch(url, {

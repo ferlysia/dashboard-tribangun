@@ -52,3 +52,12 @@ CREATE INDEX IF NOT EXISTS idx_schedule_items_project_key
 -- INSERT INTO storage.buckets (id, name, public)
 --   VALUES ('project-photos', 'project-photos', true)
 --   ON CONFLICT (id) DO NOTHING;
+
+-- ── 6. Kolom cost_stream di project_costs (Modul 4) ─────────
+--  'main' = PO Utama, 'vo' = Kerja Tambah / Variation Order
+ALTER TABLE project_costs
+  ADD COLUMN IF NOT EXISTS cost_stream TEXT NOT NULL DEFAULT 'main';
+
+-- ── 7. Kolom budget VO di project_details (Modul 4) ─────────
+ALTER TABLE project_details
+  ADD COLUMN IF NOT EXISTS op_budget_vo NUMERIC DEFAULT 0;
