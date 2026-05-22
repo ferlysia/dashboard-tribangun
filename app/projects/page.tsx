@@ -697,9 +697,15 @@ const STYLES = `
 // ─── Cost helpers ─────────────────────────────────────────────────────────────
 function calcCC(det: ProjectDetail | null | undefined, fallbackPO: number) {
   if (!det) return { totalOp: 0, hasCC: false, netMargin: 0, contractVal: fallbackPO, netProfit: 0, costPct: 0 }
-  const contractVal = (det.po_value_manual ?? 0) > 0 ? (det.po_value_manual ?? 0) : fallbackPO
-  const totalOp = (det.op_gaji ?? 0) + (det.op_material ?? 0) + (det.op_transport ?? 0) +
-                  (det.op_operasional ?? 0) + (det.op_sewa ?? 0) + (det.op_lainnya ?? 0)
+  // Combined Nilai PO = PO Utama + VO contract value
+  const basePO      = (det.po_value_manual ?? 0) > 0 ? (det.po_value_manual ?? 0) : fallbackPO
+  const contractVal = basePO + (det.op_budget_vo ?? 0)
+  // Combined PM budget estimate = main OP fields + VO OP fields
+  const totalOp =
+    (det.op_gaji ?? 0) + (det.op_material ?? 0) + (det.op_transport ?? 0) +
+    (det.op_operasional ?? 0) + (det.op_sewa ?? 0) + (det.op_lainnya ?? 0) +
+    (det.op_vo_gaji ?? 0) + (det.op_vo_material ?? 0) + (det.op_vo_transport ?? 0) +
+    (det.op_vo_operasional ?? 0) + (det.op_vo_sewa ?? 0) + (det.op_vo_lainnya ?? 0)
   const hasCC     = totalOp > 0
   const netProfit = contractVal - totalOp
   const netMargin = contractVal > 0 ? (netProfit / contractVal) * 100 : 0
@@ -708,6 +714,7 @@ function calcCC(det: ProjectDetail | null | undefined, fallbackPO: number) {
 }
 
 function buildManualProject(det: ProjectDetail): Project {
+  const totalNilaiPO = (det.po_value_manual || 0) + (det.op_budget_vo || 0)
   return {
     id: det.project_key,
     clientName: det.display_name || det.customer_name || "Proyek Baru",
@@ -715,16 +722,16 @@ function buildManualProject(det: ProjectDetail): Project {
     location: det.site_location || "",
     category: "Jasa",
     invoices: [],
-    totalValue: det.po_value_manual || 0,
+    totalValue: totalNilaiPO,
     totalPaid: 0,
-    totalOutstanding: det.po_value_manual || 0,
+    totalOutstanding: totalNilaiPO,
     billingProgress: 0,
     status: (det.project_status as Project["status"]) || "BERJALAN",
     firstDate: new Date().toISOString().slice(0, 10),
     lastDate: new Date().toISOString().slice(0, 10),
     invoiceCount: 0, paidCount: 0, unpaidCount: 0,
     termins: [],
-    poValue: det.po_value_manual || 0,
+    poValue: totalNilaiPO,
   }
 }
 
@@ -1087,6 +1094,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   // op vals for Cost Control section
   const contractVal   = parseNum(editPOManual) || project.poValue || project.totalValue
   const totalOpLive   = Object.keys(opVals).reduce((s, k) => s + parseNum(opVals[k]), 0)
+
   const netProfitLive = contractVal - totalOpLive
   const netMarginLive = contractVal > 0 ? (netProfitLive / contractVal) * 100 : 0
   const costPctLive   = contractVal > 0 ? (totalOpLive / contractVal) * 100 : 0
@@ -1096,7 +1104,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const costsVO   = costs.filter(c => c.cost_stream === "vo")
   const totalMain = costsMain.reduce((s, c) => s + Number(c.amount), 0)
   const totalVO   = costsVO.reduce((s, c) => s + Number(c.amount), 0)
-  const budgetVO  = parseNum(editBudgetVO)
+  const budgetVO     = parseNum(editBudgetVO)
+  const totalNilaiPO = contractVal + budgetVO   // PO Utama + VO contract value
 
   // VO stream computed values
   const totalOpVOLive   = Object.keys(opVOVals).reduce((s, k) => s + parseNum(opVOVals[k]), 0)
@@ -1173,7 +1182,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
           {/* Quick stats */}
           <div className="mt-4 grid grid-cols-4 gap-3">
             {[
-              { label: "Nilai Kontrak",  val: fShort(contractVal),                           cls: "text-foreground" },
+              { label: "Nilai Kontrak",  val: fShort(totalNilaiPO),                          cls: "text-foreground" },
               { label: "Invoice Lunas",  val: `${project.paidCount}/${project.invoiceCount}`, cls: project.paidCount === project.invoiceCount ? "text-green-600" : "text-foreground" },
               { label: "Outstanding",    val: project.totalOutstanding > 0 ? fShort(project.totalOutstanding) : "Lunas ✓", cls: project.totalOutstanding > 0 ? "text-destructive" : "text-green-600" },
               { label: "Progres Fisik",  val: loading ? "…" : `${editProg}%`, cls: editProg >= 80 ? "text-green-600" : editProg >= 40 ? "text-primary" : "text-foreground" },
@@ -1560,7 +1569,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
               {/* Project info summary */}
               <div className="grid grid-cols-3 gap-3 mb-6 p-4 rounded-2xl border border-border bg-muted/20">
                 {[
-                  { label: "Nilai PO / Kontrak", val: fIDR(contractVal),       cls: "text-foreground font-black" },
+                  { label: "Nilai PO / Kontrak", val: fIDR(totalNilaiPO),      cls: "text-foreground font-black" },
                   { label: "Total Invoice",       val: fIDR(project.totalValue),cls: "text-foreground font-semibold" },
                   { label: "Sudah Terbayar",      val: fIDR(project.totalPaid), cls: "text-green-600 font-semibold" },
                 ].map(s => (
