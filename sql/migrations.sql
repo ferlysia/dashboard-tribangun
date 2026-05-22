@@ -90,3 +90,9 @@ CREATE TABLE IF NOT EXISTS project_escalations (
 
 CREATE INDEX IF NOT EXISTS idx_escalations_project_key
   ON project_escalations(project_key);
+
+-- ── 11. Kolom vo_entries JSONB (Multi-VO PO per proyek) ──────────────────────
+--  Menyimpan array data Kerja Tambah: [{id, po_number, description, nilai_po}]
+--  op_budget_vo tetap diisi sebagai agregat (sum nilai_po) untuk backward compat.
+ALTER TABLE project_details
+  ADD COLUMN IF NOT EXISTS vo_entries JSONB DEFAULT '[]'::jsonb;

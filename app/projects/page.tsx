@@ -39,6 +39,13 @@ type Project = {
   poValue: number
 }
 
+type VOEntry = {
+  id: string
+  po_number: string
+  description: string
+  nilai_po: number
+}
+
 type ProjectDetail = {
   project_key: string
   display_name?: string
@@ -65,6 +72,7 @@ type ProjectDetail = {
   op_vo_operasional?: number
   op_vo_sewa?: number
   op_vo_lainnya?: number
+  vo_entries?: VOEntry[] | null
 }
 
 type WeeklyLog = {
@@ -761,7 +769,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [opVals, setOpVals] = React.useState<Record<string, string>>({
     op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
   })
-  const [activeStream, setActiveStream] = React.useState<"main" | "vo">("main")
+  const [activeStream, setActiveStream] = React.useState<string>("main")
   const [opVOVals, setOpVOVals] = React.useState<Record<string, string>>({
     op_vo_gaji: "", op_vo_material: "", op_vo_transport: "", op_vo_operasional: "", op_vo_sewa: "", op_vo_lainnya: ""
   })
@@ -771,7 +779,9 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [camt,      setCamt]      = React.useState("")
   const [cdate,     setCdate]     = React.useState("")
   const [adding,    setAdding]    = React.useState(false)
-  const [editBudgetVO, setEditBudgetVO] = React.useState("")
+  const [voEntries,   setVoEntries]   = React.useState<VOEntry[]>([])
+  const [voForm,      setVoForm]      = React.useState({ po_number: "", description: "", nilai_po: "" })
+  const [showVOForm,  setShowVOForm]  = React.useState(false)
   const [escalations,      setEscalations]      = React.useState<Escalation[]>([])
   const [escalationWarning, setEscalationWarning] = React.useState<string | null>(null)
 
@@ -823,8 +833,15 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     setEditNotes(det.notes || "")
     setEditPOManual(fNum(det.po_value_manual || 0))
     setEditOneDrive(det.onedrive_folder_url || "")
-    setEditBudgetVO(fNum(det.op_budget_vo || 0))
     setEditPoNumber(det.po_number || "")
+    // Load VO entries: prefer JSONB, fall back to scalar op_budget_vo for legacy data
+    if (det.vo_entries && det.vo_entries.length > 0) {
+      setVoEntries(det.vo_entries)
+    } else if ((det.op_budget_vo ?? 0) > 0) {
+      setVoEntries([{ id: "vo", po_number: "", description: "Kerja Tambah", nilai_po: Number(det.op_budget_vo ?? 0) }])
+    } else {
+      setVoEntries([])
+    }
     setOpVals({
       op_gaji:        fNum(det.op_gaji || 0),
       op_material:    fNum(det.op_material || 0),
@@ -907,7 +924,10 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         op_operasional: parseNum(opVals.op_operasional),
         op_sewa:        parseNum(opVals.op_sewa),
         op_lainnya:        parseNum(opVals.op_lainnya),
-        op_budget_vo:      parseNum(editBudgetVO),
+        // Multi-VO: serialize entries + keep scalar op_budget_vo as aggregate
+        vo_entries:        voEntries,
+        op_budget_vo:      voEntries.reduce((s, e) => s + e.nilai_po, 0),
+        // Keep legacy op_vo_* scalars from opVOVals (first-VO PM estimates)
         op_vo_gaji:        parseNum(opVOVals.op_vo_gaji),
         op_vo_material:    parseNum(opVOVals.op_vo_material),
         op_vo_transport:   parseNum(opVOVals.op_vo_transport),
@@ -1100,14 +1120,25 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const costPctLive   = contractVal > 0 ? (totalOpLive / contractVal) * 100 : 0
 
   // Cost Control dual-stream computed values
-  const costsMain = costs.filter(c => !c.cost_stream || c.cost_stream === "main")
-  const costsVO   = costs.filter(c => c.cost_stream === "vo")
-  const totalMain = costsMain.reduce((s, c) => s + Number(c.amount), 0)
-  const totalVO   = costsVO.reduce((s, c) => s + Number(c.amount), 0)
-  const budgetVO     = parseNum(editBudgetVO)
-  const totalNilaiPO = contractVal + budgetVO   // PO Utama + VO contract value
+  const costsMain   = costs.filter(c => !c.cost_stream || c.cost_stream === "main")
+  const totalMain   = costsMain.reduce((s, c) => s + Number(c.amount), 0)
 
-  // VO stream computed values
+  // Multi-VO: find active entry + compute totals per entry
+  const activeVOEntry  = voEntries.find(e => e.id === activeStream) ?? null
+  const budgetVO       = activeVOEntry?.nilai_po ?? 0
+  const totalVONilai   = voEntries.reduce((s, e) => s + e.nilai_po, 0)
+  const totalNilaiPO   = contractVal + totalVONilai
+
+  // Costs for the currently-active VO stream
+  const costsActiveVO  = activeVOEntry ? costs.filter(c => c.cost_stream === activeStream) : []
+  const totalActiveVO  = costsActiveVO.reduce((s, c) => s + Number(c.amount), 0)
+
+  // Per-entry totals map for the cost log summary
+  const voStreamTotals = Object.fromEntries(
+    voEntries.map(e => [e.id, costs.filter(c => c.cost_stream === e.id).reduce((s, c) => s + Number(c.amount), 0)])
+  )
+
+  // VO PM estimates — still tracked as scalars for the first ("vo") entry
   const totalOpVOLive   = Object.keys(opVOVals).reduce((s, k) => s + parseNum(opVOVals[k]), 0)
   const netProfitVOLive = budgetVO - totalOpVOLive
   const netMarginVOLive = budgetVO > 0 ? (netProfitVOLive / budgetVO) * 100 : 0
@@ -1124,10 +1155,11 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   // BRI > 1.0 → burning faster than plan; project will overrun at this pace.
   const briMain = editProg > 0 && totalOpLive > 0
     ? (totalMain * 100) / (editProg * totalOpLive) : null
-  const briVO = editProg > 0 && totalOpVOLive > 0
-    ? (totalVO * 100) / (editProg * totalOpVOLive) : null
+  // BRI for VO: only for first entry ("vo") which has PM estimates
+  const briVO = activeStream === "vo" && editProg > 0 && totalOpVOLive > 0
+    ? (totalActiveVO * 100) / (editProg * totalOpVOLive) : null
   const activeBRI           = activeStream === "main" ? briMain    : briVO
-  const activeActualCost    = activeStream === "main" ? totalMain  : totalVO
+  const activeActualCost    = activeStream === "main" ? totalMain  : totalActiveVO
   const activeContractVal   = activeStream === "main" ? contractVal : budgetVO
   const projectedFinalCost  = activeBRI !== null && activeTotalOp > 0
     ? activeBRI * activeTotalOp : null
@@ -1314,6 +1346,114 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* ── Data Kerja Tambah (VO) ── */}
+              <div className="mt-6 mb-1 rounded-2xl border-2 p-4"
+                style={{ borderColor: "color-mix(in oklch, #8b5cf6 30%, transparent)", background: "color-mix(in oklch, #8b5cf6 4%, transparent)" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-black" style={{ color: "#7c3aed" }}>
+                    🔷 Data Kerja Tambah / Variation Order (VO)
+                  </p>
+                  <span className="text-[10px] text-muted-foreground">{voEntries.length} item</span>
+                </div>
+
+                {/* Existing VO entries list */}
+                {voEntries.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    {voEntries.map((entry, idx) => (
+                      <div key={entry.id} className="flex items-start gap-2 p-2.5 rounded-xl border border-border bg-card">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="badge-vo">KT {idx + 1}</span>
+                            <p className="text-xs font-bold text-foreground truncate">{entry.description || "—"}</p>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground font-mono">{entry.po_number || "No PO belum diisi"}</p>
+                          <p className="text-[11px] font-black text-violet-600 dark:text-violet-400 mt-0.5">{fIDR(entry.nilai_po)}</p>
+                        </div>
+                        <button type="button" title="Hapus KT"
+                          onClick={() => setVoEntries(prev => prev.filter(e => e.id !== entry.id))}
+                          className="shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors mt-0.5">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add new VO form */}
+                {showVOForm ? (
+                  <div className="rounded-xl border border-border p-3 bg-card space-y-3">
+                    <p className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                      <Plus className="h-3.5 w-3.5 text-violet-500" /> Form Kerja Tambah Baru
+                    </p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nomor PO Kerja Tambah</label>
+                        <input className="minput" style={{ fontSize: 12 }}
+                          value={voForm.po_number}
+                          onChange={e => setVoForm(f => ({ ...f, po_number: e.target.value }))}
+                          placeholder="Cth: PO/TBUP/2026/VO-01" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nilai PO Kerja Tambah (Rp) <span className="text-destructive">*</span></label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold pointer-events-none">Rp</span>
+                          <input className="minput" style={{ fontSize: 12, paddingLeft: 28 }}
+                            value={voForm.nilai_po}
+                            onChange={e => setVoForm(f => ({ ...f, nilai_po: e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".") }))}
+                            placeholder="Cth: 19.532.000" />
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Keterangan / Nama Kerja Tambah <span className="text-destructive">*</span></label>
+                      <input className="minput" style={{ fontSize: 12 }}
+                        value={voForm.description}
+                        onChange={e => setVoForm(f => ({ ...f, description: e.target.value }))}
+                        placeholder="Cth: Penambahan unit PAC 30kW Banjarmasin Centrum" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button"
+                        disabled={!voForm.description.trim() || !voForm.nilai_po}
+                        onClick={() => {
+                          const isFirst = voEntries.length === 0
+                          const newId = isFirst ? "vo" : `vo_${Date.now()}`
+                          setVoEntries(prev => [...prev, {
+                            id: newId,
+                            po_number: voForm.po_number.trim(),
+                            description: voForm.description.trim(),
+                            nilai_po: parseNum(voForm.nilai_po),
+                          }])
+                          setVoForm({ po_number: "", description: "", nilai_po: "" })
+                          setShowVOForm(false)
+                        }}
+                        className="savebtn savebtn-primary" style={{ fontSize: 12, padding: "7px 16px" }}>
+                        <Plus className="h-3.5 w-3.5" /> Tambah
+                      </button>
+                      <button type="button"
+                        onClick={() => { setShowVOForm(false); setVoForm({ po_number: "", description: "", nilai_po: "" }) }}
+                        className="savebtn" style={{ fontSize: 12, padding: "7px 16px", background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                        Batal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setShowVOForm(true)}
+                    className="savebtn w-full justify-center text-violet-700 dark:text-violet-400"
+                    style={{ fontSize: 12, padding: "8px 16px", border: "1.5px dashed color-mix(in oklch, #8b5cf6 40%, transparent)", background: "color-mix(in oklch, #8b5cf6 5%, transparent)" }}>
+                    <Plus className="h-3.5 w-3.5" /> Tambah Data Kerja Tambah (VO)
+                  </button>
+                )}
+
+                {voEntries.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">Total Nilai VO:</span>
+                    <span className="text-sm font-black font-mono" style={{ color: "#7c3aed" }}>
+                      {fIDR(voEntries.reduce((s, e) => s + e.nilai_po, 0))}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* ── Save Basic Info ── */}
@@ -1636,7 +1776,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       {activeBRI > 1.2 ? "BAHAYA: Trajetori Jebol Budget" : "WASPADA: Burn Rate Tinggi"}
                     </p>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Biaya aktual {activeStream === "main" ? "PO Utama" : "Kerja Tambah"} berjalan{" "}
+                      Biaya aktual {activeStream === "main" ? "PO Utama" : (activeVOEntry?.description || "Kerja Tambah")} berjalan{" "}
                       <span className="font-bold text-foreground">{((activeBRI - 1) * 100).toFixed(0)}% lebih cepat</span>{" "}
                       dari estimasi PM (progress {editProg}%).
                       {projectedFinalCost !== null && (
@@ -1657,7 +1797,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   <p className="text-sm font-bold text-foreground mb-1">
                     ROI Overview —{" "}
                     <span className={activeStream === "main" ? "text-amber-500" : "text-violet-500"}>
-                      {activeStream === "main" ? "PO Utama" : "Kerja Tambah"}
+                      {activeStream === "main" ? "PO Utama" : (activeVOEntry?.description || "Kerja Tambah")}
                     </span>
                   </p>
                   <p className="text-[11px] text-muted-foreground mb-3">Berdasarkan estimasi biaya operasional PM</p>
@@ -1709,69 +1849,85 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   <p className="text-sm font-bold text-foreground mb-1">Input Biaya Operasional</p>
                   <p className="text-[11px] text-muted-foreground mb-3">Estimasi biaya PM per stream untuk hitung ROI</p>
 
-                  {/* Stream toggle for OP budget */}
-                  <div className="cc-seg mb-4">
+                  {/* Stream toggle for OP budget — dynamic per voEntries */}
+                  <div className="cc-seg mb-4 flex-wrap gap-1">
                     <button type="button"
                       className={`cc-seg-btn ${activeStream === "main" ? "on stream-main" : ""}`}
                       onClick={() => setActiveStream("main")}>
                       🔶 PO Utama
                     </button>
-                    <button type="button"
-                      className={`cc-seg-btn ${activeStream === "vo" ? "on stream-vo" : ""}`}
-                      onClick={() => setActiveStream("vo")}>
-                      🔷 Kerja Tambah
-                    </button>
+                    {voEntries.map((entry, idx) => (
+                      <button key={entry.id} type="button"
+                        className={`cc-seg-btn ${activeStream === entry.id ? "on stream-vo" : ""}`}
+                        onClick={() => setActiveStream(entry.id)}>
+                        🔷 KT {idx + 1}
+                      </button>
+                    ))}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    {OP_FIELDS.map(f => {
-                      const fieldVal = activeStream === "main" ? opVals[f.key] : opVOVals[f.voKey]
-                      const onCh = activeStream === "main"
-                        ? (e: React.ChangeEvent<HTMLInputElement>) => {
-                            const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-                            setOpVals(p => ({ ...p, [f.key]: fmt }))
-                          }
-                        : (e: React.ChangeEvent<HTMLInputElement>) => {
-                            const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-                            setOpVOVals(p => ({ ...p, [f.voKey]: fmt }))
-                          }
-                      return (
-                        <div key={activeStream === "main" ? f.key : f.voKey}>
+                  {activeStream === "main" ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {OP_FIELDS.map(f => (
+                        <div key={f.key}>
                           <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
                             <span>{f.icon}</span> {f.label}
                           </label>
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
                             <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
-                              value={fieldVal}
+                              value={opVals[f.key]}
                               placeholder={`Cth: ${(f.ex / 1_000_000).toFixed(0)}Jt`}
-                              onChange={onCh}
+                              onChange={e => {
+                                const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                                setOpVals(p => ({ ...p, [f.key]: fmt }))
+                              }}
                             />
                           </div>
                         </div>
-                      )
-                    })}
-                  </div>
-
-                  {activeStream === "vo" && (
-                    <div className="mt-3 pt-3 border-t border-border">
-                      <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1.5">
-                        <span className="badge-vo">VO</span> Nilai Kontrak Kerja Tambah (Rp)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
-                        <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
-                          value={editBudgetVO}
-                          placeholder="Cth: 50.000.000"
-                          onChange={e => {
-                            const raw = e.target.value.replace(/[^\d]/g, "")
-                            const fmt = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".")
-                            setEditBudgetVO(fmt)
-                          }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-muted-foreground mt-1">Nilai kontrak Variation Order yang disetujui PM</p>
+                      ))}
                     </div>
+                  ) : activeVOEntry ? (
+                    <div>
+                      {/* Nilai PO Kontrak for this VO — read-only, set from Doc Con */}
+                      <div className="mb-3 p-2.5 rounded-xl border border-border bg-muted/20 flex items-center justify-between">
+                        <span className="text-[11px] text-muted-foreground font-semibold flex items-center gap-1.5">
+                          <span className="badge-vo">VO</span> Nilai Kontrak Kerja Tambah
+                        </span>
+                        <span className="text-sm font-black font-mono text-foreground">{fIDR(activeVOEntry.nilai_po)}</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mb-3">Ubah nilai kontrak di tab <strong>Doc Con → Data Kerja Tambah</strong></p>
+                      {/* OP estimates only available for first VO ("vo") */}
+                      {activeVOEntry.id === "vo" ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          {OP_FIELDS.map(f => (
+                            <div key={f.voKey}>
+                              <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
+                                <span>{f.icon}</span> {f.label}
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none font-semibold">Rp</span>
+                                <input className="minput" style={{ fontSize: 12, paddingLeft: 28, paddingTop: 7, paddingBottom: 7 }}
+                                  value={opVOVals[f.voKey]}
+                                  placeholder={`Cth: ${(f.ex / 1_000_000).toFixed(0)}Jt`}
+                                  onChange={e => {
+                                    const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+                                    setOpVOVals(p => ({ ...p, [f.voKey]: fmt }))
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground py-3 text-center rounded-xl border border-border bg-muted/10">
+                          Estimasi biaya PM (ROI) belum tersedia untuk Kerja Tambah tambahan — hanya log biaya aktual yang dicatat.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground py-3 text-center">
+                      Tambah Kerja Tambah di tab Doc Con terlebih dahulu.
+                    </p>
                   )}
                   <p className="text-[10px] text-muted-foreground mt-3">* Klik Simpan untuk menyimpan data cost control</p>
                 </div>
@@ -1783,18 +1939,20 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   <ClipboardList className="h-4 w-4 text-primary" /> Log Biaya Aktual
                 </p>
 
-                {/* Segmented stream control */}
-                <div className="cc-seg mb-4">
+                {/* Segmented stream control — dynamic per voEntries */}
+                <div className="cc-seg mb-4 flex-wrap gap-1">
                   <button type="button"
                     className={`cc-seg-btn ${activeStream === "main" ? "on stream-main" : ""}`}
                     onClick={() => setActiveStream("main")}>
                     🔶 Log PO Utama
                   </button>
-                  <button type="button"
-                    className={`cc-seg-btn ${activeStream === "vo" ? "on stream-vo" : ""}`}
-                    onClick={() => setActiveStream("vo")}>
-                    🔷 Log Kerja Tambah (VO)
-                  </button>
+                  {voEntries.map((entry, idx) => (
+                    <button key={entry.id} type="button"
+                      className={`cc-seg-btn ${activeStream === entry.id ? "on stream-vo" : ""}`}
+                      onClick={() => setActiveStream(entry.id)}>
+                      🔷 KT {idx + 1}{entry.description ? ` — ${entry.description.slice(0, 12)}${entry.description.length > 12 ? "…" : ""}` : ""}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Budget check panel — Budget PM = sum of OP fields (not contract value) */}
@@ -1814,34 +1972,41 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </span>
                     )}
                   </div>
-                ) : totalOpVOLive > 0 ? (
-                  <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
-                    style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
-                    <span className="badge-vo">Kerja Tambah</span>
-                    <span className="text-muted-foreground">
-                      Budget PM: <span className="font-bold text-foreground">{fIDR(totalOpVOLive)}</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span>
-                    </span>
-                    <span className={`font-bold ml-auto ${totalOpVOLive - totalVO < 0 ? "text-destructive" : "text-green-600"}`}>
-                      Sisa: {fIDR(totalOpVOLive - totalVO)}{totalOpVOLive - totalVO < 0 ? " ⚠️" : ""}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-xs mb-4 p-3 rounded-xl text-muted-foreground"
-                    style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
-                    <span className="badge-vo">Kerja Tambah</span>
-                    Estimasi biaya VO belum diisi — buka tab Kerja Tambah di panel Input Biaya lalu Simpan.
-                  </div>
-                )}
+                ) : activeVOEntry ? (() => {
+                  const voIdx = voEntries.findIndex(e => e.id === activeStream)
+                  const label = activeVOEntry.description || `Kerja Tambah ${voIdx + 1}`
+                  const hasEstimate = activeVOEntry.id === "vo" && totalOpVOLive > 0
+                  return (
+                    <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
+                      style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
+                      <span className="badge-vo">{label}</span>
+                      {hasEstimate ? (
+                        <>
+                          <span className="text-muted-foreground">Budget PM: <span className="font-bold text-foreground">{fIDR(totalOpVOLive)}</span></span>
+                          <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalActiveVO)}</span></span>
+                          <span className={`font-bold ml-auto ${totalOpVOLive - totalActiveVO < 0 ? "text-destructive" : "text-green-600"}`}>
+                            Sisa: {fIDR(totalOpVOLive - totalActiveVO)}{totalOpVOLive - totalActiveVO < 0 ? " ⚠️" : ""}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-muted-foreground">Nilai Kontrak: <span className="font-bold text-foreground">{fIDR(activeVOEntry.nilai_po)}</span></span>
+                          <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalActiveVO)}</span></span>
+                          <span className={`font-bold ml-auto ${activeVOEntry.nilai_po > 0 ? (activeVOEntry.nilai_po - totalActiveVO < 0 ? "text-destructive" : "text-green-600") : "text-muted-foreground"}`}>
+                            {activeVOEntry.nilai_po > 0 ? `Sisa: ${fIDR(activeVOEntry.nilai_po - totalActiveVO)}` : "Estimasi PM belum diisi"}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )
+                })() : null}
 
                 {/* Form: Tambah Biaya Aktual */}
                 <div className="rounded-xl border bg-muted/15 p-4 mb-4"
                   style={{ borderColor: activeStream === "vo" ? "color-mix(in oklch, #8b5cf6 25%, var(--border))" : "color-mix(in oklch, #f97316 20%, var(--border))" }}>
                   <p className="text-xs font-semibold mb-3 flex items-center gap-2">
-                    <span className={activeStream === "vo" ? "badge-vo" : "badge-main"}>
-                      {activeStream === "vo" ? "Kerja Tambah (VO)" : "PO Utama"}
+                    <span className={activeStream === "main" ? "badge-main" : "badge-vo"}>
+                      {activeStream === "main" ? "PO Utama" : (() => { const e = voEntries.find(x => x.id === activeStream); const i = voEntries.findIndex(x => x.id === activeStream); return e ? `KT ${i + 1}${e.description ? ` — ${e.description.slice(0, 14)}` : ""}` : "Kerja Tambah" })()}
                     </span>
                     Tambah Biaya Aktual
                   </p>
@@ -1886,8 +2051,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       <div key={c.id} className="inv-row flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <span className={c.cost_stream === "vo" ? "badge-vo" : "badge-main"}>
-                              {c.cost_stream === "vo" ? "Kerja Tambah" : "PO Utama"}
+                            <span className={(!c.cost_stream || c.cost_stream === "main") ? "badge-main" : "badge-vo"}>
+                              {(!c.cost_stream || c.cost_stream === "main") ? "PO Utama" : (() => { const idx = voEntries.findIndex(e => e.id === c.cost_stream); const entry = voEntries[idx]; return entry ? `KT ${idx + 1}${entry.description ? ` — ${entry.description.slice(0, 12)}` : ""}` : "Kerja Tambah" })()}
                             </span>
                             <span className="text-[10px] font-bold uppercase text-primary bg-primary/10 px-1.5 py-0.5 rounded">{c.category}</span>
                             {c.cost_date && <span className="text-[10px] text-muted-foreground">{c.cost_date}</span>}
@@ -1914,14 +2079,19 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                           <span className="text-sm font-bold font-mono" style={{ color: "#ea580c" }}>{fIDR(totalMain)}</span>
                         </div>
                       )}
-                      {totalVO > 0 && (
-                        <div className="flex justify-between items-center">
-                          <span className="flex items-center gap-2 text-xs text-muted-foreground font-semibold">
-                            <span className="badge-vo">Kerja Tambah</span> Total
-                          </span>
-                          <span className="text-sm font-bold font-mono" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span>
-                        </div>
-                      )}
+                      {voEntries.map((entry, idx) => {
+                        const t = voStreamTotals[entry.id] ?? 0
+                        if (t <= 0) return null
+                        return (
+                          <div key={entry.id} className="flex justify-between items-center">
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground font-semibold">
+                              <span className="badge-vo">KT {idx + 1}</span>
+                              <span className="truncate max-w-[120px]">{entry.description || `Kerja Tambah ${idx + 1}`}</span>
+                            </span>
+                            <span className="text-sm font-bold font-mono" style={{ color: "#7c3aed" }}>{fIDR(t)}</span>
+                          </div>
+                        )
+                      })}
                       <div className="flex justify-between items-center pt-1.5 border-t border-border/60">
                         <span className="text-xs font-semibold text-muted-foreground">Grand Total Biaya Aktual</span>
                         <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + Number(c.amount), 0))}</span>
@@ -2091,23 +2261,41 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                             value={financeForm.po_number} onChange={e => setF("po_number", e.target.value)} />
                           {/* PO Reference Panel — shown once Finance types a PO number */}
                           {financeForm.po_number.trim() && (() => {
-                            const poMatch = editPoNumber.trim()
-                              ? financeForm.po_number.trim().toLowerCase() === editPoNumber.trim().toLowerCase()
-                              : null
+                            const typed = financeForm.po_number.trim().toLowerCase()
+                            const mainMatch = editPoNumber.trim() ? typed === editPoNumber.trim().toLowerCase() : null
+                            const voMatch   = voEntries.find(e => e.po_number.trim().toLowerCase() === typed)
+                            const voMatchIdx = voMatch ? voEntries.indexOf(voMatch) : -1
                             return (
                               <div className="po-ref-panel">
                                 <p className="text-[10px] font-black text-blue-700 dark:text-blue-400 mb-1.5 uppercase tracking-wide">📋 Referensi Data Doc Con</p>
                                 <div className="space-y-1">
+                                  {/* PO Utama */}
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-muted-foreground">Nomor PO (Doc Con):</span>
+                                    <span className="text-muted-foreground">PO Utama (Doc Con):</span>
                                     <span className="flex items-center gap-1.5">
                                       <span className="font-bold text-foreground font-mono">{editPoNumber || "—"}</span>
-                                      {poMatch === true  && <span className="text-[10px] font-bold text-green-600">✓ Cocok</span>}
-                                      {poMatch === false && <span className="text-[10px] font-bold text-destructive">✗ Beda!</span>}
+                                      {mainMatch === true  && <span className="text-[10px] font-bold text-green-600">✓ Cocok</span>}
+                                      {mainMatch === false && <span className="text-[10px] font-bold text-amber-500">≠ Beda</span>}
                                     </span>
                                   </div>
-                                  <div className="flex justify-between text-[11px]">
-                                    <span className="text-muted-foreground">Site Lapangan (kasual):</span>
+                                  {/* VO entries match */}
+                                  {voEntries.map((entry, idx) => {
+                                    const match = entry.po_number.trim() ? typed === entry.po_number.trim().toLowerCase() : null
+                                    return (
+                                      <div key={entry.id} className="flex justify-between text-[11px]">
+                                        <span className="text-muted-foreground flex items-center gap-1">
+                                          <span className="badge-vo" style={{ fontSize: 9, padding: "1px 5px" }}>KT {idx+1}</span>
+                                          {entry.description.slice(0, 18)}{entry.description.length > 18 ? "…" : ""}:
+                                        </span>
+                                        <span className="flex items-center gap-1.5">
+                                          <span className="font-bold text-foreground font-mono">{entry.po_number || "—"}</span>
+                                          {match === true  && <span className="text-[10px] font-bold text-green-600">✓ Cocok</span>}
+                                        </span>
+                                      </div>
+                                    )
+                                  })}
+                                  <div className="flex justify-between text-[11px] pt-1 border-t border-border/40">
+                                    <span className="text-muted-foreground">Site Lapangan:</span>
                                     <span className="font-semibold text-foreground">{editSite || "—"}</span>
                                   </div>
                                   <div className="flex justify-between text-[11px]">
@@ -2115,9 +2303,15 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                                     <span className={`font-bold ${editProg >= 100 ? "text-green-600" : "text-amber-500"}`}>{editProg}%</span>
                                   </div>
                                   <div className="flex justify-between text-[11px]">
-                                    <span className="text-muted-foreground">Nilai PO (Doc Con):</span>
+                                    <span className="text-muted-foreground">Nilai PO Utama:</span>
                                     <span className="font-semibold text-foreground">{fIDR(parseNum(editPOManual) || project.poValue || 0)}</span>
                                   </div>
+                                  {voMatch && (
+                                    <div className="flex justify-between text-[11px]">
+                                      <span className="text-muted-foreground">Nilai KT {voMatchIdx+1}:</span>
+                                      <span className="font-semibold text-violet-600 dark:text-violet-400">{fIDR(voMatch.nilai_po)}</span>
+                                    </div>
+                                  )}
                                   <div className="flex justify-between text-[11px]">
                                     <span className="text-muted-foreground">OneDrive:</span>
                                     <span className={`font-bold ${editOneDrive ? "text-green-600" : "text-destructive"}`}>
