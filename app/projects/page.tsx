@@ -754,7 +754,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [opVals, setOpVals] = React.useState<Record<string, string>>({
     op_gaji: "", op_material: "", op_transport: "", op_operasional: "", op_sewa: "", op_lainnya: ""
   })
-  const [opStream, setOpStream] = React.useState<"main" | "vo">("main")
+  const [activeStream, setActiveStream] = React.useState<"main" | "vo">("main")
   const [opVOVals, setOpVOVals] = React.useState<Record<string, string>>({
     op_vo_gaji: "", op_vo_material: "", op_vo_transport: "", op_vo_operasional: "", op_vo_sewa: "", op_vo_lainnya: ""
   })
@@ -764,7 +764,6 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [camt,      setCamt]      = React.useState("")
   const [cdate,     setCdate]     = React.useState("")
   const [adding,    setAdding]    = React.useState(false)
-  const [ccStream,  setCcStream]  = React.useState<"main" | "vo">("main")
   const [editBudgetVO, setEditBudgetVO] = React.useState("")
   const [escalations,      setEscalations]      = React.useState<Escalation[]>([])
   const [escalationWarning, setEscalationWarning] = React.useState<string | null>(null)
@@ -931,7 +930,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     try {
       const r = await fetch("/api/project-costs", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_key: project.id, category: ccat, description: cdesc.trim(), amount: amt, cost_date: cdate || null, input_by: user?.email || "", cost_stream: ccStream }),
+        body: JSON.stringify({ project_key: project.id, category: ccat, description: cdesc.trim(), amount: amt, cost_date: cdate || null, input_by: user?.email || "", cost_stream: activeStream }),
       })
       const d = await r.json()
       if (d.data) {
@@ -1095,8 +1094,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   // Cost Control dual-stream computed values
   const costsMain = costs.filter(c => !c.cost_stream || c.cost_stream === "main")
   const costsVO   = costs.filter(c => c.cost_stream === "vo")
-  const totalMain = costsMain.reduce((s, c) => s + c.amount, 0)
-  const totalVO   = costsVO.reduce((s, c) => s + c.amount, 0)
+  const totalMain = costsMain.reduce((s, c) => s + Number(c.amount), 0)
+  const totalVO   = costsVO.reduce((s, c) => s + Number(c.amount), 0)
   const budgetVO  = parseNum(editBudgetVO)
 
   // VO stream computed values
@@ -1105,11 +1104,11 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const netMarginVOLive = budgetVO > 0 ? (netProfitVOLive / budgetVO) * 100 : 0
   const costPctVOLive   = budgetVO > 0 ? (totalOpVOLive / budgetVO) * 100 : 0
 
-  // Active-stream vars driven by opStream toggle
-  const activeCostPct   = opStream === "main" ? costPctLive   : costPctVOLive
-  const activeNetProfit = opStream === "main" ? netProfitLive : netProfitVOLive
-  const activeNetMargin = opStream === "main" ? netMarginLive : netMarginVOLive
-  const activeTotalOp   = opStream === "main" ? totalOpLive   : totalOpVOLive
+  // Active-stream vars driven by activeStream toggle
+  const activeCostPct   = activeStream === "main" ? costPctLive   : costPctVOLive
+  const activeNetProfit = activeStream === "main" ? netProfitLive : netProfitVOLive
+  const activeNetMargin = activeStream === "main" ? netMarginLive : netMarginVOLive
+  const activeTotalOp   = activeStream === "main" ? totalOpLive   : totalOpVOLive
 
   // ── Function 1: Burn-Rate Index (BRI) ────────────────────────────────────
   // BRI = (actual_cost / progress%) / (pm_budget / 100)
@@ -1118,9 +1117,9 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
     ? (totalMain * 100) / (editProg * totalOpLive) : null
   const briVO = editProg > 0 && totalOpVOLive > 0
     ? (totalVO * 100) / (editProg * totalOpVOLive) : null
-  const activeBRI           = opStream === "main" ? briMain    : briVO
-  const activeActualCost    = opStream === "main" ? totalMain  : totalVO
-  const activeContractVal   = opStream === "main" ? contractVal : budgetVO
+  const activeBRI           = activeStream === "main" ? briMain    : briVO
+  const activeActualCost    = activeStream === "main" ? totalMain  : totalVO
+  const activeContractVal   = activeStream === "main" ? contractVal : budgetVO
   const projectedFinalCost  = activeBRI !== null && activeTotalOp > 0
     ? activeBRI * activeTotalOp : null
   const projectedOverrun    = projectedFinalCost !== null && projectedFinalCost > activeContractVal
@@ -1628,7 +1627,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       {activeBRI > 1.2 ? "BAHAYA: Trajetori Jebol Budget" : "WASPADA: Burn Rate Tinggi"}
                     </p>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Biaya aktual {opStream === "main" ? "PO Utama" : "Kerja Tambah"} berjalan{" "}
+                      Biaya aktual {activeStream === "main" ? "PO Utama" : "Kerja Tambah"} berjalan{" "}
                       <span className="font-bold text-foreground">{((activeBRI - 1) * 100).toFixed(0)}% lebih cepat</span>{" "}
                       dari estimasi PM (progress {editProg}%).
                       {projectedFinalCost !== null && (
@@ -1648,8 +1647,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                 <div className="rounded-2xl border border-border bg-muted/10 p-5">
                   <p className="text-sm font-bold text-foreground mb-1">
                     ROI Overview —{" "}
-                    <span className={opStream === "main" ? "text-amber-500" : "text-violet-500"}>
-                      {opStream === "main" ? "PO Utama" : "Kerja Tambah"}
+                    <span className={activeStream === "main" ? "text-amber-500" : "text-violet-500"}>
+                      {activeStream === "main" ? "PO Utama" : "Kerja Tambah"}
                     </span>
                   </p>
                   <p className="text-[11px] text-muted-foreground mb-3">Berdasarkan estimasi biaya operasional PM</p>
@@ -1704,21 +1703,21 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   {/* Stream toggle for OP budget */}
                   <div className="cc-seg mb-4">
                     <button type="button"
-                      className={`cc-seg-btn ${opStream === "main" ? "on stream-main" : ""}`}
-                      onClick={() => setOpStream("main")}>
+                      className={`cc-seg-btn ${activeStream === "main" ? "on stream-main" : ""}`}
+                      onClick={() => setActiveStream("main")}>
                       🔶 PO Utama
                     </button>
                     <button type="button"
-                      className={`cc-seg-btn ${opStream === "vo" ? "on stream-vo" : ""}`}
-                      onClick={() => setOpStream("vo")}>
+                      className={`cc-seg-btn ${activeStream === "vo" ? "on stream-vo" : ""}`}
+                      onClick={() => setActiveStream("vo")}>
                       🔷 Kerja Tambah
                     </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     {OP_FIELDS.map(f => {
-                      const fieldVal = opStream === "main" ? opVals[f.key] : opVOVals[f.voKey]
-                      const onCh = opStream === "main"
+                      const fieldVal = activeStream === "main" ? opVals[f.key] : opVOVals[f.voKey]
+                      const onCh = activeStream === "main"
                         ? (e: React.ChangeEvent<HTMLInputElement>) => {
                             const fmt = e.target.value.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".")
                             setOpVals(p => ({ ...p, [f.key]: fmt }))
@@ -1728,7 +1727,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                             setOpVOVals(p => ({ ...p, [f.voKey]: fmt }))
                           }
                       return (
-                        <div key={opStream === "main" ? f.key : f.voKey}>
+                        <div key={activeStream === "main" ? f.key : f.voKey}>
                           <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
                             <span>{f.icon}</span> {f.label}
                           </label>
@@ -1745,7 +1744,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                     })}
                   </div>
 
-                  {opStream === "vo" && (
+                  {activeStream === "vo" && (
                     <div className="mt-3 pt-3 border-t border-border">
                       <label className="text-[11px] font-semibold text-muted-foreground mb-1 flex items-center gap-1.5">
                         <span className="badge-vo">VO</span> Nilai Kontrak Kerja Tambah (Rp)
@@ -1778,54 +1777,62 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                 {/* Segmented stream control */}
                 <div className="cc-seg mb-4">
                   <button type="button"
-                    className={`cc-seg-btn ${ccStream === "main" ? "on stream-main" : ""}`}
-                    onClick={() => setCcStream("main")}>
+                    className={`cc-seg-btn ${activeStream === "main" ? "on stream-main" : ""}`}
+                    onClick={() => setActiveStream("main")}>
                     🔶 Log PO Utama
                   </button>
                   <button type="button"
-                    className={`cc-seg-btn ${ccStream === "vo" ? "on stream-vo" : ""}`}
-                    onClick={() => setCcStream("vo")}>
+                    className={`cc-seg-btn ${activeStream === "vo" ? "on stream-vo" : ""}`}
+                    onClick={() => setActiveStream("vo")}>
                     🔷 Log Kerja Tambah (VO)
                   </button>
                 </div>
 
-                {/* Budget check panel per stream */}
-                {ccStream === "main" ? (
+                {/* Budget check panel — Budget PM = sum of OP fields (not contract value) */}
+                {activeStream === "main" ? (
                   <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
                     style={{ background: "color-mix(in oklch, #f97316 5%, transparent)", border: "1.5px solid color-mix(in oklch, #f97316 20%, transparent)" }}>
                     <span className="badge-main">PO Utama</span>
-                    <span className="text-muted-foreground">Budget: <span className="font-bold text-foreground">{contractVal > 0 ? fIDR(contractVal) : "—"}</span></span>
-                    <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#ea580c" }}>{fIDR(totalMain)}</span></span>
-                    {contractVal > 0 && (
-                      <span className={`font-bold ml-auto ${contractVal - totalMain < 0 ? "text-destructive" : "text-green-600"}`}>
-                        Sisa: {fIDR(contractVal - totalMain)}{contractVal - totalMain < 0 ? " ⚠️" : ""}
+                    <span className="text-muted-foreground">
+                      Budget PM: <span className="font-bold text-foreground">{totalOpLive > 0 ? fIDR(totalOpLive) : "—"}</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Terpakai: <span className="font-bold" style={{ color: "#ea580c" }}>{fIDR(totalMain)}</span>
+                    </span>
+                    {totalOpLive > 0 && (
+                      <span className={`font-bold ml-auto ${totalOpLive - totalMain < 0 ? "text-destructive" : "text-green-600"}`}>
+                        Sisa: {fIDR(totalOpLive - totalMain)}{totalOpLive - totalMain < 0 ? " ⚠️" : ""}
                       </span>
                     )}
                   </div>
-                ) : budgetVO > 0 ? (
+                ) : totalOpVOLive > 0 ? (
                   <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs mb-4 p-3 rounded-xl"
                     style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
                     <span className="badge-vo">Kerja Tambah</span>
-                    <span className="text-muted-foreground">Budget VO: <span className="font-bold text-foreground">{fIDR(budgetVO)}</span></span>
-                    <span className="text-muted-foreground">Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span></span>
-                    <span className={`font-bold ml-auto ${budgetVO - totalVO < 0 ? "text-destructive" : "text-green-600"}`}>
-                      Sisa: {fIDR(budgetVO - totalVO)}{budgetVO - totalVO < 0 ? " ⚠️" : ""}
+                    <span className="text-muted-foreground">
+                      Budget PM: <span className="font-bold text-foreground">{fIDR(totalOpVOLive)}</span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Terpakai: <span className="font-bold" style={{ color: "#7c3aed" }}>{fIDR(totalVO)}</span>
+                    </span>
+                    <span className={`font-bold ml-auto ${totalOpVOLive - totalVO < 0 ? "text-destructive" : "text-green-600"}`}>
+                      Sisa: {fIDR(totalOpVOLive - totalVO)}{totalOpVOLive - totalVO < 0 ? " ⚠️" : ""}
                     </span>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 text-xs mb-4 p-3 rounded-xl text-muted-foreground"
                     style={{ background: "color-mix(in oklch, #8b5cf6 5%, transparent)", border: "1.5px solid color-mix(in oklch, #8b5cf6 20%, transparent)" }}>
                     <span className="badge-vo">Kerja Tambah</span>
-                    Budget VO belum diset — isi kolom &ldquo;Budget Alokasi Kerja Tambah&rdquo; di panel kanan lalu Simpan.
+                    Estimasi biaya VO belum diisi — buka tab Kerja Tambah di panel Input Biaya lalu Simpan.
                   </div>
                 )}
 
                 {/* Form: Tambah Biaya Aktual */}
                 <div className="rounded-xl border bg-muted/15 p-4 mb-4"
-                  style={{ borderColor: ccStream === "vo" ? "color-mix(in oklch, #8b5cf6 25%, var(--border))" : "color-mix(in oklch, #f97316 20%, var(--border))" }}>
+                  style={{ borderColor: activeStream === "vo" ? "color-mix(in oklch, #8b5cf6 25%, var(--border))" : "color-mix(in oklch, #f97316 20%, var(--border))" }}>
                   <p className="text-xs font-semibold mb-3 flex items-center gap-2">
-                    <span className={ccStream === "vo" ? "badge-vo" : "badge-main"}>
-                      {ccStream === "vo" ? "Kerja Tambah (VO)" : "PO Utama"}
+                    <span className={activeStream === "vo" ? "badge-vo" : "badge-main"}>
+                      {activeStream === "vo" ? "Kerja Tambah (VO)" : "PO Utama"}
                     </span>
                     Tambah Biaya Aktual
                   </p>
@@ -1908,7 +1915,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       )}
                       <div className="flex justify-between items-center pt-1.5 border-t border-border/60">
                         <span className="text-xs font-semibold text-muted-foreground">Grand Total Biaya Aktual</span>
-                        <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + c.amount, 0))}</span>
+                        <span className="text-sm font-black font-mono text-destructive">{fIDR(costs.reduce((s, c) => s + Number(c.amount), 0))}</span>
                       </div>
                     </div>
                   </>
