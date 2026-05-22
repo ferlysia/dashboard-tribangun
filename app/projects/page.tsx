@@ -46,6 +46,13 @@ type VOEntry = {
   nilai_po: number
 }
 
+type TerminEntry = {
+  id: string            // "t1", "t2", ...
+  nama: string          // deskripsi milestone, e.g. "Termin 1 - Uang Muka DP"
+  target_progres: number  // minimum physical progress % required
+  persen_tagihan: number  // % of total nilai PO to bill in this termin
+}
+
 type ProjectDetail = {
   project_key: string
   display_name?: string
@@ -73,6 +80,7 @@ type ProjectDetail = {
   op_vo_sewa?: number
   op_vo_lainnya?: number
   vo_entries?: VOEntry[] | null
+  termin_schedule?: TerminEntry[] | null
 }
 
 type WeeklyLog = {
@@ -785,6 +793,12 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [escalations,      setEscalations]      = React.useState<Escalation[]>([])
   const [escalationWarning, setEscalationWarning] = React.useState<string | null>(null)
 
+  // ── Termin (payment milestone) schedule ───────────────────────────────────
+  const [terminSchedule,  setTerminSchedule]  = React.useState<TerminEntry[]>([])
+  const [terminForm,      setTerminForm]      = React.useState({ nama: "", target_progres: "", persen_tagihan: "" })
+  const [showTerminForm,  setShowTerminForm]  = React.useState(false)
+  const [selectedTerminId, setSelectedTerminId] = React.useState<string | null>(null)
+
   // ── Document Control extra state ──────────────────────────────────────────
   const [docSubTab,      setDocSubTab]      = React.useState<"log" | "schedule">("log")
   const [editOneDrive,   setEditOneDrive]   = React.useState("")
@@ -858,6 +872,8 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
       op_vo_sewa:        fNum(det.op_vo_sewa || 0),
       op_vo_lainnya:     fNum(det.op_vo_lainnya || 0),
     })
+    setTerminSchedule(det.termin_schedule ?? [])
+    setSelectedTerminId(null)
   }
 
   React.useEffect(() => {
@@ -927,6 +943,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
         // Multi-VO: serialize entries + keep scalar op_budget_vo as aggregate
         vo_entries:        voEntries,
         op_budget_vo:      voEntries.reduce((s, e) => s + e.nilai_po, 0),
+        termin_schedule:   terminSchedule,
         // Keep legacy op_vo_* scalars from opVOVals (first-VO PM estimates)
         op_vo_gaji:        parseNum(opVOVals.op_vo_gaji),
         op_vo_material:    parseNum(opVOVals.op_vo_material),
@@ -1453,6 +1470,139 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       {fIDR(voEntries.reduce((s, e) => s + e.nilai_po, 0))}
                     </span>
                   </div>
+                )}
+              </div>
+
+              {/* ── Termin Pembayaran Schedule ── */}
+              <div className="mt-5 mb-1 rounded-2xl border-2 p-4"
+                style={{ borderColor: "color-mix(in oklch, #10b981 30%, transparent)", background: "color-mix(in oklch, #10b981 4%, transparent)" }}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-black" style={{ color: "#059669" }}>
+                    📋 Pengaturan Termin Pembayaran (TOP Schedule)
+                  </p>
+                  {terminSchedule.length > 0 && (() => {
+                    const total = terminSchedule.reduce((s, t) => s + t.persen_tagihan, 0)
+                    return (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${total === 100 ? "bg-green-500/15 text-green-700 dark:text-green-400" : "bg-amber-500/15 text-amber-700 dark:text-amber-400"}`}>
+                        {total}% {total === 100 ? "✓ Valid" : "≠ 100%"}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <p className="text-[10px] text-muted-foreground mb-3">
+                  Definisikan milestone pembayaran berdasarkan kontrak. Finance akan otomatis unlock ketika progres fisik mencukupi.
+                </p>
+
+                {/* Existing termin rows */}
+                {terminSchedule.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    {terminSchedule.map((t, idx) => {
+                      const unlocked = editProg >= t.target_progres
+                      return (
+                        <div key={t.id} className="flex items-start gap-2 p-2.5 rounded-xl border bg-card"
+                          style={{ borderColor: unlocked ? "color-mix(in oklch, #10b981 30%, transparent)" : "var(--border)" }}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${unlocked ? "bg-green-500/15 text-green-700 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>
+                                T{idx + 1}
+                              </span>
+                              <p className="text-xs font-bold text-foreground truncate flex-1">{t.nama}</p>
+                              {unlocked
+                                ? <span className="text-[9px] font-black text-green-600">✓ UNLOCKED</span>
+                                : <span className="text-[9px] text-muted-foreground">🔒 Butuh {t.target_progres}%</span>
+                              }
+                            </div>
+                            <div className="flex gap-3 text-[10px] text-muted-foreground">
+                              <span>Target: <strong>{t.target_progres}%</strong></span>
+                              <span>Tagihan: <strong className="text-green-700 dark:text-green-400">{t.persen_tagihan}%</strong></span>
+                              <span className="text-foreground font-semibold">
+                                ≈ {fIDR(Math.round(totalNilaiPO * t.persen_tagihan / 100))}
+                              </span>
+                            </div>
+                          </div>
+                          <button type="button" title="Hapus termin"
+                            onClick={() => setTerminSchedule(prev => prev.filter(x => x.id !== t.id))}
+                            className="shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors mt-0.5">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Add termin form */}
+                {showTerminForm ? (
+                  <div className="rounded-xl border border-border p-3 bg-card space-y-2">
+                    <p className="text-[11px] font-bold text-foreground flex items-center gap-1.5">
+                      <Plus className="h-3.5 w-3.5 text-green-600" /> Tambah Milestone Termin Baru
+                    </p>
+                    <div>
+                      <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">Nama Termin / Deskripsi <span className="text-destructive">*</span></label>
+                      <input className="minput" style={{ fontSize: 12 }}
+                        value={terminForm.nama}
+                        onChange={e => setTerminForm(f => ({ ...f, nama: e.target.value }))}
+                        placeholder="Cth: Termin 1 — Uang Muka DP 30%" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">
+                          Target Progres Fisik (%) <span className="text-destructive">*</span>
+                        </label>
+                        <input type="number" min="0" max="100" className="minput" style={{ fontSize: 12 }}
+                          value={terminForm.target_progres}
+                          onChange={e => setTerminForm(f => ({ ...f, target_progres: e.target.value }))}
+                          placeholder="Cth: 0 untuk DP, 50 untuk mid" />
+                        <p className="text-[9px] text-muted-foreground mt-0.5">0% = langsung boleh ditagih (DP)</p>
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-muted-foreground mb-1 block">
+                          Persentase Tagihan (%) <span className="text-destructive">*</span>
+                        </label>
+                        <input type="number" min="1" max="100" className="minput" style={{ fontSize: 12 }}
+                          value={terminForm.persen_tagihan}
+                          onChange={e => setTerminForm(f => ({ ...f, persen_tagihan: e.target.value }))}
+                          placeholder="Cth: 30" />
+                        {(() => {
+                          const existing = terminSchedule.reduce((s, t) => s + t.persen_tagihan, 0)
+                          const adding   = Number(terminForm.persen_tagihan) || 0
+                          const total    = existing + adding
+                          if (total > 100) return <p className="text-[9px] text-destructive mt-0.5">Total akan jadi {total}% (melebihi 100%)</p>
+                          if (total === 100) return <p className="text-[9px] text-green-600 mt-0.5">✓ Total tepat 100%</p>
+                          return <p className="text-[9px] text-muted-foreground mt-0.5">Sisa: {100 - total}%</p>
+                        })()}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button"
+                        disabled={!terminForm.nama.trim() || !terminForm.target_progres || !terminForm.persen_tagihan}
+                        onClick={() => {
+                          const newT: TerminEntry = {
+                            id: `t${Date.now()}`,
+                            nama: terminForm.nama.trim(),
+                            target_progres: Math.min(100, Math.max(0, Number(terminForm.target_progres))),
+                            persen_tagihan: Math.min(100, Math.max(1, Number(terminForm.persen_tagihan))),
+                          }
+                          setTerminSchedule(prev => [...prev, newT])
+                          setTerminForm({ nama: "", target_progres: "", persen_tagihan: "" })
+                          setShowTerminForm(false)
+                        }}
+                        className="savebtn savebtn-primary" style={{ fontSize: 12, padding: "7px 16px" }}>
+                        <Plus className="h-3.5 w-3.5" /> Tambah
+                      </button>
+                      <button type="button"
+                        onClick={() => { setShowTerminForm(false); setTerminForm({ nama: "", target_progres: "", persen_tagihan: "" }) }}
+                        className="savebtn" style={{ fontSize: 12, padding: "7px 16px", background: "var(--muted)", color: "var(--muted-foreground)" }}>
+                        Batal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setShowTerminForm(true)}
+                    className="savebtn w-full justify-center text-green-700 dark:text-green-400"
+                    style={{ fontSize: 12, padding: "8px 16px", border: "1.5px dashed color-mix(in oklch, #10b981 40%, transparent)", background: "color-mix(in oklch, #10b981 5%, transparent)" }}>
+                    <Plus className="h-3.5 w-3.5" /> Tambah Milestone Termin
+                  </button>
                 )}
               </div>
 
@@ -2115,13 +2265,26 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
             const finTotal = Number(financeForm.total)         || 0
             const finPaid  = Number(financeForm.payment_value) || 0
 
-            // Billing lock: both conditions must be true to enable submit
-            const canSubmit  = editProg >= 100 && !!editOneDrive.trim()
-            const lockReason = editProg < 100 && !editOneDrive.trim()
-              ? `Progress fisik ${editProg}% (butuh 100%) dan OneDrive link belum diisi`
-              : editProg < 100
+            // ── Termin-aware billing lock ──────────────────────────────────
+            const hasTerminSchedule = terminSchedule.length > 0
+            const selectedTermin    = terminSchedule.find(t => t.id === selectedTerminId) ?? null
+            const progressRequired  = hasTerminSchedule
+              ? (selectedTermin?.target_progres ?? 101)   // 101 = no termin selected yet → always locked
+              : 100
+            const progressOk  = editProg >= progressRequired
+            const oneDriveOk  = !!editOneDrive.trim()
+            const terminOk    = !hasTerminSchedule || selectedTermin !== null
+            const canSubmit   = progressOk && oneDriveOk && terminOk
+
+            const lockReason = !oneDriveOk
+              ? "OneDrive link Doc Con belum diisi — wajib ada sebelum invoice digenerate"
+              : !terminOk
+              ? "Pilih milestone Termin di panel atas sebelum bisa generate invoice"
+              : hasTerminSchedule && selectedTermin !== null && !progressOk
+              ? `Invoice terkunci — butuh progres fisik minimal ${selectedTermin.target_progres}% (saat ini: ${editProg}%)`
+              : !hasTerminSchedule && !progressOk
               ? `Progress fisik ${editProg}% — butuh 100% sebelum Finance bisa generate invoice`
-              : "OneDrive link Doc Con belum diisi — wajib ada sebelum invoice digenerate"
+              : ""
 
             return (
               <div className="p-7">
@@ -2129,8 +2292,76 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                   <span className="h-2 w-2 rounded-full bg-green-500" /> Divisi Finance — Input Invoice Baru
                 </span>
 
+                {/* ── Termin Selector (hanya tampil jika ada schedule) ── */}
+                {hasTerminSchedule && (
+                  <div className="mb-5 rounded-2xl border-2 p-4"
+                    style={{ borderColor: "color-mix(in oklch, #10b981 30%, transparent)", background: "color-mix(in oklch, #10b981 4%, transparent)" }}>
+                    <p className="text-xs font-black mb-2" style={{ color: "#059669" }}>
+                      📋 Pilih Milestone Termin Tagihan
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mb-3">
+                      Progres fisik saat ini: <strong className={editProg >= 100 ? "text-green-600" : "text-amber-600"}>{editProg}%</strong>. Pilih termin yang sudah memenuhi syarat progres.
+                    </p>
+                    <div className="space-y-2">
+                      {terminSchedule.map((t, idx) => {
+                        const unlocked  = editProg >= t.target_progres
+                        const isActive  = selectedTerminId === t.id
+                        const billValue = Math.round(totalNilaiPO * t.persen_tagihan / 100)
+                        return (
+                          <button key={t.id} type="button"
+                            onClick={() => {
+                              setSelectedTerminId(prev => prev === t.id ? null : t.id)
+                              if (selectedTerminId !== t.id && !financeForm.dpp && !financeForm.description) {
+                                setFinanceForm(f => ({ ...f, description: t.nama, dpp: String(billValue) }))
+                              }
+                            }}
+                            className={`w-full text-left rounded-xl border p-3 transition-all ${
+                              isActive
+                                ? "border-green-500/50 bg-green-500/8"
+                                : unlocked
+                                ? "border-border hover:border-green-500/30 hover:bg-green-500/4 bg-card"
+                                : "border-border bg-muted/30 opacity-60 cursor-not-allowed"
+                            }`}
+                            disabled={!unlocked}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center ${
+                                  isActive ? "border-green-500 bg-green-500" : "border-border"
+                                }`}>
+                                  {isActive && <span className="h-2 w-2 rounded-full bg-white" />}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-foreground">{t.nama}</p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Target progres: <strong>{t.target_progres}%</strong>
+                                    {" · "}Tagihan: <strong className="text-green-700 dark:text-green-400">{t.persen_tagihan}%</strong>
+                                    {" ≈ "}<strong className="text-foreground">{fIDR(billValue)}</strong>
+                                  </p>
+                                </div>
+                              </div>
+                              <span className={`shrink-0 text-[9px] font-black px-1.5 py-0.5 rounded-full ${
+                                unlocked
+                                  ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                                  : "bg-muted text-muted-foreground"
+                              }`}>
+                                {unlocked ? "✓ UNLOCK" : `🔒 ${t.target_progres}%`}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    {selectedTermin && (
+                      <p className="mt-2 text-[10px] text-green-700 dark:text-green-400 font-semibold">
+                        ✓ Termin dipilih: {selectedTermin.nama} — DPP akan auto-isi jika form masih kosong
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Billing Lock Banner */}
-                {!canSubmit && (
+                {!canSubmit && lockReason && (
                   <div className="billing-lock-banner flex items-start gap-2.5">
                     <span className="text-lg shrink-0">🔒</span>
                     <div>
@@ -2451,8 +2682,12 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                         {/* Lock explanation below button */}
                         {!canSubmit && (
                           <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-                            {editProg < 100 && <span className="block">⚠ Progress {editProg}% (butuh 100%)</span>}
-                            {!editOneDrive.trim() && <span className="block">⚠ OneDrive link belum diisi</span>}
+                            {!terminOk && <span className="block">⚠ Pilih milestone termin di atas</span>}
+                            {terminOk && !progressOk && hasTerminSchedule && selectedTermin && (
+                              <span className="block">⚠ Progress {editProg}% (butuh {selectedTermin.target_progres}%)</span>
+                            )}
+                            {!hasTerminSchedule && !progressOk && <span className="block">⚠ Progress {editProg}% (butuh 100%)</span>}
+                            {!oneDriveOk && <span className="block">⚠ OneDrive link belum diisi</span>}
                           </p>
                         )}
 

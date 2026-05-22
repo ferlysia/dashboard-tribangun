@@ -96,3 +96,12 @@ CREATE INDEX IF NOT EXISTS idx_escalations_project_key
 --  op_budget_vo tetap diisi sebagai agregat (sum nilai_po) untuk backward compat.
 ALTER TABLE project_details
   ADD COLUMN IF NOT EXISTS vo_entries JSONB DEFAULT '[]'::jsonb;
+
+-- ── 12. Kolom termin_schedule JSONB (TOP milestone per proyek) ────────────────
+--  Menyimpan jadwal milestone pembayaran:
+--  [{id, nama, target_progres, persen_tagihan}]
+--  target_progres = % fisik minimum sebelum termin bisa ditagihkan.
+--  persen_tagihan = % dari total nilai kontrak yang ditagih di termin ini.
+--  Validasi bisnis: sum(persen_tagihan) harus = 100%.
+ALTER TABLE project_details
+  ADD COLUMN IF NOT EXISTS termin_schedule JSONB DEFAULT '[]'::jsonb;
