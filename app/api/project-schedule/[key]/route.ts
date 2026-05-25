@@ -34,12 +34,13 @@ export async function POST(
     const { key } = await params
     const projectKey = decodeURIComponent(key)
     const body = await request.json()
-    const payload = {
+    const payload: Record<string, unknown> = {
       project_key: projectKey,
       week_number: Number(body.week_number ?? 1),
       task_description: String(body.task_description ?? ""),
       progress_weight: Number(body.progress_weight ?? 10),
     }
+    if (body.end_week !== undefined) payload.end_week = Number(body.end_week)
     const url = `${supabaseConfig.url}/rest/v1/project_schedule_items`
     const res = await fetch(url, {
       method: "POST",

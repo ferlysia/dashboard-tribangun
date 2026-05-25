@@ -26,6 +26,33 @@ export async function GET(
   }
 }
 
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ key: string }> }
+) {
+  try {
+    const { key } = await params
+    const projectKey = decodeURIComponent(key)
+    const body = await request.json()
+    const payload: Record<string, unknown> = {}
+    if (body.physical_progress !== undefined)
+      payload.physical_progress = Math.min(100, Math.max(0, Number(body.physical_progress)))
+    if (body.project_status !== undefined) payload.project_status = String(body.project_status)
+    if (Object.keys(payload).length === 0) return NextResponse.json({ ok: true })
+    const url = `${supabaseConfig.url}/rest/v1/project_details?project_key=eq.${encodeURIComponent(projectKey)}`
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { ...getHeaders(), Prefer: "return=representation" },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error(await res.text())
+    const rows = await res.json()
+    return NextResponse.json({ data: rows[0] ?? null })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ key: string }> }

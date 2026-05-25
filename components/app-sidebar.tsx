@@ -20,6 +20,7 @@ import {
   History,
   Database,
   ShieldAlert,
+  ClipboardList,
 } from "lucide-react"
 import {
   Sidebar,
@@ -49,6 +50,7 @@ const NAV_MAIN = [
   { title: "Clients",                 url: "/clients",               icon: Users           },
   { title: "Lifecycle",               url: "/lifecycle",             icon: Clock           },
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
+  { title: "Doc Con",                  url: "/dashboard/doc-con",     icon: ClipboardList   },
   { title: "Bos View",                 url: "/projects/executive-view", icon: FolderKanban  },
   { title: "Financial Performance",    url: "/financial-performance", icon: TrendingUp      },
   { title: "Executive Dashboard",      url: "/executive",             icon: ShieldAlert     },

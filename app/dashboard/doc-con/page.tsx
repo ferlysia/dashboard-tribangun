@@ -1,0 +1,1027 @@
+"use client"
+
+import * as React from "react"
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
+import { SiteHeader } from "@/components/site-header"
+import {
+  Search, Plus, Bell, CheckCheck, Trash2, Pencil,
+  X, Save, Camera, RefreshCw, FolderOpen, BarChart3,
+  CheckCircle2, Lock,
+} from "lucide-react"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type TerminEntry = {
+  id: string
+  nama: string
+  target_progres: number
+  persen_tagihan: number
+}
+
+type ProjectSummary = {
+  project_key: string
+  display_name: string
+  po_number: string | null
+  customer_name: string | null
+  physical_progress: number
+  project_status: string
+  termin_schedule: TerminEntry[]
+}
+
+type Phase = {
+  id: string
+  project_key: string
+  task_description: string
+  week_number: number
+  end_week: number
+  progress_weight: number
+  is_done: boolean
+  completed_at: string | null
+  created_at: string
+}
+
+type WeekLog = {
+  id: string
+  project_key: string
+  phase_id: string | null
+  week_number: number
+  description: string
+  photo_url: string
+  created_by: string
+  created_at: string
+  progress_pct: number
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const MONTHS_ID = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"]
+
+const PILL = [
+  { bg: "#dbeafe", text: "#1e40af", done: "#3b82f6", border: "#bfdbfe" },
+  { bg: "#d1fae5", text: "#065f46", done: "#10b981", border: "#a7f3d0" },
+  { bg: "#fce7f3", text: "#831843", done: "#ec4899", border: "#fbcfe8" },
+  { bg: "#ede9fe", text: "#4c1d95", done: "#8b5cf6", border: "#ddd6fe" },
+  { bg: "#fef3c7", text: "#78350f", done: "#f59e0b", border: "#fde68a" },
+  { bg: "#fee2e2", text: "#7f1d1d", done: "#ef4444", border: "#fecaca" },
+]
+
+const COL_W = 68
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+
+function useDebounce<T>(value: T, ms: number): T {
+  const [dv, setDv] = React.useState<T>(value)
+  React.useEffect(() => {
+    const t = setTimeout(() => setDv(value), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return dv
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function computeBaseMonth(phases: Phase[]): number {
+  if (phases.length === 0) return new Date().getMonth()
+  return new Date(phases[0].created_at).getMonth()
+}
+
+function weekToLabel(weekNum: number, baseMonth: number): string {
+  const mIdx      = Math.floor((weekNum - 1) / 4)
+  const wInMonth  = ((weekNum - 1) % 4) + 1
+  return `${MONTHS_ID[(baseMonth + mIdx) % 12]} W${wInMonth}`
+}
+
+function computeProgress(phases: Phase[]): number {
+  const total = phases.reduce((s, p) => s + p.progress_weight, 0) || 1
+  const done  = phases.filter(p => p.is_done).reduce((s, p) => s + p.progress_weight, 0)
+  return Math.round((done / total) * 100)
+}
+
+function hasTerminBell(phaseId: string, phases: Phase[], termins: TerminEntry[]): boolean {
+  return termins.some(t => {
+    let cum = 0
+    for (const p of phases) {
+      const prev = cum; cum += p.progress_weight
+      if (p.id === phaseId) return t.target_progres > prev && t.target_progres <= cum
+    }
+    return false
+  })
+}
+
+// ─── Log Edit Popover ─────────────────────────────────────────────────────────
+
+function LogEditPopover({ log, onSave, onClose }: {
+  log: WeekLog
+  onSave: (id: string, desc: string, photo: File | null) => Promise<void>
+  onClose: () => void
+}) {
+  const [desc,   setDesc]   = React.useState(log.description)
+  const [photo,  setPhoto]  = React.useState<File | null>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    try { await onSave(log.id, desc, photo); onClose() }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[11px] font-bold text-neutral-600 uppercase tracking-wider">
+          Edit Log Minggu {log.week_number}
+        </span>
+        <button type="button" onClick={onClose}
+          className="p-1 rounded hover:bg-neutral-100 text-neutral-400 transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <div className="mb-3">
+        <label className="text-[11px] font-semibold text-neutral-500 mb-1 block uppercase tracking-wide">
+          Deskripsi Aktual
+        </label>
+        <textarea
+          className="w-full text-xs rounded-lg border border-neutral-200 px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+          style={{ minHeight: 88 }}
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          placeholder="Apa yang sudah dikerjakan minggu ini…"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label className="text-[11px] font-semibold text-neutral-500 mb-1.5 flex items-center gap-1 uppercase tracking-wide">
+          <Camera className="h-3 w-3" /> Foto Bukti Lapangan
+        </label>
+        <input type="file" accept="image/*" title="Upload foto bukti lapangan"
+          className="w-full text-xs text-neutral-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition-all"
+          onChange={e => setPhoto(e.target.files?.[0] ?? null)} />
+        {log.photo_url && !photo && (
+          <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-indigo-500 hover:underline">
+            <Camera className="h-2.5 w-2.5" /> Lihat foto saat ini →
+          </a>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <button type="button" disabled={saving} onClick={handleSave}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+          {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          {saving ? "Menyimpan…" : "Simpan"}
+        </button>
+        <button type="button" onClick={onClose}
+          className="px-4 py-2 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-colors">
+          Batal
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function DocConPage() {
+  // ── Projects ──────────────────────────────────────────────────
+  const [allProjects,  setAllProjects]  = React.useState<ProjectSummary[]>([])
+  const [poSearch,     setPoSearch]     = React.useState("")
+  const [activeKey,    setActiveKey]    = React.useState<string | null>(null)
+  const [loadingProj,  setLoadingProj]  = React.useState(true)
+
+  // ── Doc Con data ───────────────────────────────────────────────
+  const [phases,      setPhases]      = React.useState<Phase[]>([])
+  const [weekLogs,    setWeekLogs]    = React.useState<WeekLog[]>([])
+  const [loadingData, setLoadingData] = React.useState(false)
+
+  // ── Add phase form ─────────────────────────────────────────────
+  const [showAddPhase, setShowAddPhase] = React.useState(false)
+  const [phaseTask,    setPhaseTask]    = React.useState("")
+  const [phaseStartW,  setPhaseStartW]  = React.useState(1)
+  const [phaseEndW,    setPhaseEndW]    = React.useState(1)
+  const [phaseWeight,  setPhaseWeight]  = React.useState(10)
+  const [addingPhase,  setAddingPhase]  = React.useState(false)
+
+  // ── Log edit ───────────────────────────────────────────────────
+  const [editingLogId, setEditingLogId] = React.useState<string | null>(null)
+
+  // ── Billing trigger ────────────────────────────────────────────
+  const [billingAlert, setBillingAlert] = React.useState<string[] | null>(null)
+  const [billingFired, setBillingFired] = React.useState(false)
+
+  const debouncedSearch = useDebounce(poSearch, 280)
+
+  // ── Load all projects ──────────────────────────────────────────
+  React.useEffect(() => {
+    setLoadingProj(true)
+    fetch("/api/project-details", { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => {
+        const rows = (d.data ?? []) as Array<{
+          project_key: string
+          display_name: string
+          customer_name?: string | null
+          po_number?: string | null
+          physical_progress?: number
+          project_status?: string
+          termin_schedule?: TerminEntry[] | null
+        }>
+        setAllProjects(rows.map(r => ({
+          project_key:       r.project_key,
+          display_name:      r.display_name || r.project_key,
+          customer_name:     r.customer_name ?? null,
+          po_number:         r.po_number ?? null,
+          physical_progress: r.physical_progress ?? 0,
+          project_status:    r.project_status ?? "BERJALAN",
+          termin_schedule:   Array.isArray(r.termin_schedule) ? r.termin_schedule : [],
+        })))
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProj(false))
+  }, [])
+
+  // ── Load doc con data for active project ───────────────────────
+  React.useEffect(() => {
+    if (!activeKey) { setPhases([]); setWeekLogs([]); return }
+    setLoadingData(true)
+    setBillingFired(false)
+    setBillingAlert(null)
+    Promise.all([
+      fetch(`/api/project-schedule/${encodeURIComponent(activeKey)}`).then(r => r.json()),
+      fetch(`/api/project-weekly-logs/${encodeURIComponent(activeKey)}`).then(r => r.json()),
+    ])
+      .then(([sched, logs]) => {
+        setPhases((sched.data ?? []) as Phase[])
+        setWeekLogs((logs.data ?? []) as WeekLog[])
+      })
+      .catch(() => {})
+      .finally(() => setLoadingData(false))
+  }, [activeKey])
+
+  // ── 90% billing trigger ────────────────────────────────────────
+  React.useEffect(() => {
+    if (!activeKey || billingFired || phases.length === 0) return
+    const progress = computeProgress(phases)
+    if (progress < 90) { setBillingAlert(null); return }
+
+    const project  = allProjects.find(p => p.project_key === activeKey)
+    const termins  = project?.termin_schedule ?? []
+    const unlocked = termins.length > 0
+      ? termins.filter(t => progress >= t.target_progres)
+      : progress >= 100
+        ? [{ id: "_100", nama: "Pelunasan (100%)", target_progres: 100, persen_tagihan: 100 }]
+        : []
+
+    if (unlocked.length > 0) {
+      setBillingAlert(unlocked.map(t => t.nama))
+      setBillingFired(true)
+      // Background: sync physical_progress to project_details so Bos View stays current
+      fetch(`/api/project-details/${encodeURIComponent(activeKey)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ physical_progress: progress }),
+      }).catch(() => {})
+    }
+  }, [phases, activeKey, billingFired, allProjects])
+
+  // ── Filtered projects ──────────────────────────────────────────
+  const filteredProjects = React.useMemo(() => {
+    const q = debouncedSearch.toLowerCase().trim()
+    if (!q) return allProjects
+    return allProjects.filter(p =>
+      (p.po_number    ?? "").toLowerCase().includes(q) ||
+      p.display_name       .toLowerCase().includes(q) ||
+      (p.customer_name ?? "").toLowerCase().includes(q)
+    )
+  }, [allProjects, debouncedSearch])
+
+  // ── Derived ────────────────────────────────────────────────────
+  const activeProject   = allProjects.find(p => p.project_key === activeKey)
+  const currentProgress = computeProgress(phases)
+  const baseMonth       = computeBaseMonth(phases)
+  const maxWeek         = phases.length > 0
+    ? Math.max(...phases.map(p => Math.max(p.week_number, p.end_week || p.week_number)))
+    : 1
+  const totalWeeks  = Math.max(maxWeek, 10)
+  const weekArr     = Array.from({ length: totalWeeks }, (_, k) => k + 1)
+  const monthGrps   = React.useMemo(() => {
+    const grps: { label: string; count: number }[] = []
+    let wIdx = 0, mOff = 0
+    while (wIdx < totalWeeks) {
+      grps.push({ label: MONTHS_ID[(baseMonth + mOff) % 12], count: Math.min(4, totalWeeks - wIdx) })
+      wIdx += 4; mOff++
+    }
+    return grps
+  }, [totalWeeks, baseMonth])
+
+  // ── Add phase + auto-provision logs ───────────────────────────
+  async function handleAddPhase(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activeKey || !phaseTask.trim()) return
+    setAddingPhase(true)
+    try {
+      const sr = await fetch(`/api/project-schedule/${encodeURIComponent(activeKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          week_number:      phaseStartW,
+          end_week:         phaseEndW,
+          task_description: phaseTask.trim(),
+          progress_weight:  phaseWeight,
+        }),
+      })
+      const { data: phase } = await sr.json() as { data: Phase | null }
+      if (!phase) return
+
+      setPhases(prev => [...prev, phase].sort((a, b) => a.week_number - b.week_number))
+
+      // Auto-provision one placeholder log per week in the phase range
+      const existingPairs = new Set(weekLogs.map(l => `${l.phase_id}:${l.week_number}`))
+      const weeksToCreate = Array.from(
+        { length: phaseEndW - phaseStartW + 1 },
+        (_, i) => phaseStartW + i
+      ).filter(w => !existingPairs.has(`${phase.id}:${w}`))
+
+      const newLogs = (await Promise.all(
+        weeksToCreate.map(w =>
+          fetch(`/api/project-weekly-logs/${encodeURIComponent(activeKey)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              week_number:  w,
+              description:  "",
+              photo_url:    "",
+              created_by:   "system",
+              progress_pct: 0,
+              phase_id:     phase.id,
+            }),
+          })
+            .then(r => r.json())
+            .then(d => d.data as WeekLog | null)
+            .catch(() => null)
+        )
+      )).filter((l): l is WeekLog => l !== null)
+
+      setWeekLogs(prev =>
+        [...prev, ...newLogs].sort((a, b) => a.week_number - b.week_number)
+      )
+
+      setPhaseTask(""); setPhaseStartW(1); setPhaseEndW(1); setPhaseWeight(10)
+      setShowAddPhase(false)
+    } finally {
+      setAddingPhase(false)
+    }
+  }
+
+  // ── Toggle phase done ──────────────────────────────────────────
+  async function togglePhase(id: string, isDone: boolean) {
+    const res  = await fetch(`/api/project-schedule/item/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_done: isDone }),
+    })
+    const { data } = await res.json() as { data: Phase | null }
+    if (data) setPhases(prev => prev.map(p => p.id === id ? { ...p, ...data } : p))
+  }
+
+  // ── Delete phase (+ its provisioned logs) ─────────────────────
+  async function deletePhase(id: string) {
+    await fetch(`/api/project-schedule/item/${id}`, { method: "DELETE" })
+    const orphanIds = weekLogs.filter(l => l.phase_id === id).map(l => l.id)
+    await Promise.all(orphanIds.map(lid =>
+      fetch(`/api/project-weekly-logs/item/${lid}`, { method: "DELETE" }).catch(() => {})
+    ))
+    setPhases(prev   => prev.filter(p => p.id !== id))
+    setWeekLogs(prev => prev.filter(l => l.phase_id !== id))
+  }
+
+  // ── Save log entry ─────────────────────────────────────────────
+  async function saveLog(logId: string, desc: string, photo: File | null) {
+    let photoUrl = weekLogs.find(l => l.id === logId)?.photo_url ?? ""
+    if (photo) {
+      const fd = new FormData()
+      fd.append("file", photo)
+      fd.append("path", `doc-con/${activeKey}/${Date.now()}.${photo.name.split(".").pop() ?? "jpg"}`)
+      const up   = await fetch("/api/upload-photo", { method: "POST", body: fd })
+      const upD  = await up.json() as { url?: string }
+      photoUrl   = upD.url || photoUrl
+    }
+    const res  = await fetch(`/api/project-weekly-logs/item/${logId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: desc, photo_url: photoUrl, progress_pct: currentProgress }),
+    })
+    const { data } = await res.json() as { data: WeekLog | null }
+    if (data) setWeekLogs(prev => prev.map(l => l.id === logId ? { ...l, ...data } : l))
+    setEditingLogId(null)
+  }
+
+  // ── Delete log ─────────────────────────────────────────────────
+  async function deleteLog(logId: string) {
+    await fetch(`/api/project-weekly-logs/item/${logId}`, { method: "DELETE" })
+    setWeekLogs(prev => prev.filter(l => l.id !== logId))
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  return (
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <SiteHeader />
+
+        <div className="flex flex-1 flex-col min-h-0">
+
+          {/* ── Global PO Search bar ── */}
+          <div className="sticky top-0 z-10 border-b border-neutral-200 bg-white/95 backdrop-blur-sm px-6 py-3.5">
+            <div className="relative max-w-xl">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
+              <input
+                type="search"
+                value={poSearch}
+                onChange={e => setPoSearch(e.target.value)}
+                placeholder="Cari Berdasarkan Nomor PO Utama..."
+                className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-neutral-200 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 focus:bg-white transition-all"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-1 flex-col gap-6 p-6">
+
+            {/* ── Project selector ── */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mb-2.5">
+                {loadingProj ? "Memuat proyek…" : `${filteredProjects.length} Proyek Tersedia`}
+              </p>
+              {loadingProj ? (
+                <div className="flex gap-2 flex-wrap">
+                  {[130, 110, 155, 95, 140].map(w => (
+                    <div key={w} className="h-9 rounded-full bg-neutral-100 animate-pulse" style={{ width: w }} />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex gap-2 flex-wrap">
+                  {filteredProjects.map(p => (
+                    <button key={p.project_key} type="button"
+                      onClick={() => setActiveKey(p.project_key === activeKey ? null : p.project_key)}
+                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        activeKey === p.project_key
+                          ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                          : "bg-white text-neutral-600 border-neutral-200 hover:border-indigo-300 hover:text-indigo-600"
+                      }`}>
+                      {p.display_name}
+                      {p.po_number && (
+                        <span className={`font-mono text-[10px] ${activeKey === p.project_key ? "opacity-70" : "text-neutral-400"}`}>
+                          {p.po_number}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                  {filteredProjects.length === 0 && (
+                    <p className="text-xs text-neutral-400 italic">
+                      Tidak ada proyek yang cocok dengan pencarian &quot;{debouncedSearch}&quot;.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Empty state ── */}
+            {!activeKey && (
+              <div className="flex flex-col items-center justify-center py-28 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center justify-center mb-5">
+                  <FolderOpen className="h-7 w-7 text-neutral-300" />
+                </div>
+                <p className="text-sm font-semibold text-neutral-500 mb-1">Pilih proyek untuk memulai</p>
+                <p className="text-xs text-neutral-400 max-w-xs leading-relaxed">
+                  Gunakan kolom pencarian di atas untuk mencari nomor PO atau nama proyek,
+                  lalu klik untuk membuka workspace Doc Con-nya.
+                </p>
+              </div>
+            )}
+
+            {/* ── Active project workspace ── */}
+            {activeKey && (
+              <div className="flex flex-col gap-8">
+
+                {/* Project info bar */}
+                <div className="flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-white border border-neutral-200 shadow-sm">
+                  <div className="flex items-center gap-3.5">
+                    <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
+                      <BarChart3 className="h-4.5 w-4.5 text-white" style={{ width: 18, height: 18 }} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-neutral-800 truncate">{activeProject?.display_name}</p>
+                      <p className="text-[11px] text-neutral-400 truncate">
+                        {activeProject?.customer_name ?? "—"}
+                        {activeProject?.po_number && (
+                          <span className="ml-2 font-mono text-neutral-500">· {activeProject.po_number}</span>
+                        )}
+                        <span className={`ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                          activeProject?.project_status === "SELESAI"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-blue-50 text-blue-600"
+                        }`}>{activeProject?.project_status ?? "BERJALAN"}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 flex-shrink-0">
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-0.5">Progress Fisik</p>
+                      <p className={`text-2xl font-black tabular-nums leading-none ${
+                        currentProgress >= 80 ? "text-emerald-600"
+                          : currentProgress >= 40 ? "text-indigo-600"
+                          : "text-amber-500"
+                      }`}>{currentProgress}%</p>
+                    </div>
+                    <div className="w-32 h-2 bg-neutral-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${currentProgress}%`,
+                          background: currentProgress >= 80 ? "#10b981" : currentProgress >= 40 ? "#6366f1" : "#f59e0b",
+                        }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Billing unlock alert */}
+                {billingAlert && billingAlert.length > 0 && (
+                  <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-emerald-700">Finance Terbuka — Siap Ditagih</p>
+                      <p className="text-xs text-emerald-600 mt-0.5 leading-relaxed">
+                        Progress {currentProgress}% memenuhi syarat termin pembayaran:{" "}
+                        <span className="font-semibold">{billingAlert.join(", ")}</span>.
+                        Status telah diperbarui di Bos View.
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setBillingAlert(null)}
+                      className="flex-shrink-0 p-1 rounded hover:bg-emerald-100 text-emerald-400 hover:text-emerald-700 transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Billing locked notice when no phases done yet */}
+                {!billingAlert && phases.length > 0 && currentProgress < 90 && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-50 border border-neutral-200">
+                    <Lock className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
+                    <p className="text-xs text-neutral-500">
+                      Finance terkunci. Termin akan terbuka otomatis saat progress mencapai threshold yang ditetapkan
+                      (≥90% progress fisik).
+                    </p>
+                  </div>
+                )}
+
+                {loadingData && (
+                  <div className="flex items-center justify-center py-16 gap-2 text-neutral-400 text-sm">
+                    <RefreshCw className="h-4 w-4 animate-spin" /> Memuat data…
+                  </div>
+                )}
+
+                {!loadingData && (
+                  <>
+                    {/* ═══════════════════════════════════════════════════════ */}
+                    {/* BLOCK A — JADWAL & RENCANA                             */}
+                    {/* ═══════════════════════════════════════════════════════ */}
+                    <section>
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h2 className="text-sm font-bold text-neutral-900">Jadwal &amp; Rencana</h2>
+                          <p className="text-[11px] text-neutral-400 mt-0.5">
+                            Baseline timeline — setiap fase otomatis meng-generate kartu log di bawah.
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => setShowAddPhase(v => !v)}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm">
+                          <Plus className="h-3.5 w-3.5" />
+                          Tambah Fase
+                        </button>
+                      </div>
+
+                      {/* Add phase form */}
+                      {showAddPhase && (
+                        <form onSubmit={handleAddPhase}
+                          className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-5 mb-5">
+                          <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-4">
+                            Fase Baru
+                          </p>
+                          <div className="grid gap-3 sm:grid-cols-4 mb-4">
+                            <div className="sm:col-span-2">
+                              <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">
+                                Nama Fase
+                              </label>
+                              <input
+                                className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                value={phaseTask}
+                                onChange={e => setPhaseTask(e.target.value)}
+                                placeholder="Contoh: Pondasi, Instalasi Unit, Testing…"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">
+                                Mulai
+                              </label>
+                              <select
+                                title="Pilih minggu mulai"
+                                className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                value={phaseStartW}
+                                onChange={e => {
+                                  const v = Number(e.target.value)
+                                  setPhaseStartW(v)
+                                  if (phaseEndW < v) setPhaseEndW(v)
+                                }}>
+                                {Array.from({ length: 20 }, (_, i) => i + 1).map(w => (
+                                  <option key={w} value={w}>{weekToLabel(w, baseMonth)}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">
+                                Selesai
+                              </label>
+                              <select
+                                title="Pilih minggu selesai"
+                                className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                value={phaseEndW}
+                                onChange={e => setPhaseEndW(Number(e.target.value))}>
+                                {Array.from({ length: 20 }, (_, i) => i + 1)
+                                  .filter(w => w >= phaseStartW)
+                                  .map(w => (
+                                    <option key={w} value={w}>{weekToLabel(w, baseMonth)}</option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-5 mb-4">
+                            <div className="flex items-center gap-2.5">
+                              <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider whitespace-nowrap">
+                                Bobot Progress (%)
+                              </label>
+                              <input type="number" min={1} max={100}
+                                className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                value={phaseWeight}
+                                onChange={e => setPhaseWeight(Number(e.target.value))} />
+                            </div>
+                            <p className="text-[10px] text-neutral-400">
+                              Total bobot semua fase = 100% → log otomatis terprovisi untuk {phaseEndW - phaseStartW + 1} minggu.
+                            </p>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <button type="submit" disabled={addingPhase || !phaseTask.trim()}
+                              className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                              {addingPhase
+                                ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Menyimpan…</>
+                                : <><Plus className="h-3.5 w-3.5" /> Tambah Fase</>}
+                            </button>
+                            <button type="button"
+                              onClick={() => {
+                                setShowAddPhase(false)
+                                setPhaseTask(""); setPhaseStartW(1); setPhaseEndW(1); setPhaseWeight(10)
+                              }}
+                              className="px-5 py-2 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-colors">
+                              Batal
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
+                      {/* Gantt chart */}
+                      {phases.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-dashed border-neutral-200 bg-neutral-50/50">
+                          <p className="text-sm text-neutral-400 mb-1 font-medium">Belum ada fase dijadwalkan</p>
+                          <p className="text-xs text-neutral-300">
+                            Klik &ldquo;Tambah Fase&rdquo; untuk mulai membangun timeline proyek.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
+                          <div className="flex">
+
+                            {/* ── Left: Phase sidebar ── */}
+                            <div className="w-56 flex-shrink-0 border-r border-neutral-200">
+                              {/* Header aligns with 2-row Gantt header */}
+                              <div className="px-4 bg-neutral-50 border-b border-neutral-200" style={{ height: 58 }}>
+                                <div className="flex items-center h-full">
+                                  <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">
+                                    Fase Proyek
+                                  </span>
+                                </div>
+                              </div>
+
+                              {phases.map((ph, i) => {
+                                const c      = PILL[i % PILL.length]
+                                const hasBell = hasTerminBell(ph.id, phases, activeProject?.termin_schedule ?? [])
+                                return (
+                                  <div key={ph.id}
+                                    className="group/row flex items-center gap-2 px-3 border-b border-neutral-100 hover:bg-neutral-50 transition-colors"
+                                    style={{ minHeight: 52 }}>
+                                    <button type="button"
+                                      title={ph.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                      aria-label={ph.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                      onClick={() => togglePhase(ph.id, !ph.is_done)}
+                                      className="flex-shrink-0 h-4 w-4 rounded flex items-center justify-center transition-all"
+                                      style={{
+                                        background: ph.is_done ? c.done : "transparent",
+                                        border: `1.5px solid ${ph.is_done ? c.done : "#d1d5db"}`,
+                                      }}>
+                                      {ph.is_done && <CheckCheck className="h-2.5 w-2.5 text-white" />}
+                                    </button>
+                                    <div className="flex-shrink-0 h-2 w-2 rounded-full" style={{ background: c.done }} />
+                                    <span className="text-xs min-w-0 flex-1 truncate font-medium"
+                                      title={ph.task_description}
+                                      style={{
+                                        color: ph.is_done ? "#9ca3af" : "#374151",
+                                        textDecoration: ph.is_done ? "line-through" : "none",
+                                      }}>
+                                      {ph.task_description}
+                                    </span>
+                                    <div className="flex-shrink-0 flex items-center gap-1">
+                                      {hasBell && (
+                                        <span title="Milestone termin pembayaran">
+                                          <Bell className="h-3 w-3 text-amber-400" />
+                                        </span>
+                                      )}
+                                      <button type="button" title="Hapus fase" aria-label="Hapus fase"
+                                        onClick={() => deletePhase(ph.id)}
+                                        className="opacity-0 group-hover/row:opacity-100 transition-opacity text-neutral-300 hover:text-red-400">
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+
+                            {/* ── Right: Gantt timeline ── */}
+                            <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
+                              <div style={{ minWidth: totalWeeks * COL_W }}>
+
+                                {/* Month header row */}
+                                <div className="flex border-b border-neutral-200 bg-neutral-50">
+                                  {monthGrps.map((mg, mi) => (
+                                    <div key={mi}
+                                      className="flex-shrink-0 flex items-center justify-center border-r border-neutral-100 py-1.5"
+                                      style={{ width: COL_W * mg.count }}>
+                                      <span className="text-[9px] font-black text-neutral-500 tracking-widest uppercase">
+                                        {mg.label}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Week header row */}
+                                <div className="flex border-b border-neutral-200 bg-neutral-50">
+                                  {weekArr.map(w => (
+                                    <div key={w}
+                                      className="flex-shrink-0 flex items-center justify-center py-2 border-r border-neutral-100"
+                                      style={{ width: COL_W }}>
+                                      <span className="text-[9px] font-bold text-neutral-400">W{w}</span>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                {/* Phase bar rows */}
+                                {phases.map((ph, i) => {
+                                  const c        = PILL[i % PILL.length]
+                                  const startW   = Math.max(1, ph.week_number)
+                                  const endW     = Math.max(startW, ph.end_week || ph.week_number)
+                                  const spanW    = endW - startW + 1
+                                  const hasBell  = hasTerminBell(ph.id, phases, activeProject?.termin_schedule ?? [])
+                                  const barLeft  = (startW - 1) * COL_W + 4
+                                  const barWidth = spanW * COL_W - 8
+                                  const lblLeft  = barLeft + barWidth + 6
+                                  return (
+                                    <div key={ph.id}
+                                      className="relative border-b border-neutral-100"
+                                      style={{ minHeight: 52, width: totalWeeks * COL_W }}>
+                                      {/* Column grid lines */}
+                                      <div className="absolute inset-0 flex pointer-events-none">
+                                        {weekArr.map(w => (
+                                          <div key={w} className="flex-shrink-0 h-full border-r border-neutral-50"
+                                            style={{ width: COL_W }} />
+                                        ))}
+                                      </div>
+                                      {/* Bar */}
+                                      <div
+                                        className="absolute flex items-center gap-1.5 rounded-full px-3 shadow-sm overflow-hidden transition-all duration-300"
+                                        style={{
+                                          left: barLeft, width: barWidth, height: 32,
+                                          top: "50%", transform: "translateY(-50%)",
+                                          background: ph.is_done ? c.done : c.bg,
+                                          color: c.text, zIndex: 1,
+                                          border: `1px solid ${ph.is_done ? "transparent" : c.border}`,
+                                        }}>
+                                        {hasBell && <Bell className="h-3 w-3 text-amber-400 flex-shrink-0" />}
+                                        {ph.is_done && <CheckCheck className="h-2.5 w-2.5 flex-shrink-0" style={{ color: "#fff" }} />}
+                                        <span className="text-[10px] font-bold tabular-nums whitespace-nowrap"
+                                          style={{ color: ph.is_done ? "#fff" : c.text }}>
+                                          {ph.progress_weight}%
+                                        </span>
+                                      </div>
+                                      {/* Phase label after bar */}
+                                      {lblLeft < totalWeeks * COL_W - 24 && (
+                                        <div className="absolute text-[10px] font-medium text-neutral-400 whitespace-nowrap overflow-hidden"
+                                          style={{
+                                            left: lblLeft, top: "50%", transform: "translateY(-50%)",
+                                            maxWidth: totalWeeks * COL_W - lblLeft - 4,
+                                          }}>
+                                          {ph.task_description}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
+
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+
+                    {/* ═══════════════════════════════════════════════════════ */}
+                    {/* BLOCK B — LOG MINGGUAN AKTUAL                          */}
+                    {/* ═══════════════════════════════════════════════════════ */}
+                    <section>
+                      <div className="mb-4">
+                        <h2 className="text-sm font-bold text-neutral-900">Log Mingguan Aktual</h2>
+                        <p className="text-[11px] text-neutral-400 mt-0.5">
+                          Kartu laporan otomatis — satu kartu per minggu dalam setiap fase.
+                          Klik ikon pensil untuk mengisi laporan lapangan.
+                        </p>
+                      </div>
+
+                      {phases.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 rounded-xl border border-dashed border-neutral-200 bg-neutral-50/50">
+                          <p className="text-xs text-neutral-400">
+                            Tambahkan fase di atas untuk auto-generate kartu log mingguan.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-8">
+                          {phases.map((ph, i) => {
+                            const c         = PILL[i % PILL.length]
+                            const phaseLogs = weekLogs
+                              .filter(l => l.phase_id === ph.id)
+                              .sort((a, b) => a.week_number - b.week_number)
+                            const filledCount = phaseLogs.filter(l => l.description.trim() || l.photo_url).length
+
+                            return (
+                              <div key={ph.id}>
+                                {/* Phase group header */}
+                                <div className="flex items-center gap-2.5 mb-3 pb-2 border-b border-neutral-100">
+                                  <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: c.done }} />
+                                  <span className="text-xs font-bold text-neutral-800">{ph.task_description}</span>
+                                  <span className="text-[10px] text-neutral-400">
+                                    {weekToLabel(ph.week_number, baseMonth)}
+                                    {ph.end_week && ph.end_week !== ph.week_number && (
+                                      <> → {weekToLabel(ph.end_week, baseMonth)}</>
+                                    )}
+                                  </span>
+                                  <div className="ml-auto flex items-center gap-2">
+                                    <span className="text-[10px] text-neutral-400 tabular-nums">
+                                      {filledCount}/{phaseLogs.length} diisi
+                                    </span>
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                                      ph.is_done
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                                        : "bg-neutral-100 text-neutral-500 border border-neutral-200"
+                                    }`}>
+                                      {ph.is_done ? "✓ Selesai" : `${ph.progress_weight}% bobot`}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {phaseLogs.length === 0 ? (
+                                  <p className="text-xs text-neutral-300 italic pl-4">
+                                    Kartu log belum tersedia — coba hapus dan tambah ulang fase ini.
+                                  </p>
+                                ) : (
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                    {phaseLogs.map(log => {
+                                      const isFilled  = Boolean(log.description.trim() || log.photo_url)
+                                      const isEditing = editingLogId === log.id
+                                      return (
+                                        <div key={log.id}
+                                          className="group rounded-xl bg-white border transition-shadow hover:shadow-md"
+                                          style={{ borderColor: isFilled ? c.border : "#e5e7eb" }}>
+
+                                          {/* Card header */}
+                                          <div className="px-4 pt-3.5 pb-2.5 border-b"
+                                            style={{ borderColor: isFilled ? c.border : "#f3f4f6" }}>
+                                            <div className="flex items-center justify-between gap-1">
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                <span
+                                                  className="text-[9px] font-black px-2 py-0.5 rounded-full whitespace-nowrap"
+                                                  style={{ background: c.bg, color: c.text }}>
+                                                  {weekToLabel(log.week_number, baseMonth)}
+                                                </span>
+                                                {!isFilled && (
+                                                  <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-100 whitespace-nowrap">
+                                                    Kosong
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                                <button type="button" title="Edit log" aria-label="Edit log"
+                                                  onClick={() => setEditingLogId(isEditing ? null : log.id)}
+                                                  className={`p-1.5 rounded-lg transition-colors ${
+                                                    isEditing
+                                                      ? "bg-indigo-100 text-indigo-600"
+                                                      : "hover:bg-neutral-100 text-neutral-400 hover:text-indigo-600"
+                                                  }`}>
+                                                  <Pencil className="h-3.5 w-3.5" />
+                                                </button>
+                                                <button type="button" title="Hapus log" aria-label="Hapus log"
+                                                  onClick={() => deleteLog(log.id)}
+                                                  className="p-1.5 rounded-lg hover:bg-red-50 text-neutral-300 hover:text-red-500 transition-colors">
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                              </div>
+                                            </div>
+
+                                            {/* Progress micro bar */}
+                                            <div className="mt-2.5 h-1 w-full rounded-full overflow-hidden bg-neutral-100">
+                                              <div className="h-full rounded-full transition-all duration-500"
+                                                style={{
+                                                  width: `${log.progress_pct}%`,
+                                                  background: log.progress_pct >= 80 ? "#10b981"
+                                                    : log.progress_pct >= 40 ? "#6366f1" : "#f59e0b",
+                                                }} />
+                                            </div>
+                                            <p className="text-[9px] text-neutral-400 mt-1 tabular-nums">
+                                              {log.progress_pct}% progress fisik
+                                            </p>
+                                          </div>
+
+                                          {/* Card body */}
+                                          <div className="px-4 py-3">
+                                            {isFilled ? (
+                                              <>
+                                                <p className="text-[10px] font-bold uppercase tracking-wider text-neutral-300 mb-1.5">
+                                                  Catatan
+                                                </p>
+                                                <p className="text-xs text-neutral-600 leading-relaxed"
+                                                  style={{
+                                                    display: "-webkit-box",
+                                                    WebkitLineClamp: 3,
+                                                    WebkitBoxOrient: "vertical" as const,
+                                                    overflow: "hidden",
+                                                  }}>
+                                                  {log.description || <span className="italic text-neutral-300">Tidak ada catatan teks.</span>}
+                                                </p>
+                                                {log.photo_url && (
+                                                  <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
+                                                    className="inline-flex items-center gap-1 mt-2 text-[10px] text-indigo-500 hover:underline">
+                                                    <Camera className="h-3 w-3" /> Lihat foto
+                                                  </a>
+                                                )}
+                                              </>
+                                            ) : (
+                                              <button type="button"
+                                                onClick={() => setEditingLogId(log.id)}
+                                                className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 py-1 transition-colors">
+                                                <Pencil className="h-3.5 w-3.5" />
+                                                Isi laporan minggu ini
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          {/* Inline edit popover */}
+                                          {isEditing && (
+                                            <div className="px-4 pb-4 border-t border-neutral-100 pt-1">
+                                              <LogEditPopover
+                                                log={log}
+                                                onSave={saveLog}
+                                                onClose={() => setEditingLogId(null)}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </section>
+                  </>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  )
+}

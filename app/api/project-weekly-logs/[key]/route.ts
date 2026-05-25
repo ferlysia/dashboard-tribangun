@@ -34,13 +34,15 @@ export async function POST(
     const { key } = await params
     const projectKey = decodeURIComponent(key)
     const body = await request.json()
-    const payload = {
+    const payload: Record<string, unknown> = {
       project_key: projectKey,
       week_number: Number(body.week_number ?? 1),
       description: String(body.description ?? ""),
       photo_url: String(body.photo_url ?? ""),
       created_by: String(body.created_by ?? ""),
     }
+    if (body.progress_pct !== undefined) payload.progress_pct = Number(body.progress_pct)
+    if (body.phase_id     !== undefined) payload.phase_id     = body.phase_id ? String(body.phase_id) : null
     const url = `${supabaseConfig.url}/rest/v1/project_weekly_logs`
     const res = await fetch(url, {
       method: "POST",

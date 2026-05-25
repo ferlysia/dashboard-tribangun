@@ -117,3 +117,12 @@ ALTER TABLE project_weekly_logs
 --  Jika NULL, bar hanya menempati satu minggu (week_number).
 ALTER TABLE project_schedule_items
   ADD COLUMN IF NOT EXISTS end_week INTEGER;
+
+-- ── 15. Kolom phase_id di project_weekly_logs ─────────────────────────────────
+--  FK ke project_schedule_items.id — menghubungkan log mingguan ke fase jadwal.
+--  Memungkinkan auto-provisioning kartu log saat fase baru ditambahkan.
+ALTER TABLE project_weekly_logs
+  ADD COLUMN IF NOT EXISTS phase_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_weekly_logs_phase_id
+  ON project_weekly_logs(phase_id);
