@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   ClipboardList,
   Receipt,
+  Wallet,
 } from "lucide-react"
 import {
   Sidebar,
@@ -53,6 +54,7 @@ const NAV_MAIN = [
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
   { title: "Doc Con",                  url: "/dashboard/doc-con",        icon: ClipboardList   },
   { title: "Cost Control",             url: "/dashboard/cost-control",   icon: Receipt         },
+  { title: "Finance",                  url: "/dashboard/finance",        icon: Wallet          },
   { title: "Bos View",                 url: "/projects/executive-view",  icon: FolderKanban    },
   { title: "Financial Performance",    url: "/financial-performance", icon: TrendingUp      },
   { title: "Executive Dashboard",      url: "/executive",             icon: ShieldAlert     },
@@ -415,6 +417,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Lifecycle",   url: "/lifecycle",             icon: Clock,           desc: "Aging, follow-up, and outstanding risk" },
     { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
     { title: "Cost Control",          url: "/dashboard/cost-control",  icon: Receipt,       desc: "Kelola pengeluaran lapangan per proyek — CRUD inline" },
+    { title: "Finance",               url: "/dashboard/finance",       icon: Wallet,        desc: "Milestone pembayaran kontrak & SOW Bridge invoice lifecycle" },
     { title: "Bos View",              url: "/projects/executive-view", icon: FolderKanban,  desc: "Ringkasan eksekutif semua proyek — Doc Con, Cost, Finance" },
     { title: "Financial Performance",  url: "/financial-performance", icon: TrendingUp,      desc: "ROI, profitability, and financial analysis" },
     { title: "Executive Dashboard",    url: "/executive",             icon: ShieldAlert,     desc: "Cash flow forecast & VO escalation alerts" },

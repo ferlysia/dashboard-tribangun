@@ -126,3 +126,23 @@ ALTER TABLE project_weekly_logs
 
 CREATE INDEX IF NOT EXISTS idx_weekly_logs_phase_id
   ON project_weekly_logs(phase_id);
+
+-- ── 16. Tabel termin_invoices (Finance Milestone Workspace) ───────────────────
+--  Menyimpan status lifecycle invoice per termin per proyek.
+--  status: 'TERKUNCI' | 'SIAP_TAGIH' | 'PROSES_COLLECT' | 'LUNAS'
+--  SOW Bridge: status auto-naik ke SIAP_TAGIH saat physical_progress >= target_progres.
+CREATE TABLE IF NOT EXISTS termin_invoices (
+  id              UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  project_key     TEXT        NOT NULL,
+  termin_id       TEXT        NOT NULL,
+  status          TEXT        NOT NULL DEFAULT 'TERKUNCI',
+  amount_billed   NUMERIC,
+  invoice_date    DATE,
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(project_key, termin_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_termin_invoices_project_key
+  ON termin_invoices(project_key);
