@@ -105,3 +105,15 @@ ALTER TABLE project_details
 --  Validasi bisnis: sum(persen_tagihan) harus = 100%.
 ALTER TABLE project_details
   ADD COLUMN IF NOT EXISTS termin_schedule JSONB DEFAULT '[]'::jsonb;
+
+-- ── 13. Kolom progress_pct di project_weekly_logs ────────────────────────────
+--  Snapshot progres fisik proyek saat log mingguan dibuat.
+--  Memungkinkan setiap kartu log menampilkan progress yang berbeda per minggu.
+ALTER TABLE project_weekly_logs
+  ADD COLUMN IF NOT EXISTS progress_pct INTEGER DEFAULT 0;
+
+-- ── 14. Kolom end_week di project_schedule_items ─────────────────────────────
+--  Minggu selesai untuk bar Gantt multi-minggu.
+--  Jika NULL, bar hanya menempati satu minggu (week_number).
+ALTER TABLE project_schedule_items
+  ADD COLUMN IF NOT EXISTS end_week INTEGER;
