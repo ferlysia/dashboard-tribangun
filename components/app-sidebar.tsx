@@ -49,6 +49,7 @@ const NAV_MAIN = [
   { title: "Clients",                 url: "/clients",               icon: Users           },
   { title: "Lifecycle",               url: "/lifecycle",             icon: Clock           },
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
+  { title: "Bos View",                 url: "/projects/executive-view", icon: FolderKanban  },
   { title: "Financial Performance",    url: "/financial-performance", icon: TrendingUp      },
   { title: "Executive Dashboard",      url: "/executive",             icon: ShieldAlert     },
 ]
@@ -409,6 +410,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Clients",                url: "/clients",               icon: Users,           desc: "Client list and payment history" },
     { title: "Lifecycle",   url: "/lifecycle",             icon: Clock,           desc: "Aging, follow-up, and outstanding risk" },
     { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
+    { title: "Bos View",              url: "/projects/executive-view", icon: FolderKanban,  desc: "Ringkasan eksekutif semua proyek — Doc Con, Cost, Finance" },
     { title: "Financial Performance",  url: "/financial-performance", icon: TrendingUp,      desc: "ROI, profitability, and financial analysis" },
     { title: "Executive Dashboard",    url: "/executive",             icon: ShieldAlert,     desc: "Cash flow forecast & VO escalation alerts" },
     { title: "New Invoice",            url: "/input-invoice",         icon: Plus,            desc: "Create a new invoice record" },

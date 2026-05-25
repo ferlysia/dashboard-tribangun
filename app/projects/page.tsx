@@ -816,6 +816,21 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   const [schedWeight,    setSchedWeight]    = React.useState(10)
   const [addingSched,    setAddingSched]    = React.useState(false)
 
+  // ── Progress 90% alert ───────────────────────────────────────────────────
+  const [progressAlert, setProgressAlert] = React.useState<string[] | null>(null)
+
+  React.useEffect(() => {
+    if (editProg < 90) { setProgressAlert(null); return }
+    const unlocked = terminSchedule.filter(t => editProg >= t.target_progres).map(t => t.nama)
+    if (terminSchedule.length > 0 && unlocked.length > 0) {
+      setProgressAlert(unlocked)
+    } else if (terminSchedule.length === 0 && editProg >= 100) {
+      setProgressAlert(["Finance terbuka — 100% tercapai"])
+    } else {
+      setProgressAlert(null)
+    }
+  }, [editProg, terminSchedule])
+
   // ── Finance Tab state ─────────────────────────────────────────────────────
   const [financeForm,       setFinanceForm]       = React.useState<FinanceInvoiceForm>(EMPTY_FINANCE_FORM)
   const [financeSubmitting, setFinanceSubmitting] = React.useState(false)
@@ -1335,6 +1350,18 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                         <div className={`pbar-fill ${editProg === 100 ? "pbar-green" : "pbar-blue"}`} style={{ "--w": `${editProg}%` } as React.CSSProperties} />
                       </div>
                     )}
+                    {progressAlert && progressAlert.length > 0 && (
+                      <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-xl text-xs"
+                        style={{ background: "#d1fae5", border: "1px solid #6ee7b7", color: "#065f46" }}>
+                        <CheckCheck className="h-3.5 w-3.5 shrink-0 mt-0.5" style={{ color: "#10b981" }} />
+                        <div>
+                          <span className="font-bold">Progres {editProg}% — Finance siap ditagih!</span>
+                          <ul className="mt-0.5 list-disc list-inside">
+                            {progressAlert.map(t => <li key={t} className="text-[11px]">{t}</li>)}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* ── OneDrive URL ── */}
@@ -1685,7 +1712,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     )}
 
-                    {/* Log list */}
+                    {/* Log Board View */}
                     {docDataLoading ? (
                       <p className="text-xs text-muted-foreground py-4 text-center">Memuat log…</p>
                     ) : weeklyLogs.length === 0 ? (
@@ -1694,33 +1721,49 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                         <p className="text-xs">Belum ada log mingguan. Mulai tambah laporan pertama!</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {weeklyLogs.map(log => (
-                          <div key={log.id} className="log-card">
-                            <div className="flex items-start gap-3">
-                              <span className="shrink-0 h-9 w-9 rounded-lg flex items-center justify-center text-[11px] font-black"
-                                style={{ background: "color-mix(in oklch, #3b82f6 12%, transparent)", border: "1px solid color-mix(in oklch, #3b82f6 25%, transparent)", color: "#2563eb" }}>
-                                W{log.week_number}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-foreground mb-0.5">Week {log.week_number}</p>
-                                <p className="text-xs text-muted-foreground leading-relaxed">{log.description}</p>
-                                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                                  {log.photo_url && (
-                                    <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
-                                      className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5 font-semibold">
-                                      <Camera className="h-2.5 w-2.5" /> Lihat Foto
-                                    </a>
-                                  )}
-                                  <span className="text-[10px] text-muted-foreground/50">
-                                    {log.created_by ? `by ${log.created_by} · ` : ""}
-                                    {new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
-                                  </span>
-                                </div>
+                      <div className="overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+                        <div className="flex gap-3" style={{ width: "max-content", minWidth: "100%" }}>
+                          {weeklyLogs.map(log => (
+                            <div key={log.id}
+                              className="flex-shrink-0 w-56 rounded-xl flex flex-col transition-all hover:shadow-md"
+                              style={{ minHeight: 190, background: "#ffffff", border: "1px solid #e5e7eb" }}>
+                              {/* Card header */}
+                              <div className="px-3.5 pt-3.5 pb-2.5 flex items-center justify-between"
+                                style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full"
+                                  style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe" }}>
+                                  Week {log.week_number}
+                                </span>
+                                {log.photo_url ? (
+                                  <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
+                                    title="Lihat foto bukti lapangan"
+                                    className="transition-colors"
+                                    style={{ color: "#93c5fd" }}
+                                    onMouseEnter={e => (e.currentTarget.style.color = "#2563eb")}
+                                    onMouseLeave={e => (e.currentTarget.style.color = "#93c5fd")}>
+                                    <Camera className="h-3.5 w-3.5" />
+                                  </a>
+                                ) : (
+                                  <Camera className="h-3.5 w-3.5" style={{ color: "#e5e7eb" }} />
+                                )}
+                              </div>
+                              {/* Card body */}
+                              <div className="px-3.5 py-3 flex-1">
+                                <p className="text-xs text-foreground leading-relaxed"
+                                  style={{ display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }}>
+                                  {log.description || <span className="text-muted-foreground/40 italic">Tidak ada catatan.</span>}
+                                </p>
+                              </div>
+                              {/* Card footer */}
+                              <div className="px-3.5 pb-3 pt-1.5" style={{ borderTop: "1px solid #f9fafb" }}>
+                                <span className="text-[10px]" style={{ color: "#9ca3af" }}>
+                                  {log.created_by ? `${log.created_by} · ` : ""}
+                                  {new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                                </span>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1776,7 +1819,7 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     )}
 
-                    {/* Checklist */}
+                    {/* Gantt Timeline */}
                     {docDataLoading ? (
                       <p className="text-xs text-muted-foreground py-4 text-center">Memuat jadwal…</p>
                     ) : schedItems.length === 0 ? (
@@ -1784,65 +1827,130 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                         <ListChecks className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         <p className="text-xs">Belum ada rencana tugas. Tambahkan jadwal kerja mingguan!</p>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {/* Progress summary bar */}
-                        <div className="flex items-center justify-between mb-3 p-3 rounded-xl border border-border" style={{ background: "color-mix(in oklch, var(--muted) 20%, transparent)" }}>
-                          <span className="text-xs text-muted-foreground">
-                            {schedItems.filter(s => s.is_done).length} / {schedItems.length} tugas selesai
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-24 pbar-bg">
-                              <div className="pbar-fill pbar-blue" style={{ "--w": `${schedItems.length > 0 ? Math.round(schedItems.filter(s => s.is_done).length / schedItems.length * 100) : 0}%` } as React.CSSProperties} />
-                            </div>
-                            <span className="text-xs font-bold text-primary">
-                              {schedItems.length > 0 ? Math.round(schedItems.filter(s => s.is_done).length / schedItems.length * 100) : 0}%
+                    ) : (() => {
+                      const doneCount   = schedItems.filter(s => s.is_done).length
+                      const totalWeight = schedItems.reduce((s, i) => s + i.progress_weight, 0) || 1
+                      const doneWeight  = schedItems.filter(i => i.is_done).reduce((s, i) => s + i.progress_weight, 0)
+                      const donePct     = Math.round((doneWeight / totalWeight) * 100)
+                      const weeks       = [...new Set(schedItems.map(i => i.week_number))].sort((a, b) => a - b)
+                      return (
+                        <div>
+                          {/* Summary strip */}
+                          <div className="flex items-center justify-between mb-4 px-3 py-2.5 rounded-xl"
+                            style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                            <span className="text-xs text-muted-foreground">
+                              {doneCount}/{schedItems.length} tugas selesai
+                              <span className="ml-2 text-[10px]" style={{ color: "#9ca3af" }}>
+                                ({doneWeight}% bobot tercapai dari {totalWeight}% total)
+                              </span>
                             </span>
+                            <div className="flex items-center gap-2">
+                              <div className="w-28 h-1.5 rounded-full overflow-hidden" style={{ background: "#e5e7eb" }}>
+                                <div className="h-full rounded-full transition-all duration-500"
+                                  style={{ width: `${donePct}%`, background: donePct >= 80 ? "#10b981" : donePct >= 40 ? "#6366f1" : "#f59e0b" }} />
+                              </div>
+                              <span className="text-xs font-bold" style={{ color: donePct >= 80 ? "#059669" : donePct >= 40 ? "#4f46e5" : "#d97706" }}>
+                                {donePct}%
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Gantt grid */}
+                          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #e5e7eb" }}>
+                            {/* Column header row */}
+                            <div className="grid items-center px-4 py-2"
+                              style={{ gridTemplateColumns: "20px 148px 1fr 28px", gap: "10px", background: "#f3f4f6", borderBottom: "1px solid #e5e7eb" }}>
+                              <span />
+                              <span className="text-[10px] font-semibold" style={{ color: "#6b7280" }}>Nama Tugas</span>
+                              <span className="text-[10px] font-semibold" style={{ color: "#6b7280" }}>Bobot Progress</span>
+                              <span />
+                            </div>
+
+                            {/* Rows grouped by week */}
+                            {weeks.map(week => {
+                              const group  = schedItems.filter(i => i.week_number === week)
+                              const gDone  = group.filter(i => i.is_done).length
+                              return (
+                                <div key={week}>
+                                  {/* Week section header */}
+                                  <div className="px-4 py-1.5 flex items-center gap-2"
+                                    style={{ background: "#eff6ff", borderBottom: "1px solid #e5e7eb" }}>
+                                    <span className="text-[10px] font-black" style={{ color: "#3b82f6" }}>Minggu {week}</span>
+                                    <span className="text-[10px]" style={{ color: "#9ca3af" }}>{gDone}/{group.length} selesai</span>
+                                  </div>
+                                  {/* Task rows */}
+                                  {group.map((item, idx) => {
+                                    const barPct = Math.max(4, (item.progress_weight / totalWeight) * 100)
+                                    const isLast = idx === group.length - 1
+                                    return (
+                                      <div key={item.id}
+                                        className="grid items-center px-4 py-2.5 transition-colors group"
+                                        style={{
+                                          gridTemplateColumns: "20px 148px 1fr 28px",
+                                          gap: "10px",
+                                          background: "#ffffff",
+                                          borderBottom: isLast ? "1px solid #e5e7eb" : "1px solid #f9fafb",
+                                        }}
+                                        onMouseEnter={e => (e.currentTarget.style.background = "#fafafa")}
+                                        onMouseLeave={e => (e.currentTarget.style.background = "#ffffff")}>
+                                        {/* Checkbox */}
+                                        <button type="button"
+                                          title={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                          aria-label={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                          onClick={() => toggleSchedItem(item.id, !item.is_done)}
+                                          className="h-4 w-4 rounded flex items-center justify-center transition-all"
+                                          style={{
+                                            background: item.is_done ? "#10b981" : "transparent",
+                                            border: `1.5px solid ${item.is_done ? "#10b981" : "#d1d5db"}`,
+                                            flexShrink: 0,
+                                          }}>
+                                          {item.is_done && <CheckCheck className="h-2.5 w-2.5" style={{ color: "#ffffff" }} />}
+                                        </button>
+                                        {/* Task name */}
+                                        <div style={{ minWidth: 0 }}>
+                                          <span className="text-xs block truncate"
+                                            title={item.task_description}
+                                            style={{ color: item.is_done ? "#9ca3af" : "#111827", textDecoration: item.is_done ? "line-through" : "none" }}>
+                                            {item.task_description}
+                                          </span>
+                                          {item.is_done && item.completed_at && (
+                                            <span className="text-[10px]" style={{ color: "#10b981" }}>
+                                              ✓ {new Date(item.completed_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {/* Gantt bar */}
+                                        <div className="h-6 rounded overflow-hidden relative" style={{ background: "#f3f4f6" }}>
+                                          <div className="h-full rounded transition-all duration-500 absolute left-0 top-0"
+                                            style={{
+                                              width: `${barPct}%`,
+                                              background: item.is_done ? "#d1fae5" : "#e0e7ff",
+                                              borderRight: `2px solid ${item.is_done ? "#10b981" : "#6366f1"}`,
+                                            }} />
+                                          <span className="absolute left-2 top-0 bottom-0 flex items-center text-[10px] font-bold"
+                                            style={{ color: item.is_done ? "#065f46" : "#4338ca" }}>
+                                            {item.progress_weight}%
+                                          </span>
+                                        </div>
+                                        {/* Delete */}
+                                        <button type="button" title="Hapus tugas" aria-label="Hapus tugas"
+                                          onClick={() => delSchedItem(item.id)}
+                                          className="flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                                          style={{ color: "#d1d5db" }}
+                                          onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
+                                          onMouseLeave={e => (e.currentTarget.style.color = "#d1d5db")}>
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
-                        {schedItems.map(item => (
-                          <div key={item.id} className={`sched-row ${item.is_done ? "done" : ""}`}>
-                            <button
-                              type="button"
-                              title={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
-                              aria-label={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
-                              onClick={() => toggleSchedItem(item.id, !item.is_done)}
-                              className="shrink-0 mt-0.5 h-5 w-5 rounded flex items-center justify-center border transition-all"
-                              style={{
-                                background: item.is_done ? "var(--primary)" : "transparent",
-                                borderColor: item.is_done ? "var(--primary)" : "var(--muted-foreground)",
-                              }}
-                            >
-                              {item.is_done && <CheckCheck className="h-3 w-3" style={{ color: "var(--primary-foreground)" }} />}
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                                  style={{ background: "color-mix(in oklch, var(--primary) 10%, transparent)", color: "var(--primary)" }}>
-                                  Week {item.week_number}
-                                </span>
-                                <span className={`text-xs font-medium ${item.is_done ? "line-through text-muted-foreground/50" : "text-foreground"}`}>
-                                  {item.task_description}
-                                </span>
-                              </div>
-                              {item.is_done && item.completed_at && (
-                                <p className="text-[10px] text-green-600 mt-0.5">
-                                  ✓ Selesai {new Date(item.completed_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
-                                </p>
-                              )}
-                            </div>
-                            <div className="shrink-0 flex items-center gap-2">
-                              <span className="text-[10px] text-muted-foreground/60 font-mono">{item.progress_weight}%</span>
-                              <button type="button" title="Hapus tugas" aria-label="Hapus tugas"
-                                onClick={() => delSchedItem(item.id)}
-                                className="text-muted-foreground/30 hover:text-destructive transition-colors">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )}
               </div>
