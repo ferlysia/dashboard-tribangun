@@ -10,23 +10,24 @@ function getHeaders() {
 }
 
 type VOEntry     = { id: string; nilai_po: number }
-type TerminEntry = { id: string; target_progres: number; nama: string }
+type TerminEntry = { id: string; target_progres: number; nama: string; persen_tagihan?: number }
 
 export type ExecProjectRow = {
-  project_key:      string
-  display_name:     string
-  customer_name:    string
-  project_status:   string
+  project_key:       string
+  display_name:      string
+  customer_name:     string
+  po_number:         string | null
+  project_status:    string
   physical_progress: number
-  contractVal:      number
-  totalCosts:       number
-  netProfit:        number
-  netMargin:        number
-  financeStatus:    "READY" | "LOCKED"
-  unlockedTermins:  string[]
-  has_doc_con_data: boolean
-  log_count:        number
-  sched_count:      number
+  contractVal:       number
+  totalCosts:        number
+  netProfit:         number
+  netMargin:         number
+  financeStatus:     "READY" | "LOCKED"
+  unlockedTermins:   string[]
+  has_doc_con_data:  boolean
+  log_count:         number
+  sched_count:       number
 }
 
 export async function GET() {
@@ -83,14 +84,15 @@ export async function GET() {
       const sched_count = schedMap[key] || 0
 
       return {
-        project_key: key,
-        display_name:     (p.display_name  as string) || key,
-        customer_name:    (p.customer_name as string) || "",
-        project_status:   (p.project_status as string) || "BERJALAN",
+        project_key:       key,
+        display_name:      (p.display_name  as string) || key,
+        customer_name:     (p.customer_name as string) || "",
+        po_number:         (p.po_number as string | null) ?? null,
+        project_status:    (p.project_status as string) || "BERJALAN",
         physical_progress: progress,
         contractVal, totalCosts, netProfit, netMargin,
         financeStatus, unlockedTermins,
-        has_doc_con_data: log_count > 0 || sched_count > 0,
+        has_doc_con_data:  log_count > 0 || sched_count > 0,
         log_count, sched_count,
       }
     })
