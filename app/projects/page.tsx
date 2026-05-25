@@ -7,6 +7,7 @@ import {
   Hash, Plus, Trash2, TrendingUp, MapPin, ChevronRight,
   ClipboardList, BarChart3, DollarSign, Save, CheckCheck,
   Link2, FolderOpen, Camera, ListChecks, RotateCcw,
+  Eye, Pencil, Bell,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
@@ -819,17 +820,28 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
   // ── Progress 90% alert ───────────────────────────────────────────────────
   const [progressAlert, setProgressAlert] = React.useState<string[] | null>(null)
 
+  // Trigger ketika editProg >= 90: auto-pilih termin pertama yang terbuka → Finance unlock
   React.useEffect(() => {
     if (editProg < 90) { setProgressAlert(null); return }
-    const unlocked = terminSchedule.filter(t => editProg >= t.target_progres).map(t => t.nama)
+    const unlocked = terminSchedule.filter(t => editProg >= t.target_progres)
     if (terminSchedule.length > 0 && unlocked.length > 0) {
-      setProgressAlert(unlocked)
+      setProgressAlert(unlocked.map(t => t.nama))
+      setSelectedTerminId(prev => prev ?? unlocked[0].id)
     } else if (terminSchedule.length === 0 && editProg >= 100) {
-      setProgressAlert(["Finance terbuka — 100% tercapai"])
+      setProgressAlert(["Finance terbuka — progress 100% tercapai"])
     } else {
       setProgressAlert(null)
     }
   }, [editProg, terminSchedule])
+
+  // Trigger dari sisi Jadwal: ketika bobot selesai jadwal >= 90%
+  React.useEffect(() => {
+    const totalW = schedItems.reduce((s, i) => s + i.progress_weight, 0) || 1
+    const doneW  = schedItems.filter(i => i.is_done).reduce((s, i) => s + i.progress_weight, 0)
+    if ((doneW / totalW) * 100 < 90) return
+    const unlocked = terminSchedule.filter(t => editProg >= t.target_progres)
+    if (unlocked.length > 0) setSelectedTerminId(prev => prev ?? unlocked[0].id)
+  }, [schedItems, terminSchedule, editProg])
 
   // ── Finance Tab state ─────────────────────────────────────────────────────
   const [financeForm,       setFinanceForm]       = React.useState<FinanceInvoiceForm>(EMPTY_FINANCE_FORM)
@@ -1712,58 +1724,76 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     )}
 
-                    {/* Log Board View */}
+                    {/* Log Kanban Board — grid grid-cols-1 md:grid-cols-3 */}
                     {docDataLoading ? (
-                      <p className="text-xs text-muted-foreground py-4 text-center">Memuat log…</p>
+                      <p className="text-xs text-neutral-400 py-6 text-center">Memuat log…</p>
                     ) : weeklyLogs.length === 0 ? (
-                      <div className="text-center py-10 text-muted-foreground">
-                        <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                        <p className="text-xs">Belum ada log mingguan. Mulai tambah laporan pertama!</p>
+                      <div className="text-center py-12">
+                        <ClipboardList className="h-9 w-9 mx-auto mb-3 text-neutral-200" />
+                        <p className="text-sm font-medium text-neutral-500">Belum ada log mingguan</p>
+                        <p className="text-xs text-neutral-400 mt-1">Mulai tambah laporan lapangan pertama.</p>
                       </div>
                     ) : (
-                      <div className="overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
-                        <div className="flex gap-3" style={{ width: "max-content", minWidth: "100%" }}>
-                          {weeklyLogs.map(log => (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {weeklyLogs.map(log => {
+                          const progColor = editProg >= 80 ? "#10b981" : editProg >= 40 ? "#6366f1" : "#f59e0b"
+                          return (
                             <div key={log.id}
-                              className="flex-shrink-0 w-56 rounded-xl flex flex-col transition-all hover:shadow-md"
-                              style={{ minHeight: 190, background: "#ffffff", border: "1px solid #e5e7eb" }}>
-                              {/* Card header */}
-                              <div className="px-3.5 pt-3.5 pb-2.5 flex items-center justify-between"
-                                style={{ borderBottom: "1px solid #f3f4f6" }}>
-                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full"
-                                  style={{ background: "#eff6ff", color: "#2563eb", border: "1px solid #bfdbfe" }}>
-                                  Week {log.week_number}
+                              className="group relative flex flex-col rounded-xl bg-white border border-neutral-200 hover:border-neutral-300 hover:shadow-sm transition-all duration-200"
+                              style={{ minHeight: 180 }}>
+
+                              {/* Card top: week label + progress title */}
+                              <div className="px-4 pt-4 pb-3">
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 mb-2">
+                                  Minggu {log.week_number}
                                 </span>
-                                {log.photo_url ? (
-                                  <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
-                                    title="Lihat foto bukti lapangan"
-                                    className="transition-colors"
-                                    style={{ color: "#93c5fd" }}
-                                    onMouseEnter={e => (e.currentTarget.style.color = "#2563eb")}
-                                    onMouseLeave={e => (e.currentTarget.style.color = "#93c5fd")}>
-                                    <Camera className="h-3.5 w-3.5" />
-                                  </a>
-                                ) : (
-                                  <Camera className="h-3.5 w-3.5" style={{ color: "#e5e7eb" }} />
-                                )}
+                                <p className="text-[13px] font-semibold text-neutral-800 leading-snug">
+                                  Minggu {log.week_number}: Progress Fisik {editProg}%
+                                </p>
+                                {/* Micro progress bar */}
+                                <div className="mt-2 h-1.5 w-full bg-neutral-100 rounded overflow-hidden">
+                                  <div className="h-full rounded transition-all duration-300"
+                                    style={{ width: `${editProg}%`, background: progColor }} />
+                                </div>
                               </div>
-                              {/* Card body */}
-                              <div className="px-3.5 py-3 flex-1">
-                                <p className="text-xs text-foreground leading-relaxed"
-                                  style={{ display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }}>
-                                  {log.description || <span className="text-muted-foreground/40 italic">Tidak ada catatan.</span>}
+
+                              {/* Card body: catatan */}
+                              <div className="px-4 flex-1">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-300 mb-1.5">Catatan</p>
+                                <p className="text-xs text-neutral-600 leading-relaxed"
+                                  style={{ display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }}>
+                                  {log.description || <span className="italic text-neutral-300">Tidak ada catatan.</span>}
                                 </p>
                               </div>
-                              {/* Card footer */}
-                              <div className="px-3.5 pb-3 pt-1.5" style={{ borderTop: "1px solid #f9fafb" }}>
-                                <span className="text-[10px]" style={{ color: "#9ca3af" }}>
+
+                              {/* Card bottom: timestamp + hover utility icons */}
+                              <div className="px-4 py-3 mt-3 border-t border-neutral-100 flex items-center justify-between">
+                                <span className="text-[10px] text-neutral-400">
                                   {log.created_by ? `${log.created_by} · ` : ""}
                                   {new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
                                 </span>
+                                {/* Utility icons — only visible on hover */}
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {log.photo_url && (
+                                    <a href={log.photo_url} target="_blank" rel="noopener noreferrer"
+                                      title="Lihat foto bukti"
+                                      className="p-1 rounded hover:bg-neutral-100 text-neutral-300 hover:text-blue-500 transition-colors">
+                                      <Eye className="h-3.5 w-3.5" />
+                                    </a>
+                                  )}
+                                  <button type="button" title="Edit log"
+                                    className="p-1 rounded hover:bg-neutral-100 text-neutral-300 hover:text-neutral-600 transition-colors">
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button type="button" title="Hapus log"
+                                    className="p-1 rounded hover:bg-red-50 text-neutral-300 hover:text-red-500 transition-colors">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          ))}
-                        </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -1819,134 +1849,156 @@ function DetailModal({ project, initDetail, onClose, onDetailSaved }: {
                       </div>
                     )}
 
-                    {/* Gantt Timeline */}
+                    {/* Jadwal Gantt — Split-Pane Timeline */}
                     {docDataLoading ? (
-                      <p className="text-xs text-muted-foreground py-4 text-center">Memuat jadwal…</p>
+                      <p className="text-xs text-neutral-400 py-6 text-center">Memuat jadwal…</p>
                     ) : schedItems.length === 0 ? (
-                      <div className="text-center py-10 text-muted-foreground">
-                        <ListChecks className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                        <p className="text-xs">Belum ada rencana tugas. Tambahkan jadwal kerja mingguan!</p>
+                      <div className="text-center py-12">
+                        <ListChecks className="h-9 w-9 mx-auto mb-3 text-neutral-200" />
+                        <p className="text-sm font-medium text-neutral-500">Belum ada rencana tugas</p>
+                        <p className="text-xs text-neutral-400 mt-1">Tambahkan fase kerja mingguan untuk memulai timeline.</p>
                       </div>
                     ) : (() => {
-                      const doneCount   = schedItems.filter(s => s.is_done).length
+                      // Pastel pill colors per phase index
+                      const PILL = [
+                        { bg: "#d4edda", text: "#1e5c35", done: "#a3cfbb" }, // sage green
+                        { bg: "#d6eaf8", text: "#1a4f72", done: "#85c1e9" }, // light steel blue
+                        { bg: "#f5e6d3", text: "#7d5a3c", done: "#e8c99a" }, // soft brown
+                        { bg: "#ead6f5", text: "#6b3fa0", done: "#c9a0e0" }, // lilac
+                        { bg: "#fef9e7", text: "#7d6608", done: "#f8d775" }, // soft amber
+                        { bg: "#fde8e8", text: "#922b21", done: "#f1948a" }, // rose
+                      ]
                       const totalWeight = schedItems.reduce((s, i) => s + i.progress_weight, 0) || 1
                       const doneWeight  = schedItems.filter(i => i.is_done).reduce((s, i) => s + i.progress_weight, 0)
                       const donePct     = Math.round((doneWeight / totalWeight) * 100)
-                      const weeks       = [...new Set(schedItems.map(i => i.week_number))].sort((a, b) => a - b)
+                      const maxWeek     = Math.max(...schedItems.map(i => i.week_number), 1)
+                      const weeks       = Array.from({ length: Math.max(maxWeek, 10) }, (_, k) => k + 1)
+                      const COL_W       = 72
+
                       return (
                         <div>
                           {/* Summary strip */}
-                          <div className="flex items-center justify-between mb-4 px-3 py-2.5 rounded-xl"
-                            style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}>
-                            <span className="text-xs text-muted-foreground">
-                              {doneCount}/{schedItems.length} tugas selesai
-                              <span className="ml-2 text-[10px]" style={{ color: "#9ca3af" }}>
-                                ({doneWeight}% bobot tercapai dari {totalWeight}% total)
-                              </span>
+                          <div className="flex items-center justify-between mb-3 px-3.5 py-2.5 rounded-xl bg-neutral-50 border border-neutral-200">
+                            <span className="text-xs text-neutral-500">
+                              {schedItems.filter(s => s.is_done).length}/{schedItems.length} fase selesai
+                              <span className="ml-2 text-[10px] text-neutral-400">· {doneWeight}% dari {totalWeight}% total bobot</span>
                             </span>
                             <div className="flex items-center gap-2">
-                              <div className="w-28 h-1.5 rounded-full overflow-hidden" style={{ background: "#e5e7eb" }}>
+                              <div className="w-28 h-1.5 bg-neutral-200 rounded-full overflow-hidden">
                                 <div className="h-full rounded-full transition-all duration-500"
                                   style={{ width: `${donePct}%`, background: donePct >= 80 ? "#10b981" : donePct >= 40 ? "#6366f1" : "#f59e0b" }} />
                               </div>
-                              <span className="text-xs font-bold" style={{ color: donePct >= 80 ? "#059669" : donePct >= 40 ? "#4f46e5" : "#d97706" }}>
+                              <span className="text-xs font-bold tabular-nums"
+                                style={{ color: donePct >= 80 ? "#059669" : donePct >= 40 ? "#4f46e5" : "#d97706" }}>
                                 {donePct}%
                               </span>
                             </div>
                           </div>
 
-                          {/* Gantt grid */}
-                          <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #e5e7eb" }}>
-                            {/* Column header row */}
-                            <div className="grid items-center px-4 py-2"
-                              style={{ gridTemplateColumns: "20px 148px 1fr 28px", gap: "10px", background: "#f3f4f6", borderBottom: "1px solid #e5e7eb" }}>
-                              <span />
-                              <span className="text-[10px] font-semibold" style={{ color: "#6b7280" }}>Nama Tugas</span>
-                              <span className="text-[10px] font-semibold" style={{ color: "#6b7280" }}>Bobot Progress</span>
-                              <span />
+                          {/* Split-pane container */}
+                          <div className="flex rounded-xl overflow-hidden border border-neutral-200">
+
+                            {/* ── LEFT: Phase sidebar ── */}
+                            <div className="w-1/4 flex-shrink-0 border-r border-neutral-200">
+                              {/* Sidebar header */}
+                              <div className="px-4 py-3 bg-neutral-50 border-b border-neutral-200">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                                  Fase Proyek
+                                </span>
+                              </div>
+                              {/* Phase rows */}
+                              {schedItems.map((item, i) => {
+                                const c = PILL[i % PILL.length]
+                                const hasBell = terminSchedule.some(t => {
+                                  let cum = 0
+                                  for (const si of schedItems) {
+                                    const prev = cum; cum += si.progress_weight
+                                    if (si.id === item.id) return t.target_progres > prev && t.target_progres <= cum
+                                  }
+                                  return false
+                                })
+                                return (
+                                  <div key={item.id}
+                                    className="group/row flex items-center gap-2 px-3 py-3 border-b border-neutral-200 hover:bg-neutral-50 transition-colors"
+                                    style={{ minHeight: 52 }}>
+                                    {/* Checkbox toggle */}
+                                    <button type="button"
+                                      title={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                      aria-label={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
+                                      onClick={() => toggleSchedItem(item.id, !item.is_done)}
+                                      className="flex-shrink-0 h-4 w-4 rounded flex items-center justify-center transition-all"
+                                      style={{
+                                        background: item.is_done ? c.done : "transparent",
+                                        border: `1.5px solid ${item.is_done ? c.done : "#d1d5db"}`,
+                                      }}>
+                                      {item.is_done && <CheckCheck className="h-2.5 w-2.5 text-white" />}
+                                    </button>
+                                    {/* Color dot */}
+                                    <div className="flex-shrink-0 h-2 w-2 rounded-full" style={{ background: c.done }} />
+                                    {/* Phase name */}
+                                    <span className="text-xs min-w-0 flex-1 truncate font-medium"
+                                      title={item.task_description}
+                                      style={{ color: item.is_done ? "#9ca3af" : "#374151", textDecoration: item.is_done ? "line-through" : "none" }}>
+                                      {item.task_description}
+                                    </span>
+                                    {/* Bell + delete */}
+                                    <div className="flex-shrink-0 flex items-center gap-1">
+                                      {hasBell && (
+                                        <span title="Ada syarat termin pembayaran di fase ini"><Bell className="h-3 w-3 text-amber-400" /></span>
+                                      )}
+                                      <button type="button" title="Hapus fase" aria-label="Hapus fase"
+                                        onClick={() => delSchedItem(item.id)}
+                                        className="opacity-0 group-hover/row:opacity-100 transition-opacity text-neutral-300 hover:text-red-400">
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              })}
                             </div>
 
-                            {/* Rows grouped by week */}
-                            {weeks.map(week => {
-                              const group  = schedItems.filter(i => i.week_number === week)
-                              const gDone  = group.filter(i => i.is_done).length
-                              return (
-                                <div key={week}>
-                                  {/* Week section header */}
-                                  <div className="px-4 py-1.5 flex items-center gap-2"
-                                    style={{ background: "#eff6ff", borderBottom: "1px solid #e5e7eb" }}>
-                                    <span className="text-[10px] font-black" style={{ color: "#3b82f6" }}>Minggu {week}</span>
-                                    <span className="text-[10px]" style={{ color: "#9ca3af" }}>{gDone}/{group.length} selesai</span>
+                            {/* ── RIGHT: Horizontal Gantt grid ── */}
+                            <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
+                              {/* Week column headers */}
+                              <div className="flex border-b border-neutral-200 bg-neutral-50">
+                                {weeks.map(w => (
+                                  <div key={w} className="flex-shrink-0 flex items-center justify-center py-3 border-r border-neutral-100"
+                                    style={{ width: COL_W }}>
+                                    <span className="text-[10px] font-bold text-neutral-400">W{w}</span>
                                   </div>
-                                  {/* Task rows */}
-                                  {group.map((item, idx) => {
-                                    const barPct = Math.max(4, (item.progress_weight / totalWeight) * 100)
-                                    const isLast = idx === group.length - 1
-                                    return (
-                                      <div key={item.id}
-                                        className="grid items-center px-4 py-2.5 transition-colors group"
-                                        style={{
-                                          gridTemplateColumns: "20px 148px 1fr 28px",
-                                          gap: "10px",
-                                          background: "#ffffff",
-                                          borderBottom: isLast ? "1px solid #e5e7eb" : "1px solid #f9fafb",
-                                        }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = "#fafafa")}
-                                        onMouseLeave={e => (e.currentTarget.style.background = "#ffffff")}>
-                                        {/* Checkbox */}
-                                        <button type="button"
-                                          title={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
-                                          aria-label={item.is_done ? "Tandai belum selesai" : "Tandai selesai"}
-                                          onClick={() => toggleSchedItem(item.id, !item.is_done)}
-                                          className="h-4 w-4 rounded flex items-center justify-center transition-all"
-                                          style={{
-                                            background: item.is_done ? "#10b981" : "transparent",
-                                            border: `1.5px solid ${item.is_done ? "#10b981" : "#d1d5db"}`,
-                                            flexShrink: 0,
-                                          }}>
-                                          {item.is_done && <CheckCheck className="h-2.5 w-2.5" style={{ color: "#ffffff" }} />}
-                                        </button>
-                                        {/* Task name */}
-                                        <div style={{ minWidth: 0 }}>
-                                          <span className="text-xs block truncate"
-                                            title={item.task_description}
-                                            style={{ color: item.is_done ? "#9ca3af" : "#111827", textDecoration: item.is_done ? "line-through" : "none" }}>
-                                            {item.task_description}
-                                          </span>
-                                          {item.is_done && item.completed_at && (
-                                            <span className="text-[10px]" style={{ color: "#10b981" }}>
-                                              ✓ {new Date(item.completed_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {/* Gantt bar */}
-                                        <div className="h-6 rounded overflow-hidden relative" style={{ background: "#f3f4f6" }}>
-                                          <div className="h-full rounded transition-all duration-500 absolute left-0 top-0"
+                                ))}
+                              </div>
+                              {/* Task bar rows */}
+                              {schedItems.map((item, i) => {
+                                const c = PILL[i % PILL.length]
+                                return (
+                                  <div key={item.id} className="flex border-b border-neutral-100" style={{ minHeight: 52 }}>
+                                    {weeks.map(w => (
+                                      <div key={w}
+                                        className="flex-shrink-0 flex items-center justify-center border-r border-neutral-50"
+                                        style={{ width: COL_W }}>
+                                        {w === item.week_number && (
+                                          <div
+                                            className="rounded-full h-8 flex items-center px-4 shadow-sm gap-1.5 transition-all duration-200"
                                             style={{
-                                              width: `${barPct}%`,
-                                              background: item.is_done ? "#d1fae5" : "#e0e7ff",
-                                              borderRight: `2px solid ${item.is_done ? "#10b981" : "#6366f1"}`,
-                                            }} />
-                                          <span className="absolute left-2 top-0 bottom-0 flex items-center text-[10px] font-bold"
-                                            style={{ color: item.is_done ? "#065f46" : "#4338ca" }}>
-                                            {item.progress_weight}%
-                                          </span>
-                                        </div>
-                                        {/* Delete */}
-                                        <button type="button" title="Hapus tugas" aria-label="Hapus tugas"
-                                          onClick={() => delSchedItem(item.id)}
-                                          className="flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
-                                          style={{ color: "#d1d5db" }}
-                                          onMouseEnter={e => (e.currentTarget.style.color = "#ef4444")}
-                                          onMouseLeave={e => (e.currentTarget.style.color = "#d1d5db")}>
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
+                                              background: item.is_done ? c.done : c.bg,
+                                              color: c.text,
+                                              maxWidth: COL_W - 6,
+                                              justifyContent: "center",
+                                            }}>
+                                            {item.is_done && <CheckCheck className="h-3 w-3 flex-shrink-0" />}
+                                            <span className="text-[10px] font-bold tabular-nums whitespace-nowrap">
+                                              {item.progress_weight}%
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
-                                    )
-                                  })}
-                                </div>
-                              )
-                            })}
+                                    ))}
+                                  </div>
+                                )
+                              })}
+                            </div>
+
                           </div>
                         </div>
                       )
