@@ -146,3 +146,8 @@ CREATE TABLE IF NOT EXISTS termin_invoices (
 
 CREATE INDEX IF NOT EXISTS idx_termin_invoices_project_key
   ON termin_invoices(project_key);
+
+-- ── 17. Kolom pic_name di project_details (Doc Con Gallery Card PIC) ──────────
+--  Nama penanggung jawab lapangan per proyek — ditampilkan di kartu galeri Doc Con.
+ALTER TABLE project_details
+  ADD COLUMN IF NOT EXISTS pic_name TEXT;

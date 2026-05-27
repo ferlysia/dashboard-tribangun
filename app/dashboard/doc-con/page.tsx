@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/site-header"
 import {
   Search, Plus, Bell, CheckCheck, Trash2, Pencil,
   X, Save, Camera, RefreshCw, FolderOpen, BarChart3,
-  CheckCircle2, Lock,
+  CheckCircle2, Lock, Eye, ExternalLink,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,6 +19,13 @@ type TerminEntry = {
   persen_tagihan: number
 }
 
+type VOEntry = {
+  id: string
+  po_number: string
+  description: string
+  nilai_po: number
+}
+
 type ProjectSummary = {
   project_key: string
   display_name: string
@@ -27,6 +34,14 @@ type ProjectSummary = {
   physical_progress: number
   project_status: string
   termin_schedule: TerminEntry[]
+  site_location: string | null
+  description: string | null
+  notes: string | null
+  po_value_manual: number
+  onedrive_folder_url: string | null
+  pic_name: string | null
+  vo_entries: VOEntry[]
+  op_budget_vo: number
 }
 
 type Phase = {
@@ -68,6 +83,9 @@ const PILL = [
 
 const COL_W = 68
 
+const INPUT_CLS =
+  "w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 function useDebounce<T>(value: T, ms: number): T {
@@ -87,8 +105,8 @@ function computeBaseMonth(phases: Phase[]): number {
 }
 
 function weekToLabel(weekNum: number, baseMonth: number): string {
-  const mIdx      = Math.floor((weekNum - 1) / 4)
-  const wInMonth  = ((weekNum - 1) % 4) + 1
+  const mIdx     = Math.floor((weekNum - 1) / 4)
+  const wInMonth = ((weekNum - 1) % 4) + 1
   return `${MONTHS_ID[(baseMonth + mIdx) % 12]} W${wInMonth}`
 }
 
@@ -107,6 +125,539 @@ function hasTerminBell(phaseId: string, phases: Phase[], termins: TerminEntry[])
     }
     return false
   })
+}
+
+function fmtRp(n: number): string {
+  if (!n) return "—"
+  return "Rp " + n.toLocaleString("id-ID")
+}
+
+// ─── FormField helper ─────────────────────────────────────────────────────────
+
+function FormField({ label, icon, note, required, children }: {
+  label: string
+  icon?: string
+  note?: string
+  required?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <label className="flex items-center gap-1.5 text-[10px] font-black text-neutral-500 uppercase tracking-widest mb-1.5">
+        {icon && <span className="text-sm">{icon}</span>}
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+      {note && (
+        <p className="flex items-center gap-1 text-[10px] text-amber-600 mt-1">
+          {note}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Edit Project Modal (slide-over) ──────────────────────────────────────────
+
+function EditProjectModal({
+  project,
+  onSave,
+  onClose,
+}: {
+  project: ProjectSummary
+  onSave: (updated: ProjectSummary) => Promise<void>
+  onClose: () => void
+}) {
+  const [form, setForm] = React.useState({
+    display_name:        project.display_name,
+    customer_name:       project.customer_name ?? "",
+    site_location:       project.site_location ?? "",
+    description:         project.description ?? "",
+    notes:               project.notes ?? "",
+    po_number:           project.po_number ?? "",
+    po_value_manual:     String(project.po_value_manual || ""),
+    physical_progress:   project.physical_progress,
+    project_status:      project.project_status,
+    onedrive_folder_url: project.onedrive_folder_url ?? "",
+    pic_name:            project.pic_name ?? "",
+    op_budget_vo:        String(project.op_budget_vo || ""),
+  })
+  const [voEntries,      setVoEntries]      = React.useState<VOEntry[]>(project.vo_entries ?? [])
+  const [poLocked,       setPoLocked]       = React.useState(false)
+  const [loadingPoCheck, setLoadingPoCheck] = React.useState(true)
+  const [saving,         setSaving]         = React.useState(false)
+  const [saveError,      setSaveError]      = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    fetch(`/api/termin-invoices?key=${encodeURIComponent(project.project_key)}`)
+      .then(r => r.json())
+      .then(d => {
+        const rows = (d.data ?? []) as { status: string }[]
+        setPoLocked(rows.some(r => r.status !== "TERKUNCI"))
+      })
+      .catch(() => {})
+      .finally(() => setLoadingPoCheck(false))
+  }, [project.project_key])
+
+  const totalVoBudget = voEntries.reduce((s, v) => s + (Number(v.nilai_po) || 0), 0)
+
+  function setField<K extends keyof typeof form>(k: K, v: (typeof form)[K]) {
+    setForm(prev => ({ ...prev, [k]: v }))
+  }
+
+  function addVoEntry() {
+    setVoEntries(prev => [...prev, { id: `vo_${Date.now()}`, po_number: "", description: "", nilai_po: 0 }])
+  }
+
+  function updateVo(idx: number, field: keyof VOEntry, value: string | number) {
+    setVoEntries(prev => prev.map((v, i) => i === idx ? { ...v, [field]: value } : v))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const voBudget = totalVoBudget || Number(form.op_budget_vo) || 0
+      const payload = {
+        display_name:        form.display_name,
+        customer_name:       form.customer_name,
+        site_location:       form.site_location,
+        description:         form.description,
+        notes:               form.notes,
+        po_value_manual:     Number(form.po_value_manual) || 0,
+        physical_progress:   form.physical_progress,
+        project_status:      form.project_status,
+        onedrive_folder_url: form.onedrive_folder_url || null,
+        pic_name:            form.pic_name || null,
+        op_budget_vo:        voBudget,
+        vo_entries:          voEntries,
+        ...(poLocked ? {} : { po_number: form.po_number || null }),
+      }
+
+      const res = await fetch(
+        `/api/project-details/${encodeURIComponent(project.project_key)}`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }
+      )
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Gagal menyimpan")
+
+      const updated: ProjectSummary = {
+        ...project,
+        ...payload,
+        po_number:    poLocked ? project.po_number : (form.po_number || null),
+        vo_entries:   voEntries,
+        op_budget_vo: voBudget,
+        termin_schedule: project.termin_schedule,
+      }
+      await onSave(updated)
+    } catch (err) {
+      setSaveError(String(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const progressOpts = [0,10,20,30,40,50,60,70,75,80,85,90,95,100]
+
+  return (
+    <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+
+      <div className="relative ml-auto h-full w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-8 duration-200">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
+              <Pencil className="h-3.5 w-3.5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-neutral-900">Edit Proyek</p>
+              <p className="text-[10px] font-mono text-neutral-400 truncate">{project.project_key}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose}
+            className="flex-shrink-0 p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Scrollable form body */}
+        <form id="edit-proj-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+          <div className="px-6 py-5 flex flex-col gap-5">
+
+            {/* Identitas proyek */}
+            <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 flex flex-col gap-4">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Identitas Proyek</p>
+
+              <FormField label="Nama Proyek" required>
+                <input className={INPUT_CLS} value={form.display_name} required
+                  onChange={e => setField("display_name", e.target.value)}
+                  placeholder="Nama proyek lengkap" />
+              </FormField>
+
+              <FormField label="Nama Klien">
+                <input className={INPUT_CLS} value={form.customer_name}
+                  onChange={e => setField("customer_name", e.target.value)}
+                  placeholder="Nama perusahaan / klien" />
+              </FormField>
+
+              <FormField label="Site / Lokasi Pekerjaan" icon="📍">
+                <input className={INPUT_CLS} value={form.site_location}
+                  onChange={e => setField("site_location", e.target.value)}
+                  placeholder="Contoh: Banjarmasin Centrum 30kW" />
+              </FormField>
+
+              <FormField label="Penanggung Jawab Lapangan" icon="🧑‍💼">
+                <input className={INPUT_CLS} value={form.pic_name}
+                  onChange={e => setField("pic_name", e.target.value)}
+                  placeholder="Nama PIC lapangan" />
+              </FormField>
+            </div>
+
+            {/* Kontrak & keuangan */}
+            <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 flex flex-col gap-4">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Kontrak &amp; Keuangan</p>
+
+              <FormField label="Nomor PO Utama (Anchor ID)" icon="📜"
+                note={
+                  loadingPoCheck ? "Memeriksa status invoice…" :
+                  poLocked       ? "🔒 PO terkunci — ada invoice aktif di Finance (SIAP_TAGIH/PROSES_COLLECT/LUNAS)" :
+                  undefined
+                }>
+                <div className="relative">
+                  <input
+                    className={`${INPUT_CLS} ${poLocked || loadingPoCheck ? "bg-neutral-50 text-neutral-400 cursor-not-allowed pr-9" : ""}`}
+                    value={poLocked ? (project.po_number ?? "") : form.po_number}
+                    onChange={e => !poLocked && setField("po_number", e.target.value)}
+                    disabled={poLocked || loadingPoCheck}
+                    readOnly={poLocked}
+                    placeholder="Contoh: 12345/TB-CENTRUM" />
+                  {(poLocked || loadingPoCheck) && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      {loadingPoCheck
+                        ? <RefreshCw className="h-3.5 w-3.5 text-neutral-300 animate-spin" />
+                        : <Lock className="h-3.5 w-3.5 text-neutral-400" />}
+                    </div>
+                  )}
+                </div>
+              </FormField>
+
+              <FormField label="Nilai PO / Kontrak (Rp)">
+                <input type="number" min={0} className={INPUT_CLS}
+                  value={form.po_value_manual}
+                  onChange={e => setField("po_value_manual", e.target.value)}
+                  placeholder="0" />
+              </FormField>
+
+              <FormField label="Link Folder OneDrive">
+                <div className="relative">
+                  <input type="url" className={INPUT_CLS}
+                    value={form.onedrive_folder_url}
+                    onChange={e => setField("onedrive_folder_url", e.target.value)}
+                    placeholder="https://onedrive.live.com/…" />
+                  {form.onedrive_folder_url && (
+                    <a href={form.onedrive_folder_url} target="_blank" rel="noopener noreferrer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-500 hover:text-indigo-700">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              </FormField>
+            </div>
+
+            {/* Progres & status */}
+            <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 flex flex-col gap-4">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres &amp; Status</p>
+
+              <FormField label="Progres Fisik (%)">
+                <div className="flex items-center gap-3">
+                  <select className={`${INPUT_CLS} w-28 flex-shrink-0`}
+                    value={form.physical_progress}
+                    onChange={e => setField("physical_progress", Number(e.target.value))}>
+                    {progressOpts.map(p => (
+                      <option key={p} value={p}>{p}%</option>
+                    ))}
+                  </select>
+                  <div className="flex-1 h-2 rounded-full bg-neutral-200 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${form.physical_progress}%`,
+                        background: form.physical_progress >= 80 ? "#10b981"
+                          : form.physical_progress >= 40 ? "#6366f1" : "#f59e0b",
+                      }} />
+                  </div>
+                  <span className="text-xs font-black tabular-nums w-10 text-right flex-shrink-0"
+                    style={{
+                      color: form.physical_progress >= 80 ? "#10b981"
+                        : form.physical_progress >= 40 ? "#6366f1" : "#f59e0b",
+                    }}>
+                    {form.physical_progress}%
+                  </span>
+                </div>
+                {form.physical_progress >= 90 && (
+                  <p className="flex items-center gap-1.5 mt-1.5 text-[10px] text-emerald-600 font-semibold">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Milestone ≥90% — termin invoice akan terbuka otomatis saat disimpan.
+                  </p>
+                )}
+              </FormField>
+
+              <FormField label="Status Proyek">
+                <select className={INPUT_CLS} value={form.project_status}
+                  onChange={e => setField("project_status", e.target.value)}>
+                  <option value="BERJALAN">BERJALAN</option>
+                  <option value="SELESAI">SELESAI</option>
+                  <option value="DITUNDA">DITUNDA</option>
+                </select>
+              </FormField>
+            </div>
+
+            {/* Deskripsi & catatan */}
+            <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 flex flex-col gap-4">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Deskripsi &amp; Catatan</p>
+
+              <FormField label="Deskripsi Pekerjaan">
+                <textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 80 }}
+                  value={form.description}
+                  onChange={e => setField("description", e.target.value)}
+                  placeholder="Lingkup pekerjaan secara singkat…" />
+              </FormField>
+
+              <FormField label="Catatan Internal">
+                <textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 64 }}
+                  value={form.notes}
+                  onChange={e => setField("notes", e.target.value)}
+                  placeholder="Catatan khusus tim internal…" />
+              </FormField>
+            </div>
+
+            {/* VO / Kerja Tambah */}
+            <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">
+                    Kerja Tambah / Variation Order
+                  </p>
+                  {voEntries.length > 0 && (
+                    <p className="text-[10px] text-neutral-500 mt-0.5">
+                      Total VO: <span className="font-bold text-indigo-600">{fmtRp(totalVoBudget)}</span>
+                    </p>
+                  )}
+                </div>
+                <button type="button" onClick={addVoEntry}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-[11px] font-bold hover:bg-indigo-100 transition-colors">
+                  <Plus className="h-3 w-3" /> Tambah VO
+                </button>
+              </div>
+
+              {voEntries.length === 0 ? (
+                <div className="text-center py-4 rounded-xl border border-dashed border-neutral-200">
+                  <p className="text-xs text-neutral-300 italic">Belum ada VO / Kerja Tambah</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {voEntries.map((vo, idx) => (
+                    <div key={vo.id} className="p-3 rounded-xl border border-neutral-200 bg-white flex flex-col gap-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">No. PO VO</p>
+                          <input className={INPUT_CLS} placeholder="PO Kerja Tambah"
+                            value={vo.po_number}
+                            onChange={e => updateVo(idx, "po_number", e.target.value)} />
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Nilai PO (Rp)</p>
+                          <input type="number" min={0} className={INPUT_CLS} placeholder="0"
+                            value={vo.nilai_po || ""}
+                            onChange={e => updateVo(idx, "nilai_po", Number(e.target.value))} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input className={`${INPUT_CLS} flex-1`} placeholder="Deskripsi singkat pekerjaan VO…"
+                          value={vo.description}
+                          onChange={e => updateVo(idx, "description", e.target.value)} />
+                        <button type="button"
+                          onClick={() => setVoEntries(prev => prev.filter((_, i) => i !== idx))}
+                          className="flex-shrink-0 p-2 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {saveError && (
+              <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3">
+                <p className="text-xs text-red-700 font-semibold">Gagal menyimpan</p>
+                <p className="text-[11px] text-red-600 mt-0.5">{saveError}</p>
+              </div>
+            )}
+
+          </div>
+        </form>
+
+        {/* Footer actions */}
+        <div className="flex gap-2.5 px-6 py-4 border-t border-neutral-200 flex-shrink-0 bg-white">
+          <button type="submit" form="edit-proj-form" disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm shadow-indigo-200">
+            {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? "Menyimpan…" : "Simpan Perubahan"}
+          </button>
+          <button type="button" onClick={onClose}
+            className="px-5 py-2.5 rounded-xl border border-neutral-200 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition-colors">
+            Batal
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Project Gallery Card ─────────────────────────────────────────────────────
+
+function ProjectCard({
+  project,
+  isActive,
+  onSelect,
+  onEdit,
+}: {
+  project: ProjectSummary
+  isActive: boolean
+  onSelect: () => void
+  onEdit: () => void
+}) {
+  const prog      = project.physical_progress
+  const progColor = prog >= 80 ? "#10b981" : prog >= 40 ? "#6366f1" : "#f59e0b"
+
+  return (
+    <div
+      onClick={onSelect}
+      className={`group relative flex flex-col rounded-2xl bg-white border cursor-pointer transition-all duration-200 overflow-hidden ${
+        isActive
+          ? "border-indigo-400 shadow-lg shadow-indigo-100/60 ring-1 ring-indigo-400/20"
+          : "border-neutral-200 hover:border-neutral-300 hover:shadow-md"
+      }`}
+    >
+      {/* Active indicator stripe */}
+      {isActive && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500" />
+      )}
+
+      {/* Card header */}
+      <div className={`flex items-start gap-3 px-5 pt-5 pb-4 border-b ${
+        isActive ? "bg-indigo-50/40 border-indigo-100" : "bg-white border-neutral-100"
+      }`}>
+        <div className={`flex-shrink-0 h-9 w-9 rounded-xl flex items-center justify-center transition-colors ${
+          isActive ? "bg-indigo-600" : "bg-neutral-100 group-hover:bg-neutral-200"
+        }`}>
+          <FolderOpen className={`h-4 w-4 transition-colors ${isActive ? "text-white" : "text-neutral-400"}`} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-neutral-900 leading-snug line-clamp-2">
+            {project.display_name}
+          </p>
+          {project.customer_name && (
+            <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+              Klien: {project.customer_name}
+            </p>
+          )}
+        </div>
+        <span className={`flex-shrink-0 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide mt-0.5 ${
+          project.project_status === "SELESAI"
+            ? "bg-emerald-100 text-emerald-700"
+            : project.project_status === "DITUNDA"
+            ? "bg-amber-100 text-amber-700"
+            : "bg-blue-100 text-blue-700"
+        }`}>
+          {project.project_status}
+        </span>
+      </div>
+
+      {/* Metadata rows */}
+      <div className="px-5 py-4 flex flex-col gap-3 flex-1">
+
+        {project.site_location ? (
+          <div className="flex items-start gap-2">
+            <span className="text-sm w-5 flex-shrink-0 leading-none mt-0.5">📍</span>
+            <div className="min-w-0">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">Lokasi</p>
+              <p className="text-[11px] text-neutral-700 truncate">{project.site_location}</p>
+            </div>
+          </div>
+        ) : null}
+
+        {project.po_number ? (
+          <div className="flex items-start gap-2">
+            <span className="text-sm w-5 flex-shrink-0 leading-none mt-0.5">📜</span>
+            <div className="min-w-0">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">No. PO</p>
+              <p className="text-[11px] font-mono text-neutral-700 truncate">{project.po_number}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-2">
+            <span className="text-sm w-5 flex-shrink-0 leading-none mt-0.5">📜</span>
+            <div className="min-w-0">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">No. PO</p>
+              <p className="text-[11px] text-neutral-300 italic">Belum diset</p>
+            </div>
+          </div>
+        )}
+
+        {project.pic_name ? (
+          <div className="flex items-start gap-2">
+            <span className="text-sm w-5 flex-shrink-0 leading-none mt-0.5">🧑‍💼</span>
+            <div className="min-w-0">
+              <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">Penanggung Jawab</p>
+              <p className="text-[11px] text-neutral-700 truncate">{project.pic_name}</p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Progress track */}
+        <div className="mt-auto pt-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres Fisik</p>
+            <p className="text-xs font-black tabular-nums" style={{ color: progColor }}>
+              {prog}%
+            </p>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${prog}%`, background: progColor }} />
+          </div>
+        </div>
+      </div>
+
+      {/* Card footer */}
+      <div className="flex items-center justify-between px-5 pb-4 pt-2 border-t border-neutral-50">
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); onSelect() }}
+          className={`flex items-center gap-1.5 text-[11px] font-semibold transition-colors py-1 ${
+            isActive ? "text-indigo-600" : "text-neutral-400 hover:text-indigo-600"
+          }`}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          {isActive ? "Workspace aktif" : "Buka Workspace"}
+        </button>
+
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button type="button"
+            onClick={e => { e.stopPropagation(); onEdit() }}
+            title="Edit proyek"
+            className="p-2 rounded-lg hover:bg-indigo-50 text-neutral-300 hover:text-indigo-600 transition-colors">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─── Log Edit Popover ─────────────────────────────────────────────────────────
@@ -184,18 +735,19 @@ function LogEditPopover({ log, onSave, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DocConPage() {
-  // ── Projects ──────────────────────────────────────────────────
+  // ── Projects ──────────────────────────────────────────
   const [allProjects,  setAllProjects]  = React.useState<ProjectSummary[]>([])
   const [poSearch,     setPoSearch]     = React.useState("")
   const [activeKey,    setActiveKey]    = React.useState<string | null>(null)
   const [loadingProj,  setLoadingProj]  = React.useState(true)
+  const [editProject,  setEditProject]  = React.useState<ProjectSummary | null>(null)
 
-  // ── Doc Con data ───────────────────────────────────────────────
+  // ── Doc Con data ───────────────────────────────────────
   const [phases,      setPhases]      = React.useState<Phase[]>([])
   const [weekLogs,    setWeekLogs]    = React.useState<WeekLog[]>([])
   const [loadingData, setLoadingData] = React.useState(false)
 
-  // ── Add phase form ─────────────────────────────────────────────
+  // ── Add phase form ─────────────────────────────────────
   const [showAddPhase, setShowAddPhase] = React.useState(false)
   const [phaseTask,    setPhaseTask]    = React.useState("")
   const [phaseStartW,  setPhaseStartW]  = React.useState(1)
@@ -203,16 +755,16 @@ export default function DocConPage() {
   const [phaseWeight,  setPhaseWeight]  = React.useState(10)
   const [addingPhase,  setAddingPhase]  = React.useState(false)
 
-  // ── Log edit ───────────────────────────────────────────────────
+  // ── Log edit ───────────────────────────────────────────
   const [editingLogId, setEditingLogId] = React.useState<string | null>(null)
 
-  // ── Billing trigger ────────────────────────────────────────────
+  // ── Billing trigger ────────────────────────────────────
   const [billingAlert, setBillingAlert] = React.useState<string[] | null>(null)
   const [billingFired, setBillingFired] = React.useState(false)
 
   const debouncedSearch = useDebounce(poSearch, 280)
 
-  // ── Load all projects ──────────────────────────────────────────
+  // ── Load all projects ──────────────────────────────────
   React.useEffect(() => {
     setLoadingProj(true)
     fetch("/api/project-details", { cache: "no-store" })
@@ -226,6 +778,14 @@ export default function DocConPage() {
           physical_progress?: number
           project_status?: string
           termin_schedule?: TerminEntry[] | null
+          site_location?: string | null
+          description?: string | null
+          notes?: string | null
+          po_value_manual?: number | null
+          onedrive_folder_url?: string | null
+          pic_name?: string | null
+          vo_entries?: VOEntry[] | null
+          op_budget_vo?: number | null
         }>
         setAllProjects(rows.map(r => ({
           project_key:       r.project_key,
@@ -235,13 +795,21 @@ export default function DocConPage() {
           physical_progress: r.physical_progress ?? 0,
           project_status:    r.project_status ?? "BERJALAN",
           termin_schedule:   Array.isArray(r.termin_schedule) ? r.termin_schedule : [],
+          site_location:     r.site_location ?? null,
+          description:       r.description ?? null,
+          notes:             r.notes ?? null,
+          po_value_manual:   r.po_value_manual ?? 0,
+          onedrive_folder_url: r.onedrive_folder_url ?? null,
+          pic_name:          r.pic_name ?? null,
+          vo_entries:        Array.isArray(r.vo_entries) ? r.vo_entries : [],
+          op_budget_vo:      r.op_budget_vo ?? 0,
         })))
       })
       .catch(() => {})
       .finally(() => setLoadingProj(false))
   }, [])
 
-  // ── Load doc con data for active project ───────────────────────
+  // ── Load doc con data for active project ───────────────
   React.useEffect(() => {
     if (!activeKey) { setPhases([]); setWeekLogs([]); return }
     setLoadingData(true)
@@ -259,7 +827,7 @@ export default function DocConPage() {
       .finally(() => setLoadingData(false))
   }, [activeKey])
 
-  // ── 90% billing trigger ────────────────────────────────────────
+  // ── 90% billing trigger (workspace phases) ────────────
   React.useEffect(() => {
     if (!activeKey || billingFired || phases.length === 0) return
     const progress = computeProgress(phases)
@@ -276,36 +844,39 @@ export default function DocConPage() {
     if (unlocked.length > 0) {
       setBillingAlert(unlocked.map(t => t.nama))
       setBillingFired(true)
-      // Background: sync physical_progress to project_details so Bos View stays current
       fetch(`/api/project-details/${encodeURIComponent(activeKey)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ physical_progress: progress }),
       }).catch(() => {})
+      // Sync progress to allProjects card
+      setAllProjects(prev => prev.map(p =>
+        p.project_key === activeKey ? { ...p, physical_progress: progress } : p
+      ))
     }
   }, [phases, activeKey, billingFired, allProjects])
 
-  // ── Filtered projects ──────────────────────────────────────────
+  // ── Filtered projects ──────────────────────────────────
   const filteredProjects = React.useMemo(() => {
     const q = debouncedSearch.toLowerCase().trim()
     if (!q) return allProjects
     return allProjects.filter(p =>
-      (p.po_number    ?? "").toLowerCase().includes(q) ||
-      p.display_name       .toLowerCase().includes(q) ||
+      (p.po_number     ?? "").toLowerCase().includes(q) ||
+      p.display_name        .toLowerCase().includes(q) ||
       (p.customer_name ?? "").toLowerCase().includes(q)
     )
   }, [allProjects, debouncedSearch])
 
-  // ── Derived ────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────
   const activeProject   = allProjects.find(p => p.project_key === activeKey)
   const currentProgress = computeProgress(phases)
   const baseMonth       = computeBaseMonth(phases)
   const maxWeek         = phases.length > 0
     ? Math.max(...phases.map(p => Math.max(p.week_number, p.end_week || p.week_number)))
     : 1
-  const totalWeeks  = Math.max(maxWeek, 10)
-  const weekArr     = Array.from({ length: totalWeeks }, (_, k) => k + 1)
-  const monthGrps   = React.useMemo(() => {
+  const totalWeeks = Math.max(maxWeek, 10)
+  const weekArr    = Array.from({ length: totalWeeks }, (_, k) => k + 1)
+  const monthGrps  = React.useMemo(() => {
     const grps: { label: string; count: number }[] = []
     let wIdx = 0, mOff = 0
     while (wIdx < totalWeeks) {
@@ -315,7 +886,34 @@ export default function DocConPage() {
     return grps
   }, [totalWeeks, baseMonth])
 
-  // ── Add phase + auto-provision logs ───────────────────────────
+  // ── Edit project save handler ──────────────────────────
+  async function handleSaveEdit(updated: ProjectSummary) {
+    setAllProjects(prev => prev.map(p =>
+      p.project_key === updated.project_key ? updated : p
+    ))
+
+    // 90% auto-trigger: unlock termin invoices
+    if (updated.physical_progress >= 90) {
+      const termins = updated.termin_schedule ?? []
+      for (const t of termins) {
+        if (updated.physical_progress >= t.target_progres) {
+          await fetch("/api/termin-invoices", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              project_key: updated.project_key,
+              termin_id: t.id,
+              status: "SIAP_TAGIH",
+            }),
+          }).catch(() => {})
+        }
+      }
+    }
+
+    setEditProject(null)
+  }
+
+  // ── Add phase + auto-provision logs ───────────────────
   async function handleAddPhase(e: React.FormEvent) {
     e.preventDefault()
     if (!activeKey || !phaseTask.trim()) return
@@ -336,7 +934,6 @@ export default function DocConPage() {
 
       setPhases(prev => [...prev, phase].sort((a, b) => a.week_number - b.week_number))
 
-      // Auto-provision one placeholder log per week in the phase range
       const existingPairs = new Set(weekLogs.map(l => `${l.phase_id}:${l.week_number}`))
       const weeksToCreate = Array.from(
         { length: phaseEndW - phaseStartW + 1 },
@@ -374,7 +971,7 @@ export default function DocConPage() {
     }
   }
 
-  // ── Toggle phase done ──────────────────────────────────────────
+  // ── Toggle phase done ──────────────────────────────────
   async function togglePhase(id: string, isDone: boolean) {
     const res  = await fetch(`/api/project-schedule/item/${id}`, {
       method: "PATCH",
@@ -385,7 +982,7 @@ export default function DocConPage() {
     if (data) setPhases(prev => prev.map(p => p.id === id ? { ...p, ...data } : p))
   }
 
-  // ── Delete phase (+ its provisioned logs) ─────────────────────
+  // ── Delete phase ───────────────────────────────────────
   async function deletePhase(id: string) {
     await fetch(`/api/project-schedule/item/${id}`, { method: "DELETE" })
     const orphanIds = weekLogs.filter(l => l.phase_id === id).map(l => l.id)
@@ -396,16 +993,16 @@ export default function DocConPage() {
     setWeekLogs(prev => prev.filter(l => l.phase_id !== id))
   }
 
-  // ── Save log entry ─────────────────────────────────────────────
+  // ── Save log entry ─────────────────────────────────────
   async function saveLog(logId: string, desc: string, photo: File | null) {
     let photoUrl = weekLogs.find(l => l.id === logId)?.photo_url ?? ""
     if (photo) {
       const fd = new FormData()
       fd.append("file", photo)
       fd.append("path", `doc-con/${activeKey}/${Date.now()}.${photo.name.split(".").pop() ?? "jpg"}`)
-      const up   = await fetch("/api/upload-photo", { method: "POST", body: fd })
-      const upD  = await up.json() as { url?: string }
-      photoUrl   = upD.url || photoUrl
+      const up  = await fetch("/api/upload-photo", { method: "POST", body: fd })
+      const upD = await up.json() as { url?: string }
+      photoUrl  = upD.url || photoUrl
     }
     const res  = await fetch(`/api/project-weekly-logs/item/${logId}`, {
       method: "PATCH",
@@ -417,7 +1014,7 @@ export default function DocConPage() {
     setEditingLogId(null)
   }
 
-  // ── Delete log ─────────────────────────────────────────────────
+  // ── Delete log ─────────────────────────────────────────
   async function deleteLog(logId: string) {
     await fetch(`/api/project-weekly-logs/item/${logId}`, { method: "DELETE" })
     setWeekLogs(prev => prev.filter(l => l.id !== logId))
@@ -446,69 +1043,72 @@ export default function DocConPage() {
             </div>
           </div>
 
-          <div className="flex flex-1 flex-col gap-6 p-6">
+          <div className="flex flex-1 flex-col gap-8 p-6">
 
-            {/* ── Project selector ── */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mb-2.5">
-                {loadingProj ? "Memuat proyek…" : `${filteredProjects.length} Proyek Tersedia`}
-              </p>
+            {/* ── Gallery grid section ── */}
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                  {loadingProj ? "Memuat proyek…" : `${filteredProjects.length} Proyek Tersedia`}
+                </p>
+                {debouncedSearch && filteredProjects.length === 0 && (
+                  <button type="button" onClick={() => setPoSearch("")}
+                    className="text-xs text-indigo-600 hover:underline">
+                    Hapus pencarian
+                  </button>
+                )}
+              </div>
+
               {loadingProj ? (
-                <div className="flex gap-2 flex-wrap">
-                  {[130, 110, 155, 95, 140].map(w => (
-                    <div key={w} className="h-9 rounded-full bg-neutral-100 animate-pulse" style={{ width: w }} />
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {[1,2,3].map(i => (
+                    <div key={i} className="rounded-2xl border border-neutral-100 bg-white overflow-hidden animate-pulse">
+                      <div className="h-20 bg-neutral-50" />
+                      <div className="p-5 flex flex-col gap-3">
+                        <div className="h-3 bg-neutral-100 rounded-full w-3/4" />
+                        <div className="h-3 bg-neutral-100 rounded-full w-1/2" />
+                        <div className="h-3 bg-neutral-100 rounded-full w-2/3" />
+                        <div className="h-1.5 bg-neutral-100 rounded-full w-full mt-2" />
+                      </div>
+                    </div>
                   ))}
+                </div>
+              ) : filteredProjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/40">
+                  <div className="h-14 w-14 rounded-2xl bg-white border border-neutral-200 flex items-center justify-center mb-4 shadow-sm">
+                    <FolderOpen className="h-6 w-6 text-neutral-300" />
+                  </div>
+                  <p className="text-sm font-semibold text-neutral-500 mb-1">
+                    {debouncedSearch ? `Tidak ada proyek untuk "${debouncedSearch}"` : "Belum ada proyek"}
+                  </p>
+                  <p className="text-xs text-neutral-400">
+                    {debouncedSearch ? "Coba kata kunci lain." : "Proyek akan muncul di sini setelah ditambahkan."}
+                  </p>
                 </div>
               ) : (
-                <div className="flex gap-2 flex-wrap">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {filteredProjects.map(p => (
-                    <button key={p.project_key} type="button"
-                      onClick={() => setActiveKey(p.project_key === activeKey ? null : p.project_key)}
-                      className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                        activeKey === p.project_key
-                          ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                          : "bg-white text-neutral-600 border-neutral-200 hover:border-indigo-300 hover:text-indigo-600"
-                      }`}>
-                      {p.display_name}
-                      {p.po_number && (
-                        <span className={`font-mono text-[10px] ${activeKey === p.project_key ? "opacity-70" : "text-neutral-400"}`}>
-                          {p.po_number}
-                        </span>
-                      )}
-                    </button>
+                    <ProjectCard
+                      key={p.project_key}
+                      project={p}
+                      isActive={activeKey === p.project_key}
+                      onSelect={() => setActiveKey(p.project_key === activeKey ? null : p.project_key)}
+                      onEdit={() => setEditProject(p)}
+                    />
                   ))}
-                  {filteredProjects.length === 0 && (
-                    <p className="text-xs text-neutral-400 italic">
-                      Tidak ada proyek yang cocok dengan pencarian &quot;{debouncedSearch}&quot;.
-                    </p>
-                  )}
                 </div>
               )}
-            </div>
+            </section>
 
-            {/* ── Empty state ── */}
-            {!activeKey && (
-              <div className="flex flex-col items-center justify-center py-28 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-neutral-50 border border-neutral-200 flex items-center justify-center mb-5">
-                  <FolderOpen className="h-7 w-7 text-neutral-300" />
-                </div>
-                <p className="text-sm font-semibold text-neutral-500 mb-1">Pilih proyek untuk memulai</p>
-                <p className="text-xs text-neutral-400 max-w-xs leading-relaxed">
-                  Gunakan kolom pencarian di atas untuk mencari nomor PO atau nama proyek,
-                  lalu klik untuk membuka workspace Doc Con-nya.
-                </p>
-              </div>
-            )}
-
-            {/* ── Active project workspace ── */}
+            {/* ── Workspace panel (shown when a card is active) ── */}
             {activeKey && (
-              <div className="flex flex-col gap-8">
+              <section className="flex flex-col gap-6">
 
                 {/* Project info bar */}
                 <div className="flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-white border border-neutral-200 shadow-sm">
-                  <div className="flex items-center gap-3.5">
+                  <div className="flex items-center gap-3.5 min-w-0">
                     <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
-                      <BarChart3 className="h-4.5 w-4.5 text-white" style={{ width: 18, height: 18 }} />
+                      <BarChart3 style={{ width: 18, height: 18 }} className="text-white" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-neutral-800 truncate">{activeProject?.display_name}</p>
@@ -528,7 +1128,7 @@ export default function DocConPage() {
 
                   <div className="flex items-center gap-4 flex-shrink-0">
                     <div className="text-right">
-                      <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-0.5">Progress Fisik</p>
+                      <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-0.5">Progres Fase</p>
                       <p className={`text-2xl font-black tabular-nums leading-none ${
                         currentProgress >= 80 ? "text-emerald-600"
                           : currentProgress >= 40 ? "text-indigo-600"
@@ -542,6 +1142,12 @@ export default function DocConPage() {
                           background: currentProgress >= 80 ? "#10b981" : currentProgress >= 40 ? "#6366f1" : "#f59e0b",
                         }} />
                     </div>
+                    <button type="button"
+                      onClick={() => { setActiveKey(null); setBillingAlert(null) }}
+                      className="p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 transition-colors"
+                      title="Tutup workspace">
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
 
@@ -552,25 +1158,23 @@ export default function DocConPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-emerald-700">Finance Terbuka — Siap Ditagih</p>
                       <p className="text-xs text-emerald-600 mt-0.5 leading-relaxed">
-                        Progress {currentProgress}% memenuhi syarat termin pembayaran:{" "}
+                        Progress {currentProgress}% memenuhi syarat termin:{" "}
                         <span className="font-semibold">{billingAlert.join(", ")}</span>.
-                        Status telah diperbarui di Bos View.
+                        Status diperbarui di sistem Finance.
                       </p>
                     </div>
                     <button type="button" onClick={() => setBillingAlert(null)}
-                      className="flex-shrink-0 p-1 rounded hover:bg-emerald-100 text-emerald-400 hover:text-emerald-700 transition-colors">
+                      className="flex-shrink-0 p-1 rounded hover:bg-emerald-100 text-emerald-400 transition-colors">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 )}
 
-                {/* Billing locked notice when no phases done yet */}
                 {!billingAlert && phases.length > 0 && currentProgress < 90 && (
                   <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-neutral-50 border border-neutral-200">
                     <Lock className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
                     <p className="text-xs text-neutral-500">
-                      Finance terkunci. Termin akan terbuka otomatis saat progress mencapai threshold yang ditetapkan
-                      (≥90% progress fisik).
+                      Finance terkunci. Termin terbuka otomatis saat progress fase mencapai threshold yang ditetapkan.
                     </p>
                   </div>
                 )}
@@ -586,7 +1190,7 @@ export default function DocConPage() {
                     {/* ═══════════════════════════════════════════════════════ */}
                     {/* BLOCK A — JADWAL & RENCANA                             */}
                     {/* ═══════════════════════════════════════════════════════ */}
-                    <section>
+                    <div>
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <h2 className="text-sm font-bold text-neutral-900">Jadwal &amp; Rencana</h2>
@@ -702,10 +1306,8 @@ export default function DocConPage() {
                       ) : (
                         <div className="rounded-xl overflow-hidden border border-neutral-200 bg-white shadow-sm">
                           <div className="flex">
-
-                            {/* ── Left: Phase sidebar ── */}
+                            {/* Left: Phase sidebar */}
                             <div className="w-56 flex-shrink-0 border-r border-neutral-200">
-                              {/* Header aligns with 2-row Gantt header */}
                               <div className="px-4 bg-neutral-50 border-b border-neutral-200" style={{ height: 58 }}>
                                 <div className="flex items-center h-full">
                                   <span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">
@@ -758,10 +1360,9 @@ export default function DocConPage() {
                               })}
                             </div>
 
-                            {/* ── Right: Gantt timeline ── */}
+                            {/* Right: Gantt timeline */}
                             <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
                               <div style={{ minWidth: totalWeeks * COL_W }}>
-
                                 {/* Month header row */}
                                 <div className="flex border-b border-neutral-200 bg-neutral-50">
                                   {monthGrps.map((mg, mi) => (
@@ -788,11 +1389,11 @@ export default function DocConPage() {
 
                                 {/* Phase bar rows */}
                                 {phases.map((ph, i) => {
-                                  const c        = PILL[i % PILL.length]
-                                  const startW   = Math.max(1, ph.week_number)
-                                  const endW     = Math.max(startW, ph.end_week || ph.week_number)
-                                  const spanW    = endW - startW + 1
-                                  const hasBell  = hasTerminBell(ph.id, phases, activeProject?.termin_schedule ?? [])
+                                  const c       = PILL[i % PILL.length]
+                                  const startW  = Math.max(1, ph.week_number)
+                                  const endW    = Math.max(startW, ph.end_week || ph.week_number)
+                                  const spanW   = endW - startW + 1
+                                  const hasBell = hasTerminBell(ph.id, phases, activeProject?.termin_schedule ?? [])
                                   const barLeft  = (startW - 1) * COL_W + 4
                                   const barWidth = spanW * COL_W - 8
                                   const lblLeft  = barLeft + barWidth + 6
@@ -800,14 +1401,12 @@ export default function DocConPage() {
                                     <div key={ph.id}
                                       className="relative border-b border-neutral-100"
                                       style={{ minHeight: 52, width: totalWeeks * COL_W }}>
-                                      {/* Column grid lines */}
                                       <div className="absolute inset-0 flex pointer-events-none">
                                         {weekArr.map(w => (
                                           <div key={w} className="flex-shrink-0 h-full border-r border-neutral-50"
                                             style={{ width: COL_W }} />
                                         ))}
                                       </div>
-                                      {/* Bar */}
                                       <div
                                         className="absolute flex items-center gap-1.5 rounded-full px-3 shadow-sm overflow-hidden transition-all duration-300"
                                         style={{
@@ -824,7 +1423,6 @@ export default function DocConPage() {
                                           {ph.progress_weight}%
                                         </span>
                                       </div>
-                                      {/* Phase label after bar */}
                                       {lblLeft < totalWeeks * COL_W - 24 && (
                                         <div className="absolute text-[10px] font-medium text-neutral-400 whitespace-nowrap overflow-hidden"
                                           style={{
@@ -837,23 +1435,21 @@ export default function DocConPage() {
                                     </div>
                                   )
                                 })}
-
                               </div>
                             </div>
                           </div>
                         </div>
                       )}
-                    </section>
+                    </div>
 
                     {/* ═══════════════════════════════════════════════════════ */}
                     {/* BLOCK B — LOG MINGGUAN AKTUAL                          */}
                     {/* ═══════════════════════════════════════════════════════ */}
-                    <section>
+                    <div>
                       <div className="mb-4">
                         <h2 className="text-sm font-bold text-neutral-900">Log Mingguan Aktual</h2>
                         <p className="text-[11px] text-neutral-400 mt-0.5">
                           Kartu laporan otomatis — satu kartu per minggu dalam setiap fase.
-                          Klik ikon pensil untuk mengisi laporan lapangan.
                         </p>
                       </div>
 
@@ -874,7 +1470,6 @@ export default function DocConPage() {
 
                             return (
                               <div key={ph.id}>
-                                {/* Phase group header */}
                                 <div className="flex items-center gap-2.5 mb-3 pb-2 border-b border-neutral-100">
                                   <div className="h-3 w-3 rounded-full flex-shrink-0" style={{ background: c.done }} />
                                   <span className="text-xs font-bold text-neutral-800">{ph.task_description}</span>
@@ -912,13 +1507,11 @@ export default function DocConPage() {
                                           className="group rounded-xl bg-white border transition-shadow hover:shadow-md"
                                           style={{ borderColor: isFilled ? c.border : "#e5e7eb" }}>
 
-                                          {/* Card header */}
                                           <div className="px-4 pt-3.5 pb-2.5 border-b"
                                             style={{ borderColor: isFilled ? c.border : "#f3f4f6" }}>
                                             <div className="flex items-center justify-between gap-1">
                                               <div className="flex items-center gap-1.5 min-w-0">
-                                                <span
-                                                  className="text-[9px] font-black px-2 py-0.5 rounded-full whitespace-nowrap"
+                                                <span className="text-[9px] font-black px-2 py-0.5 rounded-full whitespace-nowrap"
                                                   style={{ background: c.bg, color: c.text }}>
                                                   {weekToLabel(log.week_number, baseMonth)}
                                                 </span>
@@ -946,7 +1539,6 @@ export default function DocConPage() {
                                               </div>
                                             </div>
 
-                                            {/* Progress micro bar */}
                                             <div className="mt-2.5 h-1 w-full rounded-full overflow-hidden bg-neutral-100">
                                               <div className="h-full rounded-full transition-all duration-500"
                                                 style={{
@@ -960,7 +1552,6 @@ export default function DocConPage() {
                                             </p>
                                           </div>
 
-                                          {/* Card body */}
                                           <div className="px-4 py-3">
                                             {isFilled ? (
                                               <>
@@ -993,7 +1584,6 @@ export default function DocConPage() {
                                             )}
                                           </div>
 
-                                          {/* Inline edit popover */}
                                           {isEditing && (
                                             <div className="px-4 pb-4 border-t border-neutral-100 pt-1">
                                               <LogEditPopover
@@ -1013,14 +1603,24 @@ export default function DocConPage() {
                           })}
                         </div>
                       )}
-                    </section>
+                    </div>
                   </>
                 )}
-              </div>
+              </section>
             )}
 
           </div>
         </div>
+
+        {/* ── Edit Project Modal (slide-over) ── */}
+        {editProject && (
+          <EditProjectModal
+            project={editProject}
+            onSave={handleSaveEdit}
+            onClose={() => setEditProject(null)}
+          />
+        )}
+
       </SidebarInset>
     </SidebarProvider>
   )
