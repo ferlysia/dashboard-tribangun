@@ -39,6 +39,15 @@ type PendingPhase = {
   end_week: number; progress_weight: number
 }
 
+type PendingTermin = {
+  tempId: string; termin_name: string; required_progress_trigger: number; billing_percentage: number
+}
+
+type DocConTerminInvoice = {
+  id: string; termin_id: string
+  status: "TERKUNCI" | "SIAP_TAGIH" | "PROSES_COLLECT" | "LUNAS"
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const GANTT_YEAR = 2026
@@ -283,14 +292,22 @@ function CreateCanvas({ onBack, onCreated }: {
     onedrive_folder_url: "", project_status: "BERJALAN",
     physical_progress: 0, description: "", notes: "",
   })
-  const [pendingPhases, setPendingPhases] = React.useState<PendingPhase[]>([])
-  const [showPhaseForm, setShowPhaseForm] = React.useState(false)
-  const [phTask,   setPhTask]   = React.useState("")
-  const [phStartW, setPhStartW] = React.useState(1)
-  const [phEndW,   setPhEndW]   = React.useState(1)
-  const [phWeight, setPhWeight] = React.useState("10")
-  const [saving,   setSaving]   = React.useState(false)
-  const [saveErr,  setSaveErr]  = React.useState<string | null>(null)
+  const [pendingPhases,  setPendingPhases]  = React.useState<PendingPhase[]>([])
+  const [showPhaseForm,  setShowPhaseForm]  = React.useState(false)
+  const [phTask,         setPhTask]         = React.useState("")
+  const [phStartW,       setPhStartW]       = React.useState(1)
+  const [phEndW,         setPhEndW]         = React.useState(1)
+  const [phWeight,       setPhWeight]       = React.useState("10")
+  // TOP (Terms of Payment)
+  const [pendingTermins, setPendingTermins] = React.useState<PendingTermin[]>([])
+  const [showTerminForm, setShowTerminForm] = React.useState(false)
+  const [tName,          setTName]          = React.useState("")
+  const [tTrigger,       setTTrigger]       = React.useState("50")
+  const [tBillingPct,    setTBillingPct]    = React.useState("30")
+  // VO
+  const [pendingVOs,     setPendingVOs]     = React.useState<VOEntry[]>([])
+  const [saving,         setSaving]         = React.useState(false)
+  const [saveErr,        setSaveErr]        = React.useState<string | null>(null)
 
   function sf<K extends keyof typeof form>(k: K, v: (typeof form)[K]) { setForm(p => ({ ...p, [k]: v })) }
 
@@ -316,6 +333,12 @@ function CreateCanvas({ onBack, onCreated }: {
           onedrive_folder_url: form.onedrive_folder_url || null,
           project_status: form.project_status, physical_progress: form.physical_progress,
           description: form.description, notes: form.notes, created_manually: true,
+          termin_schedule: pendingTermins.map((t, i) => ({
+            id: `t_${Date.now()}_${i}`, nama: t.termin_name,
+            target_progres: t.required_progress_trigger, persen_tagihan: t.billing_percentage,
+          })),
+          vo_entries: pendingVOs,
+          op_budget_vo: pendingVOs.reduce((s, v) => s + (Number(v.nilai_po) || 0), 0),
         }),
       })
       const json = await res.json()
@@ -329,15 +352,20 @@ function CreateCanvas({ onBack, onCreated }: {
         }).catch(() => {})
       }
 
+      const voTotal = pendingVOs.reduce((s, v) => s + (Number(v.nilai_po) || 0), 0)
       onCreated({
         project_key: key, display_name: form.display_name,
         customer_name: form.customer_name || null, po_number: form.po_number || null,
         physical_progress: form.physical_progress, project_status: form.project_status,
-        termin_schedule: [], site_location: form.site_location || null,
+        termin_schedule: pendingTermins.map((t, i) => ({
+          id: `t_${Date.now()}_${i}`, nama: t.termin_name,
+          target_progres: t.required_progress_trigger, persen_tagihan: t.billing_percentage,
+        })),
+        site_location: form.site_location || null,
         description: form.description || null, notes: form.notes || null,
         po_value_manual: Number(form.po_value_manual) || 0,
         onedrive_folder_url: form.onedrive_folder_url || null,
-        pic_name: form.pic_name || null, vo_entries: [], op_budget_vo: 0,
+        pic_name: form.pic_name || null, vo_entries: pendingVOs, op_budget_vo: voTotal,
       })
     } catch (err) { setSaveErr(String(err)) } finally { setSaving(false) }
   }
@@ -489,6 +517,7 @@ function CreateCanvas({ onBack, onCreated }: {
                 <div className="flex items-center gap-4 mb-4">
                   <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider whitespace-nowrap">Bobot Progress (%)</label>
                   <input type="text" inputMode="numeric" pattern="[0-9]*"
+                    title="Bobot progress fase (%)" placeholder="10"
                     className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
                     value={phWeight} onChange={e => setPhWeight(e.target.value.replace(/\D/g, ""))} />
                   {totalPendingWeight > 0 && (
@@ -540,7 +569,160 @@ function CreateCanvas({ onBack, onCreated }: {
             )}
           </section>
 
-          {/* ── SECTION 3: Log Mingguan (Placeholder) ── */}
+          {/* ── SECTION 3: Terms of Payment (TOP) ── */}
+          <section>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl bg-amber-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-xs font-black">TOP</span>
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-neutral-900">Terms of Payment (TOP)</h2>
+                  <p className="text-[11px] text-neutral-400">Milestone tagihan fleksibel — setiap termin punya trigger progres sendiri.</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowTerminForm(v => !v)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition-colors shadow-sm flex-shrink-0">
+                <Plus className="h-3.5 w-3.5" /> Tambah Termin
+              </button>
+            </div>
+
+            {showTerminForm && (
+              <div className="rounded-xl border border-amber-100 bg-amber-50/30 p-5 mb-4">
+                <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-4">Termin Baru</p>
+                <div className="grid gap-3 sm:grid-cols-3 mb-4">
+                  <div className="sm:col-span-1">
+                    <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Nama Termin</label>
+                    <input className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                      value={tName} onChange={e => setTName(e.target.value)} placeholder="Contoh: DP 30%, Progress 40%…" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Trigger Progres (%)</label>
+                    <input type="text" inputMode="numeric" pattern="[0-9]*"
+                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                      value={tTrigger} onChange={e => setTTrigger(e.target.value.replace(/\D/g, ""))}
+                      placeholder="50" />
+                    <p className="text-[9px] text-neutral-400 mt-1">Tagihan terbuka saat progres fisik ≥ nilai ini</p>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Porsi Tagihan (%)</label>
+                    <input type="text" inputMode="numeric" pattern="[0-9]*"
+                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                      value={tBillingPct} onChange={e => setTBillingPct(e.target.value.replace(/\D/g, ""))}
+                      placeholder="30" />
+                    <p className="text-[9px] text-neutral-400 mt-1">% dari total nilai kontrak</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={!tName.trim()}
+                    onClick={() => {
+                      if (!tName.trim()) return
+                      setPendingTermins(prev => [...prev, { tempId: `pt_${Date.now()}`, termin_name: tName.trim(), required_progress_trigger: Number(tTrigger) || 50, billing_percentage: Number(tBillingPct) || 30 }])
+                      setTName(""); setTTrigger("50"); setTBillingPct("30"); setShowTerminForm(false)
+                    }}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 disabled:opacity-50 transition-colors">
+                    <Plus className="h-3.5 w-3.5" /> Tambah ke Antrian
+                  </button>
+                  <button type="button" onClick={() => { setShowTerminForm(false); setTName(""); setTTrigger("50"); setTBillingPct("30") }}
+                    className="px-5 py-2 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:bg-neutral-50">Batal</button>
+                </div>
+              </div>
+            )}
+
+            {pendingTermins.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/40 flex flex-col items-center justify-center py-8">
+                <p className="text-sm text-neutral-400 font-medium mb-1">Belum ada termin pembayaran</p>
+                <p className="text-xs text-neutral-300">TOP opsional — bisa ditambahkan setelah proyek dibuat.</p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-neutral-100 bg-neutral-50 flex items-center justify-between">
+                  <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{pendingTermins.length} Termin Dijadwalkan</span>
+                  {(() => {
+                    const total = pendingTermins.reduce((s, t) => s + t.billing_percentage, 0)
+                    return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${total === 100 ? "bg-emerald-100 text-emerald-700" : total > 100 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
+                      Total: {total}%{total === 100 ? " ✓" : ""}
+                    </span>
+                  })()}
+                </div>
+                {pendingTermins.map((t, i) => (
+                  <div key={t.tempId} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-neutral-50/50 transition-colors">
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 flex-shrink-0">T{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-neutral-800">{t.termin_name}</p>
+                      <p className="text-[10px] text-neutral-400">Trigger: ≥{t.required_progress_trigger}% · Porsi: {t.billing_percentage}% kontrak</p>
+                    </div>
+                    <button type="button" aria-label="Hapus termin" title="Hapus termin"
+                      onClick={() => setPendingTermins(p => p.filter(x => x.tempId !== t.tempId))}
+                      className="p-1.5 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── SECTION 4: Variation Order (VO) ── */}
+          <section>
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl bg-violet-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-xs font-black">VO</span>
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-neutral-900">Variation Order / Kerja Tambah</h2>
+                  <p className="text-[11px] text-neutral-400">VO menambah nilai kontrak baseline untuk kalkulasi Finance.</p>
+                </div>
+              </div>
+              <button type="button"
+                onClick={() => setPendingVOs(prev => [...prev, { id: `vo_${Date.now()}`, po_number: "", description: "", nilai_po: 0 }])}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-violet-500 text-white hover:bg-violet-600 transition-colors shadow-sm flex-shrink-0">
+                <Plus className="h-3.5 w-3.5" /> Tambah VO
+              </button>
+            </div>
+
+            {pendingVOs.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/40 flex items-center justify-center py-8">
+                <p className="text-xs text-neutral-300 italic">Belum ada VO — opsional, bisa ditambahkan setelah proyek dibuat.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {pendingVOs.map((vo, idx) => (
+                  <div key={vo.id} className="p-4 rounded-xl border border-neutral-200 bg-white grid grid-cols-3 gap-3 items-start">
+                    <div>
+                      <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">No. PO VO</p>
+                      <input className={INPUT_CLS} value={vo.po_number} placeholder="PO Kerja Tambah"
+                        onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, po_number: e.target.value } : v))} />
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Nilai PO (Rp)</p>
+                      <input type="number" min={0} className={INPUT_CLS} value={vo.nilai_po || ""} placeholder="0"
+                        onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, nilai_po: Number(e.target.value) } : v))} />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Deskripsi</p>
+                        <input className={INPUT_CLS} value={vo.description} placeholder="Deskripsi VO…"
+                          onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, description: e.target.value } : v))} />
+                      </div>
+                      <button type="button" onClick={() => setPendingVOs(p => p.filter((_, i) => i !== idx))}
+                        className="mt-5 p-2 rounded-lg text-neutral-300 hover:text-red-500 hover:bg-red-50 flex-shrink-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[10px] text-neutral-400 text-right">
+                  Total VO: <span className="font-bold text-violet-600">
+                    Rp {pendingVOs.reduce((s, v) => s + (Number(v.nilai_po) || 0), 0).toLocaleString("id-ID")}
+                  </span>
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* ── SECTION 5: Log Mingguan (Placeholder) ── */}
           <section>
             <div className="flex items-center gap-3 mb-5">
               <div className="h-8 w-8 rounded-xl bg-neutral-200 flex items-center justify-center flex-shrink-0">
@@ -725,9 +907,15 @@ export default function DocConPage() {
   const [addLogPhoto,   setAddLogPhoto]   = React.useState<File | null>(null)
   const [addingLog,     setAddingLog]     = React.useState(false)
 
-  const [editingLogId, setEditingLogId] = React.useState<string | null>(null)
-  const [billingAlert, setBillingAlert] = React.useState<string[] | null>(null)
-  const [billingFired, setBillingFired] = React.useState(false)
+  const [editingLogId,   setEditingLogId]   = React.useState<string | null>(null)
+  const [billingAlert,   setBillingAlert]   = React.useState<string[] | null>(null)
+  const [billingFired,   setBillingFired]   = React.useState(false)
+  // TOP state
+  const [terminInvoices, setTerminInvoices] = React.useState<DocConTerminInvoice[]>([])
+  const [sendingTermin,  setSendingTermin]  = React.useState<string | null>(null)
+  const [showTopEditor,  setShowTopEditor]  = React.useState(false)
+  const [editingTop,     setEditingTop]     = React.useState<TerminEntry[]>([])
+  const [savingTop,      setSavingTop]      = React.useState(false)
 
   const debouncedSearch = useDebounce(poSearch, 280)
 
@@ -756,13 +944,18 @@ export default function DocConPage() {
   }, [])
 
   React.useEffect(() => {
-    if (!activeKey) { setPhases([]); setWeekLogs([]); return }
+    if (!activeKey) { setPhases([]); setWeekLogs([]); setTerminInvoices([]); return }
     setLoadingData(true); setBillingFired(false); setBillingAlert(null)
     Promise.all([
       fetch(`/api/project-schedule/${encodeURIComponent(activeKey)}`).then(r => r.json()),
       fetch(`/api/project-weekly-logs/${encodeURIComponent(activeKey)}`).then(r => r.json()),
     ]).then(([sched, logs]) => { setPhases((sched.data ?? []) as Phase[]); setWeekLogs((logs.data ?? []) as WeekLog[]) })
       .catch(() => {}).finally(() => setLoadingData(false))
+    // Load termin invoices for TOP panel
+    fetch(`/api/termin-invoices?key=${encodeURIComponent(activeKey)}`)
+      .then(r => r.json())
+      .then(d => setTerminInvoices((d.data ?? []) as DocConTerminInvoice[]))
+      .catch(() => {})
   }, [activeKey])
 
   React.useEffect(() => {
@@ -817,6 +1010,33 @@ export default function DocConPage() {
       }
     }
     setEditProject(null)
+  }
+
+  async function sendTerminToFinance(terminId: string) {
+    if (!activeKey) return
+    setSendingTermin(terminId)
+    try {
+      const res = await fetch("/api/termin-invoices", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_key: activeKey, termin_id: terminId, status: "SIAP_TAGIH" }),
+      })
+      const { data } = await res.json() as { data: DocConTerminInvoice | null }
+      if (data) setTerminInvoices(prev => [...prev.filter(i => i.termin_id !== terminId), data])
+    } finally { setSendingTermin(null) }
+  }
+
+  async function saveTopSchedule(termins: TerminEntry[]) {
+    if (!activeKey) return
+    setSavingTop(true)
+    try {
+      const res = await fetch(`/api/project-details/${encodeURIComponent(activeKey)}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ termin_schedule: termins }),
+      })
+      if (!res.ok) throw new Error("Gagal menyimpan TOP")
+      setAllProjects(prev => prev.map(p => p.project_key === activeKey ? { ...p, termin_schedule: termins } : p))
+      setShowTopEditor(false)
+    } finally { setSavingTop(false) }
   }
 
   async function handleAddPhase(e: React.FormEvent) {
@@ -996,6 +1216,150 @@ export default function DocConPage() {
                       </div>
                     </div>
 
+                    {/* ── TOP Panel ── */}
+                    {(() => {
+                      const termins = activeProject?.termin_schedule ?? []
+                      const contractVal = (activeProject?.po_value_manual ?? 0) +
+                        (Array.isArray(activeProject?.vo_entries) ? (activeProject?.vo_entries ?? []).reduce((s: number, v: VOEntry) => s + (Number(v.nilai_po) || 0), 0) : (activeProject?.op_budget_vo ?? 0))
+                      const effProgress = Math.max(currentProgress, activeProject?.physical_progress ?? 0)
+                      return (
+                        <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+                          <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/60">
+                            <div className="flex items-center gap-2">
+                              <span className="h-6 w-10 rounded-md bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">TOP</span>
+                              <p className="text-sm font-bold text-neutral-900">Terms of Payment</p>
+                              <span className="text-[10px] text-neutral-400">{termins.length} termin · progres {effProgress}%</span>
+                            </div>
+                            <button type="button"
+                              onClick={() => { setShowTopEditor(v => !v); setEditingTop(termins.map(t => ({ ...t }))) }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-[11px] font-bold text-neutral-600 hover:bg-neutral-50 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
+                              <Pencil className="h-3 w-3" /> Edit TOP
+                            </button>
+                          </div>
+
+                          {termins.length === 0 ? (
+                            <div className="px-5 py-8 text-center">
+                              <p className="text-xs text-neutral-400 mb-2">Belum ada jadwal TOP untuk proyek ini.</p>
+                              <button type="button" onClick={() => { setShowTopEditor(true); setEditingTop([]) }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition-colors mx-auto">
+                                <Plus className="h-3.5 w-3.5" /> Buat TOP Schedule
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="divide-y divide-neutral-50">
+                              {termins.map((t, i) => {
+                                const inv = terminInvoices.find(x => x.termin_id === t.id)
+                                const isEligible = effProgress >= t.target_progres
+                                const isSent = inv && inv.status !== "TERKUNCI"
+                                const isSending = sendingTermin === t.id
+                                const estAmt = contractVal > 0 && t.persen_tagihan
+                                  ? Math.round(contractVal * t.persen_tagihan / 100) : 0
+                                const statusBg = isSent
+                                  ? inv!.status === "LUNAS" ? "bg-emerald-50 border-emerald-200" : inv!.status === "PROSES_COLLECT" ? "bg-blue-50 border-blue-200" : "bg-amber-50 border-amber-200"
+                                  : isEligible ? "bg-amber-50/50 border-amber-100" : "bg-neutral-50 border-neutral-100"
+                                return (
+                                  <div key={t.id} className={`flex items-start gap-4 px-5 py-4 border-b last:border-0 transition-colors ${statusBg}`}>
+                                    <div className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center text-xs font-black mt-0.5 ${
+                                      isSent && inv!.status === "LUNAS" ? "bg-emerald-500 text-white" :
+                                      isSent && inv!.status === "PROSES_COLLECT" ? "bg-blue-500 text-white" :
+                                      isSent ? "bg-amber-500 text-white" :
+                                      isEligible ? "bg-amber-400 text-white" : "bg-neutral-200 text-neutral-500"
+                                    }`}>{i + 1}</div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold text-neutral-800">{t.nama}</p>
+                                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                        <span className="text-[10px] text-neutral-400">Trigger: ≥<strong className="text-neutral-600">{t.target_progres}%</strong></span>
+                                        {t.persen_tagihan != null && <span className="text-[10px] text-neutral-400">Porsi: <strong className="text-neutral-600">{t.persen_tagihan}%</strong></span>}
+                                        {estAmt > 0 && <span className="text-[10px] font-semibold text-neutral-600">≈ Rp {estAmt.toLocaleString("id-ID")}</span>}
+                                      </div>
+                                      {!isEligible && (
+                                        <p className="text-[10px] text-neutral-400 mt-1 flex items-center gap-1">
+                                          <Lock className="h-3 w-3" /> Butuh {t.target_progres - effProgress}% lagi
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      {isSent ? (
+                                        <span className={`text-[10px] font-bold px-2.5 py-1.5 rounded-full border ${
+                                          inv!.status === "LUNAS" ? "bg-emerald-100 text-emerald-700 border-emerald-200" :
+                                          inv!.status === "PROSES_COLLECT" ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                          "bg-amber-100 text-amber-700 border-amber-200"
+                                        }`}>
+                                          {inv!.status === "LUNAS" ? "✓ LUNAS" : inv!.status === "PROSES_COLLECT" ? "⏳ DITAGIH" : "⚡ SIAP TAGIH"}
+                                        </span>
+                                      ) : isEligible ? (
+                                        <button type="button" disabled={isSending} onClick={() => sendTerminToFinance(t.id)}
+                                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500 text-white text-[11px] font-bold hover:bg-amber-600 disabled:opacity-60 transition-colors shadow-sm">
+                                          {isSending ? <RefreshCw className="h-3 w-3 animate-spin" /> : <span>🚀</span>}
+                                          {isSending ? "Mengirim…" : "Kirim ke Finance"}
+                                        </button>
+                                      ) : (
+                                        <span className="text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-neutral-100 text-neutral-400 border border-neutral-200">🔒 TERKUNCI</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+
+                          {/* Inline TOP Editor */}
+                          {showTopEditor && (
+                            <div className="border-t border-indigo-100 bg-indigo-50/20 p-5">
+                              <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-4">Edit TOP Schedule</p>
+                              <div className="flex flex-col gap-2.5 mb-4">
+                                {editingTop.map((t, i) => (
+                                  <div key={t.id} className="grid grid-cols-3 gap-2 items-center bg-white rounded-lg border border-neutral-200 p-3">
+                                    <input className={INPUT_CLS} value={t.nama} placeholder={`Termin ${i+1}`}
+                                      onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, nama: e.target.value } : x))} />
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] text-neutral-400 whitespace-nowrap">Trigger %</span>
+                                      <input type="text" inputMode="numeric" title="Trigger progres" placeholder="50"
+                                        className="flex-1 text-xs rounded-lg border border-neutral-200 bg-white px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                        value={t.target_progres}
+                                        onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, target_progres: Number(e.target.value.replace(/\D/g,"")) || 0 } : x))} />
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] text-neutral-400 whitespace-nowrap">Tagihan %</span>
+                                      <input type="text" inputMode="numeric" title="Porsi tagihan" placeholder="30"
+                                        className="flex-1 text-xs rounded-lg border border-neutral-200 bg-white px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                        value={t.persen_tagihan}
+                                        onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, persen_tagihan: Number(e.target.value.replace(/\D/g,"")) || 0 } : x))} />
+                                      <button type="button" aria-label="Hapus termin" title="Hapus termin"
+                                        onClick={() => setEditingTop(prev => prev.filter((_, j) => j !== i))}
+                                        className="p-1.5 rounded text-neutral-300 hover:text-red-500 hover:bg-red-50">
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                                <button type="button"
+                                  onClick={() => setEditingTop(prev => [...prev, { id: `t_new_${Date.now()}`, nama: "", target_progres: 50, persen_tagihan: 30 }])}
+                                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-dashed border-indigo-300 text-indigo-600 text-xs font-semibold hover:bg-indigo-50 transition-colors">
+                                  <Plus className="h-3.5 w-3.5" /> Tambah Termin
+                                </button>
+                              </div>
+                              {editingTop.length > 0 && (
+                                <p className="text-[10px] text-neutral-400 mb-3">
+                                  Total tagihan: <span className={`font-bold ${editingTop.reduce((s,t)=>s+t.persen_tagihan,0)===100?"text-emerald-600":"text-amber-600"}`}>
+                                    {editingTop.reduce((s,t)=>s+t.persen_tagihan,0)}%
+                                  </span>
+                                </p>
+                              )}
+                              <div className="flex gap-2">
+                                <button type="button" disabled={savingTop} onClick={() => saveTopSchedule(editingTop)}
+                                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">
+                                  {savingTop ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Menyimpan…</> : <><Save className="h-3.5 w-3.5" /> Simpan TOP</>}
+                                </button>
+                                <button type="button" onClick={() => setShowTopEditor(false)}
+                                  className="px-5 py-2.5 rounded-xl border border-neutral-200 text-xs font-medium text-neutral-600 hover:bg-neutral-50">Batal</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                     {/* Billing alert */}
                     {billingAlert && billingAlert.length > 0 && (
                       <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl bg-emerald-50 border border-emerald-200">
@@ -1062,7 +1426,9 @@ export default function DocConPage() {
                               </div>
                               <div className="flex items-center gap-4 mb-4">
                                 <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider whitespace-nowrap">Bobot Progress (%)</label>
-                                <input type="text" inputMode="numeric" pattern="[0-9]*" className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                <input type="text" inputMode="numeric" pattern="[0-9]*"
+                                  title="Bobot progress fase (%)" placeholder="10"
+                                  className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                                   value={phaseWeight} onChange={e => setPhaseWeight(e.target.value.replace(/\D/g, ""))} />
                                 <p className="text-[10px] text-neutral-400">Total semua fase idealnya = 100%</p>
                               </div>

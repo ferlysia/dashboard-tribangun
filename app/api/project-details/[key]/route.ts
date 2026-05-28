@@ -47,6 +47,7 @@ export async function PATCH(
     if (body.pic_name            !== undefined) payload.pic_name            = body.pic_name ? String(body.pic_name) : null
     if (body.op_budget_vo        !== undefined) payload.op_budget_vo        = Number(body.op_budget_vo)
     if (body.vo_entries          !== undefined) payload.vo_entries          = body.vo_entries
+    if (body.termin_schedule     !== undefined) payload.termin_schedule     = body.termin_schedule
     if (body.physical_progress   !== undefined)
       payload.physical_progress = Math.min(100, Math.max(0, Number(body.physical_progress)))
     if (body.project_status      !== undefined) payload.project_status      = String(body.project_status)
@@ -100,6 +101,7 @@ export async function POST(
     if (body.po_number        !== undefined) payload.po_number        = body.po_number ? String(body.po_number) : null
     if (body.pic_name         !== undefined) payload.pic_name         = body.pic_name ? String(body.pic_name) : null
     if (body.vo_entries       !== undefined) payload.vo_entries       = body.vo_entries
+    if (body.termin_schedule  !== undefined) payload.termin_schedule  = body.termin_schedule
     if (body.op_vo_gaji        !== undefined) payload.op_vo_gaji        = Number(body.op_vo_gaji)
     if (body.op_vo_material    !== undefined) payload.op_vo_material    = Number(body.op_vo_material)
     if (body.op_vo_transport   !== undefined) payload.op_vo_transport   = Number(body.op_vo_transport)

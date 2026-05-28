@@ -43,6 +43,8 @@ type ProjectFinance = {
   op_budget_vo:      number
   vo_entries:        VOEntry[]
   termin_schedule:   TerminSchedule[]
+  site_location:     string | null
+  pic_name:          string | null
 }
 
 type TerminStatus = TerminInvoice["status"]
@@ -67,6 +69,22 @@ function useDebounce<T>(value: T, ms: number): T {
     return () => clearTimeout(id)
   }, [value, ms])
   return dv
+}
+
+function buildInvoiceUrl(p: ProjectFinance, t: TerminSchedule, billingAmt: number): string {
+  const params = new URLSearchParams({
+    po:             p.po_number       ?? "",
+    project_name:   p.display_name,
+    client:         p.customer_name,
+    termin_name:    t.nama,
+    billing_pct:    String(t.persen_tagihan ?? 0),
+    amount:         String(billingAmt),
+    contract_value: String(computeContractVal(p)),
+    site:           p.site_location   ?? "",
+    pic:            p.pic_name        ?? "",
+    progress:       String(p.physical_progress),
+  })
+  return `https://tribangun.com/input-invoice?${params.toString()}`
 }
 
 function computeContractVal(p: ProjectFinance): number {
@@ -257,6 +275,7 @@ function TerminBlock({
               </label>
               <input
                 type="date"
+                title="Tanggal invoice"
                 value={invDate}
                 onChange={e => setInvDate(e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-neutral-200 text-sm bg-white outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all"
@@ -469,6 +488,8 @@ export default function FinancePage() {
         op_budget_vo:      Number(p.op_budget_vo ?? 0),
         vo_entries:        Array.isArray(p.vo_entries)      ? (p.vo_entries      as VOEntry[])       : [],
         termin_schedule:   Array.isArray(p.termin_schedule) ? (p.termin_schedule as TerminSchedule[]) : [],
+        site_location:     p.site_location ? String(p.site_location) : null,
+        pic_name:          p.pic_name      ? String(p.pic_name)      : null,
       })))
       setLastAt(new Date())
     } catch (e) { setError(String(e)) }
@@ -476,6 +497,25 @@ export default function FinancePage() {
   }, [])
 
   React.useEffect(() => { loadProjects() }, [loadProjects])
+
+  // Pre-load invoices for all projects with termins (drives the Billing Queue)
+  React.useEffect(() => {
+    const toLoad = projects.filter(p => p.termin_schedule.length > 0 && invCache[p.project_key] === undefined)
+    if (toLoad.length === 0) return
+    Promise.all(toLoad.map(p =>
+      fetch(`/api/termin-invoices?key=${encodeURIComponent(p.project_key)}`)
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(d => ({ key: p.project_key, items: (d.data ?? []) as TerminInvoice[] }))
+        .catch(() => ({ key: p.project_key, items: [] as TerminInvoice[] }))
+    )).then(results => {
+      setInvCache(prev => {
+        const next = { ...prev }
+        results.forEach(({ key, items }) => { if (next[key] === undefined) next[key] = items })
+        return next
+      })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects])
 
   // 30s auto-refresh — drives the SOW Bridge polling
   React.useEffect(() => {
@@ -592,6 +632,25 @@ export default function FinancePage() {
     ) : withTermin
   , [withTermin, q])
 
+  // Billing queue: eligible termins not yet in PROSES_COLLECT or LUNAS
+  const billingQueue = React.useMemo(() => {
+    const items: Array<{
+      project: ProjectFinance; termin: TerminSchedule
+      invoice: TerminInvoice | undefined; billingAmt: number
+    }> = []
+    for (const p of projects) {
+      const invs = invCache[p.project_key] ?? []
+      const cv   = computeContractVal(p)
+      for (const t of p.termin_schedule) {
+        if (p.physical_progress < t.target_progres) continue
+        const inv = invs.find(i => i.termin_id === t.id)
+        if (inv && (inv.status === "PROSES_COLLECT" || inv.status === "LUNAS")) continue
+        items.push({ project: p, termin: t, invoice: inv, billingAmt: t.persen_tagihan && cv > 0 ? Math.round(cv * t.persen_tagihan / 100) : 0 })
+      }
+    }
+    return items
+  }, [projects, invCache])
+
   // KPI aggregates
   const allInvoices = React.useMemo(() => Object.values(invCache).flat(), [invCache])
 
@@ -655,7 +714,7 @@ export default function FinancePage() {
               className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-neutral-200 bg-white text-sm text-neutral-800 placeholder:text-neutral-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
             />
             {search && (
-              <button type="button" onClick={() => setSearch("")}
+              <button type="button" onClick={() => setSearch("")} title="Hapus pencarian" aria-label="Hapus pencarian"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-500 transition-colors">
                 <X className="h-4 w-4" />
               </button>
@@ -687,6 +746,83 @@ export default function FinancePage() {
               <p className="text-xs text-neutral-400 max-w-xs">
                 Halaman ini aktif setelah termin pembayaran dikonfigurasi di halaman detail proyek.
               </p>
+            </div>
+          )}
+
+          {/* ── Billing Pipeline Queue ── */}
+          {billingQueue.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
+                  <span className="text-white text-[9px] font-black">⚡</span>
+                </span>
+                <p className="text-sm font-bold text-neutral-900">Pipeline — Siap Ditagih</p>
+                <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                  {billingQueue.length} termin menunggu proses
+                </span>
+              </div>
+              <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
+                {billingQueue.map(({ project: p, termin: t, invoice: inv, billingAmt }) => (
+                  <div key={`${p.project_key}_${t.id}`}
+                    className="flex-shrink-0 w-72 rounded-2xl border bg-white overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                    style={{ borderColor: inv?.status === "SIAP_TAGIH" ? "#fbbf24" : "#e5e7eb" }}>
+                    {/* Card stripe */}
+                    <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400" />
+                    {/* Header */}
+                    <div className="px-4 pt-3.5 pb-3 border-b border-neutral-100">
+                      <div className="flex items-start gap-2.5">
+                        <div className="h-8 w-8 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
+                          <FolderOpen className="h-3.5 w-3.5 text-amber-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-neutral-900 truncate">{p.display_name}</p>
+                          <p className="text-[10px] text-neutral-400 truncate">{p.customer_name}</p>
+                        </div>
+                        <span className={`flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                          inv?.status === "SIAP_TAGIH" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-amber-50 text-amber-600 border-amber-100"
+                        }`}>⚡ SIAP</span>
+                      </div>
+                    </div>
+                    {/* Metadata */}
+                    <div className="px-4 py-3 flex flex-col gap-2">
+                      {p.site_location && (
+                        <p className="text-[10px] text-neutral-500 truncate">📍 {p.site_location}</p>
+                      )}
+                      {p.po_number && (
+                        <p className="text-[10px] font-mono text-neutral-600 truncate">📜 {p.po_number}</p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres Fisik</p>
+                        <p className="text-[10px] font-black tabular-nums text-indigo-600">{p.physical_progress}%</p>
+                      </div>
+                      <div className="h-1 w-full rounded-full bg-neutral-100 overflow-hidden">
+                        <div className="h-full rounded-full bg-indigo-500" style={{ width: `${p.physical_progress}%` }} />
+                      </div>
+                      <div className="mt-1 pt-2 border-t border-neutral-100">
+                        <p className="text-[10px] font-bold text-neutral-700 truncate">{t.nama}</p>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="text-[9px] text-neutral-400">Trigger: ≥{t.target_progres}% · Porsi: {t.persen_tagihan}%</p>
+                          {billingAmt > 0 && (
+                            <p className="text-[10px] font-bold text-amber-700">{fShort(billingAmt)}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Action */}
+                    <div className="px-4 pb-4 pt-1">
+                      <a href={buildInvoiceUrl(p, t, billingAmt)} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition-colors shadow-sm">
+                        🧾 Proses Penagihan
+                      </a>
+                      {billingAmt > 0 && (
+                        <p className="text-[9px] text-neutral-400 text-center mt-1.5">
+                          Form invoice akan diisi otomatis · {fIDR(billingAmt)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
