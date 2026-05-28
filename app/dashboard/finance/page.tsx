@@ -4,6 +4,7 @@ import * as React from "react"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
+import Link from "next/link"
 import {
   RefreshCw, Search, X, Lock, AlertTriangle, Clock, CheckCircle2,
   ChevronDown, ChevronRight, FolderOpen, Send, DollarSign,
@@ -84,7 +85,7 @@ function buildInvoiceUrl(p: ProjectFinance, t: TerminSchedule, billingAmt: numbe
     pic:            p.pic_name        ?? "",
     progress:       String(p.physical_progress),
   })
-  return `https://tribangun.com/input-invoice?${params.toString()}`
+  return `/input-invoice?${params.toString()}`
 }
 
 function computeContractVal(p: ProjectFinance): number {
@@ -810,10 +811,10 @@ export default function FinancePage() {
                     </div>
                     {/* Action */}
                     <div className="px-4 pb-4 pt-1">
-                      <a href={buildInvoiceUrl(p, t, billingAmt)} target="_blank" rel="noopener noreferrer"
+                      <Link href={buildInvoiceUrl(p, t, billingAmt)}
                         className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 transition-colors shadow-sm">
                         🧾 Proses Penagihan
-                      </a>
+                      </Link>
                       {billingAmt > 0 && (
                         <p className="text-[9px] text-neutral-400 text-center mt-1.5">
                           Form invoice akan diisi otomatis · {fIDR(billingAmt)}

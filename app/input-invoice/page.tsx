@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
@@ -11,7 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import {
   Plus, CheckCircle2, AlertCircle, RotateCcw, FilePlus,
-  FileText, Users, DollarSign, CreditCard, ClipboardList,
+  FileText, Users, DollarSign, CreditCard, ClipboardList, Zap,
 } from "lucide-react"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
 import { useInvoices } from "@/components/providers/invoices-provider"
@@ -63,7 +65,6 @@ const PAGE_STYLES = `
   .ii-f3 { animation: fadeUp 0.38s ease both 0.16s; }
   .ii-f4 { animation: fadeUp 0.38s ease both 0.22s; }
 
-  /* Section divider */
   .form-section {
     border-top: 1px solid hsl(var(--border));
     padding-top: 22px;
@@ -85,12 +86,8 @@ const PAGE_STYLES = `
     border: 1px solid hsl(var(--border));
   }
 
-  /* Enhanced input */
-  input[type="date"] {
-    cursor: pointer;
-  }
+  input[type="date"] { cursor: pointer; }
 
-  /* Summary row */
   .summary-row {
     display: flex;
     justify-content: space-between;
@@ -103,66 +100,30 @@ const PAGE_STYLES = `
   .summary-label { color: hsl(var(--muted-foreground)); }
   .summary-value { font-family: monospace; font-weight: 600; }
 
-  /* Status toggle */
-  .status-toggle {
-    display: flex;
-    gap: 8px;
-  }
+  .status-toggle { display: flex; gap: 8px; }
   .status-opt {
-    flex: 1;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 2px solid hsl(var(--border));
-    text-align: center;
-    font-size: 13px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    background: transparent;
+    flex: 1; padding: 10px 12px; border-radius: 10px;
+    border: 2px solid hsl(var(--border)); text-align: center;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: all 0.15s ease; background: transparent;
   }
-  .status-opt.paid {
-    border-color: #16a34a;
-    background: #16a34a10;
-    color: #16a34a;
-  }
-  .status-opt.unpaid {
-    border-color: hsl(var(--destructive));
-    background: hsl(var(--destructive) / 0.08);
-    color: hsl(var(--destructive));
-  }
-  .status-opt.inactive {
-    border-color: hsl(var(--border));
-    background: transparent;
-    color: hsl(var(--muted-foreground));
-  }
+  .status-opt.paid   { border-color: #16a34a; background: #16a34a10; color: #16a34a; }
+  .status-opt.unpaid { border-color: hsl(var(--destructive)); background: hsl(var(--destructive) / 0.08); color: hsl(var(--destructive)); }
+  .status-opt.inactive { border-color: hsl(var(--border)); background: transparent; color: hsl(var(--muted-foreground)); }
   .status-opt:hover.inactive { background: hsl(var(--muted) / 0.4); }
 
-  /* Auto-calc highlight */
-  .auto-calc {
-    background: hsl(var(--primary) / 0.04);
-    border-color: hsl(var(--primary) / 0.3) !important;
-  }
+  .auto-calc { background: hsl(var(--primary) / 0.04); border-color: hsl(var(--primary) / 0.3) !important; }
+  .prefilled  { background: hsl(45 100% 96%); border-color: hsl(45 100% 70%) !important; }
 
-  /* Customer autocomplete dropdown */
   .ac-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0; right: 0;
-    z-index: 50;
-    background: hsl(var(--popover));
-    border: 1px solid hsl(var(--border));
-    border-radius: 8px;
-    box-shadow: 0 8px 24px -4px hsl(var(--foreground)/.12);
-    margin-top: 4px;
-    max-height: 200px;
-    overflow-y: auto;
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+    background: hsl(var(--popover)); border: 1px solid hsl(var(--border));
+    border-radius: 8px; box-shadow: 0 8px 24px -4px hsl(var(--foreground)/.12);
+    margin-top: 4px; max-height: 200px; overflow-y: auto;
   }
   .ac-item {
-    padding: 8px 12px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.1s;
-    border-bottom: 1px solid hsl(var(--border)/.5);
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+    transition: background 0.1s; border-bottom: 1px solid hsl(var(--border)/.5);
     color: hsl(var(--foreground));
   }
   .ac-item:last-child { border-bottom: none; }
@@ -172,14 +133,57 @@ const PAGE_STYLES = `
 const fIDR = (n: number) =>
   n ? new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n) : "—"
 
-export default function InputInvoicePage() {
-  const { user } = useCurrentUser()
-  const { invoices: allInvoices } = useInvoices()
-  const [form, setForm] = React.useState<InvoiceFormState>(EMPTY_FORM)
+// ─── Inner form (reads searchParams) ─────────────────────────────────────────
+
+function InvoiceFormContent() {
+  const { user }                    = useCurrentUser()
+  const { invoices: allInvoices }   = useInvoices()
+  const searchParams                 = useSearchParams()
+
+  // Detect Finance pipeline pre-fill on mount (runs once)
+  const fromPipeline = React.useMemo(() => {
+    const po      = searchParams.get("po")      ?? ""
+    const client  = searchParams.get("client")  ?? ""
+    const amount  = searchParams.get("amount")  ?? ""
+    return { po, client, amount, hasData: Boolean(po || client || amount) }
+  }, [searchParams])
+
+  const [form, setForm]         = React.useState<InvoiceFormState>(EMPTY_FORM)
   const [submitting, setSubmitting] = React.useState(false)
-  const [result, setResult] = React.useState<{ type: "success" | "error"; message: string } | null>(null)
+  const [result, setResult]     = React.useState<{ type: "success" | "error"; message: string } | null>(null)
   const [submitCount, setSubmitCount] = React.useState(0)
   const [showSuggestions, setShowSuggestions] = React.useState(false)
+  const [prefilled, setPrefilled] = React.useState(false)
+
+  // Pre-populate from Finance pipeline params — runs once on mount
+  React.useEffect(() => {
+    if (!fromPipeline.hasData) return
+    const projectName = searchParams.get("project_name") ?? ""
+    const terminName  = searchParams.get("termin_name")  ?? ""
+    const billingPct  = searchParams.get("billing_pct")  ?? ""
+    const site        = searchParams.get("site")         ?? ""
+    const amount      = searchParams.get("amount")       ?? ""
+    const contractVal = searchParams.get("contract_value") ?? ""
+    const descParts   = [projectName, terminName].filter(Boolean)
+    const desc        = descParts.join(" — ")
+    const keterangan  = billingPct
+      ? `Tagihan termin ${billingPct}% dari nilai kontrak${projectName ? " · " + projectName : ""}`
+      : projectName
+
+    setForm(prev => ({
+      ...prev,
+      customer:     fromPipeline.client,
+      site_name:    site,
+      po_number:    fromPipeline.po,
+      po_value:     contractVal,
+      dpp:          amount,
+      description:  desc,
+      keterangan,
+      project_type: "Project/Instalasi",
+    }))
+    setPrefilled(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally empty — only run once on mount
 
   const uniqueCustomers = React.useMemo(() => {
     const seen = new Set<string>()
@@ -203,7 +207,7 @@ export default function InputInvoicePage() {
   React.useEffect(() => {
     const dpp = Number(form.dpp) || 0
     if (form.tax_type === "PPN" && dpp > 0) {
-      const ppn = Math.round(dpp * 0.11)
+      const ppn   = Math.round(dpp * 0.11)
       const total = dpp + ppn
       setForm(c => ({ ...c, ppn: String(ppn), total: String(total) }))
     } else if (form.tax_type === "NON_PPN" && dpp > 0) {
@@ -215,22 +219,21 @@ export default function InputInvoicePage() {
   React.useEffect(() => {
     const total = Number(form.total) || 0
     const paid  = Number(form.payment_value) || 0
-    if (total > 0 && paid > 0) {
-      setForm(c => ({ ...c, selisih: String(total - paid) }))
-    }
+    if (total > 0 && paid > 0) setForm(c => ({ ...c, selisih: String(total - paid) }))
   }, [form.total, form.payment_value])
 
   const handleReset = React.useCallback(() => {
     setForm(EMPTY_FORM)
     setResult(null)
+    setPrefilled(false)
   }, [])
 
   const handleSubmit = React.useCallback(async () => {
     const missing = [
-      !form.invoice_no.trim() && "Invoice No",
-      !form.customer.trim()   && "Customer",
-      !form.description.trim() && "Description",
-      !form.date               && "Invoice Date",
+      !form.invoice_no.trim()   && "Invoice No",
+      !form.customer.trim()     && "Customer",
+      !form.description.trim()  && "Description",
+      !form.date                && "Invoice Date",
     ].filter(Boolean)
 
     if (missing.length > 0) {
@@ -240,28 +243,28 @@ export default function InputInvoicePage() {
 
     const payload = {
       ...form,
-      invoice_no:       form.invoice_no.trim(),
-      customer:         form.customer.trim(),
-      site_name:        form.site_name.trim(),
-      description:      form.description.trim(),
-      keterangan:       form.keterangan.trim(),
-      po_number:        form.po_number.trim(),
-      po_date:          form.po_date || null,
+      invoice_no:        form.invoice_no.trim(),
+      customer:          form.customer.trim(),
+      site_name:         form.site_name.trim(),
+      description:       form.description.trim(),
+      keterangan:        form.keterangan.trim(),
+      po_number:         form.po_number.trim(),
+      po_date:           form.po_date || null,
       invoice_sent_date: form.invoice_sent_date || null,
-      terms_of_payment: form.terms_of_payment ? Number(form.terms_of_payment) : null,
-      po_value:         Number(form.po_value   || 0),
-      dpp:              Number(form.dpp         || 0),
-      ppn:              Number(form.ppn         || 0),
-      total:            Number(form.total       || 0),
-      payment_value:    Number(form.payment_value || 0),
-      selisih:          Number(form.selisih     || 0),
-      actor_email:      user.email,
+      terms_of_payment:  form.terms_of_payment ? Number(form.terms_of_payment) : null,
+      po_value:          Number(form.po_value   || 0),
+      dpp:               Number(form.dpp        || 0),
+      ppn:               Number(form.ppn        || 0),
+      total:             Number(form.total      || 0),
+      payment_value:     Number(form.payment_value || 0),
+      selisih:           Number(form.selisih    || 0),
+      actor_email:       user.email,
     }
 
     setSubmitting(true)
     setResult(null)
     try {
-      const res = await fetch("/api/invoices", {
+      const res  = await fetch("/api/invoices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -271,6 +274,7 @@ export default function InputInvoicePage() {
       setSubmitCount(c => c + 1)
       setResult({ type: "success", message: `Invoice ${form.invoice_no} berhasil ditambahkan ke database.` })
       setForm(EMPTY_FORM)
+      setPrefilled(false)
     } catch (err) {
       setResult({ type: "error", message: err instanceof Error ? err.message : "Gagal membuat invoice." })
     } finally {
@@ -315,6 +319,20 @@ export default function InputInvoicePage() {
             </div>
           </div>
 
+          {/* ── Finance Pipeline Banner ──────────────────────────────── */}
+          {prefilled && (
+            <div className="ii-f2 flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3.5">
+              <Zap className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-amber-800">Form diisi otomatis dari Finance Pipeline</p>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Data proyek, PO, klien, lokasi, dan nominal tagihan sudah terpopulasi.
+                  Lengkapi <strong>No. Invoice</strong> dan <strong>Tanggal Invoice</strong>, lalu simpan.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ── Result Banner ───────────────────────────────────────── */}
           {result && (
             <div className={`ii-f2 flex items-start gap-3 rounded-xl border px-4 py-3.5 text-sm font-medium ${
@@ -324,8 +342,7 @@ export default function InputInvoicePage() {
             }`}>
               {result.type === "success"
                 ? <CheckCircle2 className="h-4.5 w-4.5 mt-0.5 shrink-0" />
-                : <AlertCircle className="h-4.5 w-4.5 mt-0.5 shrink-0" />
-              }
+                : <AlertCircle  className="h-4.5 w-4.5 mt-0.5 shrink-0" />}
               {result.message}
             </div>
           )}
@@ -431,7 +448,7 @@ export default function InputInvoicePage() {
                 <CardHeader className="pb-2 pt-5 px-6">
                   <div className="form-section-label" style={{ marginBottom: 0 }}>
                     <Users className="h-3 w-3" />
-                    Customer & Deskripsi
+                    Customer &amp; Deskripsi
                   </div>
                 </CardHeader>
                 <CardContent className="px-6 pb-6 space-y-4">
@@ -439,6 +456,7 @@ export default function InputInvoicePage() {
                     <div className="space-y-1.5 relative">
                       <Label htmlFor="customer" className="text-xs font-semibold">
                         Nama Customer <span className="text-destructive">*</span>
+                        {prefilled && form.customer && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
                       </Label>
                       <Input
                         id="customer"
@@ -448,7 +466,7 @@ export default function InputInvoicePage() {
                         onChange={e => { set("customer", e.target.value); setShowSuggestions(true) }}
                         onFocus={() => setShowSuggestions(true)}
                         onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                        className="h-10"
+                        className={`h-10 ${prefilled && form.customer ? "prefilled" : ""}`}
                       />
                       {suggestions.length > 0 && (
                         <div className="ac-dropdown">
@@ -462,24 +480,28 @@ export default function InputInvoicePage() {
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="site_name" className="text-xs font-semibold">Nama Site / Lokasi</Label>
+                      <Label htmlFor="site_name" className="text-xs font-semibold">
+                        Nama Site / Lokasi
+                        {prefilled && form.site_name && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
+                      </Label>
                       <Input
                         id="site_name"
                         placeholder="Cth: Dakota Batam, Edge Connex"
                         value={form.site_name}
                         onChange={e => set("site_name", e.target.value)}
-                        className="h-10"
+                        className={`h-10 ${prefilled && form.site_name ? "prefilled" : ""}`}
                       />
                     </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="description" className="text-xs font-semibold">
                       Deskripsi Pekerjaan <span className="text-destructive">*</span>
+                      {prefilled && form.description && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
                     </Label>
                     <textarea
                       id="description"
                       placeholder="Tuliskan deskripsi pekerjaan atau layanan yang ditagihkan..."
-                      className={`${TEXTAREA_CLS} min-h-[90px]`}
+                      className={`${TEXTAREA_CLS} min-h-[90px] ${prefilled && form.description ? "prefilled" : ""}`}
                       value={form.description}
                       onChange={e => set("description", e.target.value)}
                     />
@@ -492,15 +514,19 @@ export default function InputInvoicePage() {
                 <CardHeader className="pb-2 pt-5 px-6">
                   <div className="form-section-label" style={{ marginBottom: 0 }}>
                     <ClipboardList className="h-3 w-3" />
-                    PO & Nilai Invoice
+                    PO &amp; Nilai Invoice
                   </div>
                 </CardHeader>
                 <CardContent className="px-6 pb-6">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="po_number" className="text-xs font-semibold">No. PO</Label>
+                      <Label htmlFor="po_number" className="text-xs font-semibold">
+                        No. PO
+                        {prefilled && form.po_number && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
+                      </Label>
                       <Input id="po_number" placeholder="PO-2025-XXX" value={form.po_number}
-                        onChange={e => set("po_number", e.target.value)} className="h-10" />
+                        onChange={e => set("po_number", e.target.value)}
+                        className={`h-10 ${prefilled && form.po_number ? "prefilled" : ""}`} />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="po_date" className="text-xs font-semibold">Tanggal PO</Label>
@@ -508,16 +534,24 @@ export default function InputInvoicePage() {
                         onChange={e => set("po_date", e.target.value)} className="h-10 cursor-pointer" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="po_value" className="text-xs font-semibold">Nilai PO (Rp)</Label>
+                      <Label htmlFor="po_value" className="text-xs font-semibold">
+                        Nilai PO / Kontrak (Rp)
+                        {prefilled && form.po_value && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
+                      </Label>
                       <Input id="po_value" type="number" placeholder="0" value={form.po_value}
-                        onChange={e => set("po_value", e.target.value)} className="h-10" />
+                        onChange={e => set("po_value", e.target.value)}
+                        className={`h-10 ${prefilled && form.po_value ? "prefilled" : ""}`} />
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="dpp" className="text-xs font-semibold">DPP — Dasar Pengenaan Pajak (Rp)</Label>
+                      <Label htmlFor="dpp" className="text-xs font-semibold">
+                        DPP — Dasar Pengenaan Pajak (Rp)
+                        {prefilled && form.dpp && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
+                      </Label>
                       <Input id="dpp" type="number" placeholder="0" value={form.dpp}
-                        onChange={e => set("dpp", e.target.value)} className="h-10" />
-                      <p className="text-[10px] text-muted-foreground">PPN & Total akan dihitung otomatis</p>
+                        onChange={e => set("dpp", e.target.value)}
+                        className={`h-10 ${prefilled && form.dpp ? "prefilled" : ""}`} />
+                      <p className="text-[10px] text-muted-foreground">PPN &amp; Total akan dihitung otomatis</p>
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="ppn" className="text-xs font-semibold">
@@ -535,7 +569,6 @@ export default function InputInvoicePage() {
                     </div>
                   </div>
 
-                  {/* Value preview */}
                   {dpp > 0 && (
                     <div className="mt-4 rounded-xl bg-muted/40 border p-4">
                       <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wide">Ringkasan Nilai</p>
@@ -590,18 +623,14 @@ export default function InputInvoicePage() {
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold">Status Invoice</Label>
                       <div className="status-toggle">
-                        <button
-                          type="button"
+                        <button type="button"
                           className={`status-opt ${form.status === "PAID" ? "paid" : "inactive"}`}
-                          onClick={() => set("status", "PAID")}
-                        >
+                          onClick={() => set("status", "PAID")}>
                           ✓ LUNAS
                         </button>
-                        <button
-                          type="button"
+                        <button type="button"
                           className={`status-opt ${form.status === "UNPAID" ? "unpaid" : "inactive"}`}
-                          onClick={() => set("status", "UNPAID")}
-                        >
+                          onClick={() => set("status", "UNPAID")}>
                           ⏳ BELUM BAYAR
                         </button>
                       </div>
@@ -609,11 +638,14 @@ export default function InputInvoicePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="keterangan" className="text-xs font-semibold">Keterangan / Catatan (opsional)</Label>
+                    <Label htmlFor="keterangan" className="text-xs font-semibold">
+                      Keterangan / Catatan (opsional)
+                      {prefilled && form.keterangan && <span className="ml-2 text-amber-600 text-[10px] font-bold">⚡ auto-fill</span>}
+                    </Label>
                     <textarea
                       id="keterangan"
                       placeholder="Catatan tambahan mengenai invoice ini..."
-                      className={`${TEXTAREA_CLS} min-h-[72px]`}
+                      className={`${TEXTAREA_CLS} min-h-[72px] ${prefilled && form.keterangan ? "prefilled" : ""}`}
                       value={form.keterangan}
                       onChange={e => set("keterangan", e.target.value)}
                     />
@@ -634,6 +666,14 @@ export default function InputInvoicePage() {
                 </CardHeader>
                 <CardContent className="px-5 pb-5 space-y-4">
 
+                  {/* Pipeline context badge */}
+                  {prefilled && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                      <Zap className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+                      <p className="text-[11px] font-semibold text-amber-700">Data dari Finance Pipeline</p>
+                    </div>
+                  )}
+
                   {/* Live Preview */}
                   <div className="rounded-xl bg-muted/40 border p-4 space-y-2.5">
                     <div className="summary-row">
@@ -652,6 +692,12 @@ export default function InputInvoicePage() {
                       <span className="summary-label">Tanggal</span>
                       <span className={`summary-value ${form.date ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
                         {form.date ? new Date(form.date).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </span>
+                    </div>
+                    <div className="summary-row">
+                      <span className="summary-label">DPP</span>
+                      <span className={`summary-value ${dpp ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
+                        {dpp ? fIDR(dpp) : "—"}
                       </span>
                     </div>
                     <div className="summary-row">
@@ -713,12 +759,12 @@ export default function InputInvoicePage() {
                     Field bertanda merah wajib diisi sebelum simpan.
                   </p>
                   <p className="flex gap-2">
-                    <span className="text-primary shrink-0">→</span>
-                    Pilih tanggal menggunakan kalender yang muncul.
+                    <span className="text-amber-600 shrink-0">⚡</span>
+                    Field berlabel <strong className="text-amber-700">auto-fill</strong> sudah terisi dari pipeline Finance — bisa diedit.
                   </p>
                   <p className="flex gap-2">
                     <span className="text-primary shrink-0">→</span>
-                    Isi <strong className="text-foreground">DPP</strong> — PPN & Total otomatis terhitung.
+                    Isi <strong className="text-foreground">DPP</strong> — PPN &amp; Total otomatis terhitung.
                   </p>
                   <p className="flex gap-2">
                     <span className="text-primary shrink-0">→</span>
@@ -732,5 +778,20 @@ export default function InputInvoicePage() {
         </div>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+// ─── Page export dengan Suspense (required for useSearchParams in Next.js 15) ─
+
+export default function InputInvoicePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-screen items-center justify-center gap-2 text-sm text-muted-foreground">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        Memuat form invoice…
+      </div>
+    }>
+      <InvoiceFormContent />
+    </Suspense>
   )
 }
