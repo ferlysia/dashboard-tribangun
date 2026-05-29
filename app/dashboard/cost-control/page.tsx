@@ -6,11 +6,15 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import {
   RefreshCw, Search, Plus, Trash2, Pencil, Check, X,
-  TrendingUp, TrendingDown, FolderOpen, DollarSign,
+  TrendingUp, TrendingDown, FolderOpen,
   AlertTriangle, ChevronLeft, Save, Bell, CheckCircle2,
   BarChart3,
 } from "lucide-react"
 import type { ExecProjectRow } from "@/app/api/executive-summary/route"
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell,
+} from "recharts"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +98,103 @@ function MarginPill({ margin, contractVal }: { margin: number; contractVal: numb
     <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold border tabular-nums ${cls}`}>
       {margin >= 0 ? "+" : ""}{margin.toFixed(1)}%
     </span>
+  )
+}
+
+// ─── Safety Margin State ─────────────────────────────────────────────────────
+
+type SafetyKey = "AMAN" | "WASPADA" | "KRITIS" | "RUGI"
+type SafetyState = {
+  key: SafetyKey; label: string; desc: string
+  bg: string; text: string; border: string; bar: string
+}
+
+function getSafetyState(margin: number): SafetyState {
+  if (margin >= 15) return { key: "AMAN",    label: "AMAN",    desc: "Margin memenuhi ambang overhead korporat",        bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", bar: "bg-emerald-500" }
+  if (margin >= 5)  return { key: "WASPADA", label: "WASPADA", desc: "Margin tipis — perlu pengawasan aktif",            bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   bar: "bg-amber-400"   }
+  if (margin >= 0)  return { key: "KRITIS",  label: "KRITIS",  desc: "Margin di bawah biaya overhead minimum",          bg: "bg-orange-50",  text: "text-orange-700",  border: "border-orange-200",  bar: "bg-orange-400"  }
+  return              { key: "RUGI",    label: "RUGI",    desc: "Proyek merugi — eskalasi segera diperlukan",      bg: "bg-red-50",     text: "text-red-700",     border: "border-red-200",     bar: "bg-red-500"     }
+}
+
+// ─── ROI Overview Panel ───────────────────────────────────────────────────────
+
+function ROIOverviewPanel({
+  contractVal, actualCosts, progress, detail,
+}: {
+  contractVal: number; actualCosts: number; progress: number; detail: CCProjectDetail
+}) {
+  const netProfit = contractVal - actualCosts
+  const netMargin = contractVal > 0 ? (netProfit / contractVal) * 100 : 0
+  const utilPct   = contractVal > 0 ? Math.min(150, (actualCosts / contractVal) * 100) : 0
+  const safety    = getSafetyState(netMargin)
+
+  const totalBudgetDef = STREAMS.reduce((s, st) => s + detail[st.detailField] + detail[st.voField], 0)
+  const budgetDefPct   = contractVal > 0 && totalBudgetDef > 0
+    ? Math.min(100, (totalBudgetDef / contractVal) * 100) : 0
+
+  const marginBarPct  = Math.min(100, Math.max(0, (netMargin / 30) * 100))
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+
+      {/* Safety banner */}
+      <div className={`flex items-center gap-3 px-5 py-3.5 border-b ${safety.bg} ${safety.border}`}>
+        <div className={`flex-shrink-0 h-9 w-9 rounded-xl border flex items-center justify-center ${safety.bg} ${safety.border}`}>
+          {safety.key === "AMAN"
+            ? <TrendingUp className={`h-4 w-4 ${safety.text}`} />
+            : <AlertTriangle className={`h-4 w-4 ${safety.text}`} />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-black tracking-widest uppercase ${safety.text}`}>
+            Status Margin: {safety.label}
+          </p>
+          <p className={`text-[11px] mt-0.5 ${safety.text} opacity-75`}>{safety.desc}</p>
+        </div>
+        <div className="flex-shrink-0 text-right">
+          <p className={`text-3xl font-black tabular-nums leading-none ${safety.text}`}>
+            {netMargin >= 0 ? "+" : ""}{netMargin.toFixed(1)}%
+          </p>
+          <p className={`text-[10px] mt-0.5 ${safety.text} opacity-60`}>Net Margin</p>
+        </div>
+      </div>
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-neutral-100">
+        {([
+          { label: "Nilai Kontrak + VO",      val: fShort(contractVal), sub: fIDR(contractVal),  color: "text-neutral-800" },
+          { label: "Grand Total Biaya Aktual", val: fShort(actualCosts), sub: fIDR(actualCosts),  color: utilPct > 100 ? "text-red-600" : "text-indigo-700" },
+          { label: "Net Profit",               val: fShort(netProfit),   sub: fIDR(netProfit),    color: netProfit >= 0 ? "text-emerald-600" : "text-red-600" },
+          { label: "Progres Fisik",            val: `${progress}%`,      sub: "selesai fisik",    color: "text-indigo-600" },
+        ] as const).map(k => (
+          <div key={k.label} className="px-5 py-4">
+            <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-1.5">{k.label}</p>
+            <p className={`text-2xl font-black tabular-nums leading-none ${k.color}`}>{k.val}</p>
+            <p className="text-[10px] text-neutral-400 mt-1.5 tabular-nums truncate">{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Progress bars */}
+      <div className="px-5 py-3.5 border-t border-neutral-50 flex flex-col gap-2.5">
+        {[
+          { label: "Utilisasi Anggaran",  pct: utilPct,      barCls: utilPct > 100 ? "bg-red-500" : utilPct > 80 ? "bg-amber-400" : "bg-indigo-500", valCls: utilPct > 100 ? "text-red-500" : utilPct > 80 ? "text-amber-500" : "text-neutral-600" },
+          { label: "Progres Fisik",       pct: progress,     barCls: "bg-indigo-400",  valCls: "text-indigo-600" },
+          { label: "Net Margin Health",   pct: marginBarPct, barCls: safety.bar,       valCls: safety.text },
+          ...(totalBudgetDef > 0 ? [{ label: "Plafon Terdefinisi", pct: budgetDefPct, barCls: budgetDefPct > 100 ? "bg-amber-400" : "bg-violet-400", valCls: "text-violet-600" }] : []),
+        ].map(row => (
+          <div key={row.label} className="flex items-center gap-3">
+            <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400 w-36 flex-shrink-0">{row.label}</span>
+            <div className="flex-1 h-2 rounded-full bg-neutral-100 overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-700 ${row.barCls}`}
+                style={{ width: `${Math.min(100, row.pct)}%` }} />
+            </div>
+            <span className={`text-[10px] font-bold tabular-nums w-9 text-right flex-shrink-0 ${row.valCls}`}>
+              {Math.round(row.pct)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -406,6 +507,208 @@ function BudgetPlafonSection({
   )
 }
 
+// ─── Budget vs Actual Matrix ──────────────────────────────────────────────────
+
+function BudgetActualMatrix({
+  detail, costs, contractVal,
+}: {
+  detail: CCProjectDetail; costs: CostItem[]; contractVal: number
+}) {
+  const actualMain = React.useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of costs.filter(c => c.cost_stream === "main"))
+      m[c.category] = (m[c.category] || 0) + Number(c.amount)
+    return m
+  }, [costs])
+
+  const actualVO = React.useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const c of costs.filter(c => c.cost_stream === "vo"))
+      m[c.category] = (m[c.category] || 0) + Number(c.amount)
+    return m
+  }, [costs])
+
+  const hasVoBudget = STREAMS.some(s => detail[s.voField] > 0)
+
+  const rows = STREAMS.map(s => {
+    const budgetPM    = detail[s.detailField]
+    const budgetVO    = detail[s.voField]
+    const totalBudget = budgetPM + budgetVO
+    const terpakai    = (actualMain[s.key] || 0) + (actualVO[s.key] || 0)
+    const sisa        = totalBudget - terpakai
+    const pct         = totalBudget > 0 ? (terpakai / totalBudget) * 100 : terpakai > 0 ? 110 : 0
+    return { key: s.key, label: s.label, catColor: s.catColor, budgetPM, budgetVO, totalBudget, terpakai, sisa, pct }
+  })
+
+  const totals = rows.reduce(
+    (acc, r) => ({ budgetPM: acc.budgetPM + r.budgetPM, budgetVO: acc.budgetVO + r.budgetVO, totalBudget: acc.totalBudget + r.totalBudget, terpakai: acc.terpakai + r.terpakai, sisa: acc.sisa + r.sisa }),
+    { budgetPM: 0, budgetVO: 0, totalBudget: 0, terpakai: 0, sisa: 0 }
+  )
+
+  const chartData = STREAMS.map(s => ({
+    name: s.label.split(/[\s/]/)[0],
+    budget: Math.round((detail[s.detailField] + detail[s.voField]) / 1_000),
+    aktual: Math.round(((actualMain[s.key] || 0) + (actualVO[s.key] || 0)) / 1_000),
+  }))
+
+  const anyBudgetSet    = totals.totalBudget > 0
+  const anyActual       = totals.terpakai   > 0
+
+  if (!anyBudgetSet && !anyActual) return null
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/60">
+        <BarChart3 className="h-4 w-4 text-violet-600" />
+        <p className="text-sm font-bold text-neutral-900">Matriks Budget vs Realisasi</p>
+        {totals.sisa < 0 && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-red-50 text-red-600 border-red-200">
+            ⚠ Over Budget
+          </span>
+        )}
+      </div>
+
+      {/* Recharts grouped bar — only when plafon set */}
+      {anyBudgetSet && (
+        <div className="px-5 pt-4 pb-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-neutral-400 mb-3">
+            Visualisasi Budget vs Aktual (Ribu Rupiah)
+          </p>
+          <ResponsiveContainer width="100%" height={130}>
+            <BarChart data={chartData} barCategoryGap="35%" barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={38}
+                tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}Jt` : `${v}Rb`} />
+              <Tooltip
+                formatter={(value: number, name: string) =>
+                  [fIDR(value * 1_000), name === "budget" ? "Budget PM+VO" : "Biaya Aktual"]}
+                contentStyle={{ fontSize: 11, border: "1px solid #e5e7eb", borderRadius: 8, padding: "6px 10px" }}
+              />
+              <Bar dataKey="budget" name="budget" fill="#e0e7ff" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="aktual" name="aktual" radius={[3, 3, 0, 0]}>
+                {chartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.aktual > entry.budget && entry.budget > 0 ? "#ef4444" : "#6366f1"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-5 justify-center mt-1 mb-1">
+            <div className="flex items-center gap-1.5"><div className="h-2 w-4 rounded bg-indigo-100" /><span className="text-[10px] text-neutral-400">Budget PM+VO</span></div>
+            <div className="flex items-center gap-1.5"><div className="h-2 w-4 rounded bg-indigo-500" /><span className="text-[10px] text-neutral-400">Aktual</span></div>
+            <div className="flex items-center gap-1.5"><div className="h-2 w-4 rounded bg-red-500" /><span className="text-[10px] text-neutral-400">Over Budget</span></div>
+          </div>
+        </div>
+      )}
+
+      {/* Comparison table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-t border-neutral-100">
+          <thead>
+            <tr className="bg-neutral-50">
+              <th className="text-left px-5 py-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">Kategori</th>
+              <th className="text-right px-4 py-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">Budget PM</th>
+              {hasVoBudget && <th className="text-right px-4 py-2 text-[9px] font-black uppercase tracking-widest text-amber-500">Budget VO</th>}
+              <th className="text-right px-4 py-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">Terpakai</th>
+              <th className="text-right px-4 py-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">Sisa Kuota</th>
+              <th className="text-right px-5 py-2 text-[9px] font-black uppercase tracking-widest text-neutral-400">%</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-50">
+            {rows.map(r => {
+              const isOver   = r.sisa < 0 && r.totalBudget > 0
+              const isWarn   = r.pct >= 80 && r.pct <= 100 && r.totalBudget > 0
+              const noPlafon = r.totalBudget === 0 && r.terpakai > 0
+              return (
+                <tr key={r.key} className={isOver ? "bg-red-50/30" : isWarn ? "bg-amber-50/20" : ""}>
+                  <td className="px-5 py-2.5">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${r.catColor}`}>{r.label}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-neutral-600">
+                    {r.budgetPM > 0 ? fShort(r.budgetPM) : <span className="text-neutral-200">—</span>}
+                  </td>
+                  {hasVoBudget && (
+                    <td className="px-4 py-2.5 text-right tabular-nums text-amber-600">
+                      {r.budgetVO > 0 ? fShort(r.budgetVO) : <span className="text-neutral-200">—</span>}
+                    </td>
+                  )}
+                  <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-neutral-800">
+                    {r.terpakai > 0 ? fShort(r.terpakai) : <span className="text-neutral-200">—</span>}
+                  </td>
+                  <td className={`px-4 py-2.5 text-right tabular-nums font-bold ${
+                    noPlafon ? "text-amber-500" : isOver ? "text-red-600" : isWarn ? "text-amber-600" : r.totalBudget > 0 ? "text-emerald-600" : "text-neutral-300"
+                  }`}>
+                    {noPlafon
+                      ? <span className="text-[10px] font-semibold">Plafon blm diset</span>
+                      : r.totalBudget > 0
+                        ? <span>{isOver && "⚠ "}{fShort(r.sisa)}</span>
+                        : "—"}
+                  </td>
+                  <td className="px-5 py-2.5 text-right">
+                    {r.totalBudget > 0 ? (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <div className="w-14 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                          <div className={`h-full rounded-full ${r.pct > 100 ? "bg-red-500" : r.pct > 80 ? "bg-amber-400" : "bg-indigo-400"}`}
+                            style={{ width: `${Math.min(100, r.pct)}%` }} />
+                        </div>
+                        <span className={`text-[10px] tabular-nums font-bold w-7 text-right ${r.pct > 100 ? "text-red-500" : r.pct > 80 ? "text-amber-500" : "text-neutral-500"}`}>
+                          {Math.round(Math.min(r.pct, 999))}%
+                        </span>
+                      </div>
+                    ) : "—"}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-neutral-200 bg-neutral-50/80">
+              <td className="px-5 py-3 text-xs font-black text-neutral-800 uppercase tracking-wide">Grand Total</td>
+              <td className="px-4 py-3 text-right tabular-nums font-bold text-neutral-700">
+                {totals.budgetPM > 0 ? fShort(totals.budgetPM) : <span className="text-neutral-300">—</span>}
+              </td>
+              {hasVoBudget && (
+                <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-600">
+                  {totals.budgetVO > 0 ? fShort(totals.budgetVO) : <span className="text-neutral-300">—</span>}
+                </td>
+              )}
+              <td className="px-4 py-3 text-right tabular-nums font-black text-neutral-900 text-sm">
+                {fShort(totals.terpakai)}
+                <span className="block text-[9px] font-normal text-neutral-400 mt-0.5">{fIDR(totals.terpakai)}</span>
+              </td>
+              <td className={`px-4 py-3 text-right tabular-nums font-black text-base ${totals.totalBudget > 0 ? (totals.sisa < 0 ? "text-red-600" : "text-emerald-600") : "text-neutral-400"}`}>
+                {totals.totalBudget > 0 ? (
+                  <span className="flex items-center justify-end gap-1">
+                    {totals.sisa < 0 && <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />}
+                    {fShort(totals.sisa)}
+                  </span>
+                ) : <span className="text-sm font-normal text-neutral-300">Plafon blm diset</span>}
+              </td>
+              <td className="px-5 py-3 text-right">
+                {totals.totalBudget > 0 && (
+                  <span className={`text-sm font-black tabular-nums ${
+                    totals.terpakai > totals.totalBudget ? "text-red-600" : totals.terpakai / totals.totalBudget >= 0.8 ? "text-amber-500" : "text-indigo-600"
+                  }`}>
+                    {Math.round((totals.terpakai / totals.totalBudget) * 100)}%
+                  </span>
+                )}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Grand Total Biaya Aktual — absolute bottom anchor */}
+      {anyActual && (
+        <div className="flex items-center justify-between px-5 py-3 bg-neutral-900 text-white">
+          <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Grand Total Biaya Aktual Proyek</span>
+          <span className="text-xl font-black tabular-nums">{fIDR(totals.terpakai)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Cost Item View ───────────────────────────────────────────────────────────
 
 function CostItemView({ item, onEdit, onDelete, confirming, onConfirmDelete, onCancelDelete }: {
@@ -528,26 +831,31 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
   return (
     <form onSubmit={handleSubmit} className="flex items-center gap-2 px-4 py-3 bg-emerald-50/60 border-t border-emerald-100">
       <select value={stream} onChange={e => setStream(e.target.value as "main" | "vo")}
+        title="Stream biaya" aria-label="Stream biaya"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-emerald-400 flex-shrink-0">
         <option value="main">PO Utama</option>
         <option value="vo">Kerja Tambah</option>
       </select>
       <select value={cat} onChange={e => setCat(e.target.value)}
+        title="Kategori biaya" aria-label="Kategori biaya"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-emerald-400 flex-shrink-0">
         {CATS.map(c => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
       </select>
       <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Deskripsi pengeluaran…" required autoFocus
+        title="Deskripsi pengeluaran" aria-label="Deskripsi pengeluaran"
         className="flex-1 min-w-0 text-xs border border-neutral-200 rounded px-2 py-1 bg-white outline-none focus:border-emerald-400" />
       <input value={date} onChange={e => setDate(e.target.value)} type="date"
+        title="Tanggal biaya" aria-label="Tanggal biaya" placeholder="Tanggal"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-emerald-400 flex-shrink-0 w-32" />
       <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="Jumlah (Rp)" required
+        title="Jumlah biaya" aria-label="Jumlah biaya"
         className="text-xs border border-neutral-200 rounded px-2 py-1 bg-white outline-none focus:border-emerald-400 w-32 text-right tabular-nums flex-shrink-0" />
       {err && <span className="text-[10px] text-amber-600 flex-shrink-0 max-w-[140px] truncate font-semibold">{err}</span>}
       <button type="submit" disabled={saving}
         className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-50 flex-shrink-0">
         {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Tambah
       </button>
-      <button type="button" onClick={onCancel} className="p-1.5 rounded text-neutral-400 hover:bg-neutral-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
+      <button type="button" onClick={onCancel} title="Batal tambah" aria-label="Batal tambah" className="p-1.5 rounded text-neutral-400 hover:bg-neutral-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
     </form>
   )
 }
@@ -911,29 +1219,13 @@ export default function CostControlPage() {
                   )}
                 </div>
 
-                {/* Financial summary bar */}
-                <div className="flex items-center gap-4 px-5 py-3.5 rounded-2xl bg-white border border-neutral-200 shadow-sm flex-wrap">
-                  <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
-                    <DollarSign style={{ width: 18, height: 18 }} className="text-white" />
-                  </div>
-                  {[
-                    { label: "Nilai Kontrak", val: fShort(activeRow?.contractVal ?? 0), color: "text-neutral-800" },
-                    { label: "Biaya Aktual",  val: fShort(activeActual),                 color: "text-indigo-700" },
-                    { label: "Net Profit",    val: fShort(activeProfit),                 color: activeProfit >= 0 ? "text-emerald-600" : "text-red-500" },
-                  ].map(kpi => (
-                    <div key={kpi.label} className="flex flex-col">
-                      <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">{kpi.label}</p>
-                      <p className={`text-lg font-black tabular-nums leading-tight ${kpi.color}`}>{kpi.val}</p>
-                    </div>
-                  ))}
-                  <div className="ml-auto flex items-center gap-3 flex-shrink-0">
-                    <MarginPill margin={activeMargin} contractVal={activeRow?.contractVal ?? 0} />
-                    <div className="text-right">
-                      <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres Fisik</p>
-                      <p className="text-lg font-black tabular-nums text-indigo-600 leading-tight">{activeRow?.physical_progress ?? 0}%</p>
-                    </div>
-                  </div>
-                </div>
+                {/* ROI Overview Panel */}
+                <ROIOverviewPanel
+                  contractVal={activeRow?.contractVal ?? 0}
+                  actualCosts={activeActual}
+                  progress={activeRow?.physical_progress ?? 0}
+                  detail={activeDetail}
+                />
 
                 {/* VO Escalation alerts */}
                 {activeEscals.length > 0 && (
@@ -972,7 +1264,7 @@ export default function CostControlPage() {
 
                 {!loadingKeys[activeKey] && (
                   <>
-                    {/* Budget Plafon */}
+                    {/* Budget Plafon — input form */}
                     <BudgetPlafonSection
                       projectKey={activeKey}
                       detail={activeDetail}
@@ -980,6 +1272,13 @@ export default function CostControlPage() {
                       contractVal={activeRow?.contractVal ?? 0}
                       saving={savingDetail}
                       onSave={patch => handleSaveDetail(activeKey, patch)}
+                    />
+
+                    {/* Budget vs Actual comparison matrix */}
+                    <BudgetActualMatrix
+                      detail={activeDetail}
+                      costs={activeCosts ?? []}
+                      contractVal={activeRow?.contractVal ?? 0}
                     />
 
                     {/* Realisasi Biaya */}
