@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // "standalone" hanya untuk Hostinger/VPS. Netlify pakai default build output.
 };
 
 export default nextConfig;
