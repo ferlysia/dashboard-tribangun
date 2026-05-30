@@ -997,14 +997,35 @@ export default function CostControlPage() {
   const [lastAt,      setLastAt]      = React.useState<Date | null>(null)
   const [activeKey,   setActiveKey]   = React.useState<string | null>(null)
   const [search,      setSearch]      = React.useState("")
-  const debouncedSearch               = useDebounce(search, 280)
+  const debouncedSearch               = useDebounce(search, 500)
 
-  const loadSummary = React.useCallback(async () => {
+  // ── Stable refs — avoid recreating callbacks on every cache mutation ────────
+  // Problem without refs: costsCache/detailCache/escalCache in enterFocus deps
+  // causes the callback to recreate on EVERY item add/edit/delete, making all
+  // CCProjectCard onFocus props stale and triggering full gallery re-renders.
+  const costsRef    = React.useRef<Record<string, CostItem[]>>({})
+  const detailRef   = React.useRef<Record<string, CCProjectDetail>>({})
+  const escalRef    = React.useRef<Record<string, Escalation[]>>({})
+  const activeRef   = React.useRef<string | null>(null)
+  const inflightRef = React.useRef(new Set<string>())   // dedup concurrent fetches
+  const lastSummaryAt = React.useRef(0)
+  const SUMMARY_TTL_MS = 30_000                         // 30s: protect against 10+ users hammering refresh
+
+  // Keep refs in sync with state (runs after every render, before next interaction)
+  React.useEffect(() => { costsRef.current  = costsCache  }, [costsCache])
+  React.useEffect(() => { detailRef.current = detailCache }, [detailCache])
+  React.useEffect(() => { escalRef.current  = escalCache  }, [escalCache])
+  React.useEffect(() => { activeRef.current = activeKey   }, [activeKey])
+
+  // ── Summary fetch with 30s TTL ────────────────────────────────────────────
+  const loadSummary = React.useCallback(async (force = false) => {
+    if (!force && Date.now() - lastSummaryAt.current < SUMMARY_TTL_MS) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch("/api/executive-summary", { cache: "no-store" })
+      const res = await fetch("/api/executive-summary")
       if (!res.ok) throw new Error(await res.text())
       setRows((await res.json()).data ?? [])
+      lastSummaryAt.current = Date.now()
       setLastAt(new Date())
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
@@ -1012,15 +1033,22 @@ export default function CostControlPage() {
 
   React.useEffect(() => { loadSummary() }, [loadSummary])
 
-  // Enter focus mode: load costs, detail, and escalations in parallel
+  // ── Focus mode: stable callback via refs, in-flight deduplication ─────────
+  // Empty dep array: this function NEVER recreates between renders.
+  // All mutable state is accessed through refs (updated synchronously after each render).
   const enterFocus = React.useCallback(async (key: string) => {
-    if (activeKey === key) { setActiveKey(null); return }
+    if (activeRef.current === key) { setActiveKey(null); return }
     setActiveKey(key)
 
-    const needsCosts  = costsCache[key]  === undefined
-    const needsDetail = detailCache[key] === undefined
-    const needsEscal  = escalCache[key]  === undefined
+    const needsCosts  = costsRef.current[key]  === undefined
+    const needsDetail = detailRef.current[key] === undefined
+    const needsEscal  = escalRef.current[key]  === undefined
     if (!needsCosts && !needsDetail && !needsEscal) return
+
+    // Deduplicate: if another async call for this key is already in-flight, bail.
+    // Prevents two users clicking the same card simultaneously from firing duplicate fetches.
+    if (inflightRef.current.has(key)) return
+    inflightRef.current.add(key)
 
     setLoadingKeys(p => ({ ...p, [key]: true }))
     try {
@@ -1058,9 +1086,10 @@ export default function CostControlPage() {
           .catch(() => setEscalCache(p => ({ ...p, [key]: [] }))),
       ])
     } finally {
+      inflightRef.current.delete(key)
       setLoadingKeys(p => ({ ...p, [key]: false }))
     }
-  }, [activeKey, costsCache, detailCache, escalCache])
+  }, []) // ← stable: never recreates, no re-render cascade on cache mutations
 
   // Save budget plafon
   const handleSaveDetail = React.useCallback(async (key: string, patch: Partial<CCProjectDetail>) => {
@@ -1137,7 +1166,7 @@ export default function CostControlPage() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-500"><X className="h-4 w-4" /></button>
               )}
             </div>
-            <button type="button" onClick={loadSummary} disabled={loading}
+            <button type="button" onClick={() => loadSummary(true)} disabled={loading}
               className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-neutral-50 hover:bg-neutral-100 text-neutral-600 border border-neutral-200 transition-colors flex-shrink-0">
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               Refresh
