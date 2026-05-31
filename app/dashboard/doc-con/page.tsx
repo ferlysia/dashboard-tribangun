@@ -570,7 +570,7 @@ function CreateCanvas({ onBack, onCreated }: {
                 />
               </FormField>
 
-              <FormField label="Target Selesai" icon="📅">
+              <FormField label="Due Date" icon="📅">
                 <input type="date" className={INPUT_CLS}
                   title="Target tanggal selesai proyek"
                   value={form.due_date}
