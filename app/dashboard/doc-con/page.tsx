@@ -9,6 +9,8 @@ import {
   X, Save, Camera, RefreshCw, FolderOpen, BarChart3,
   CheckCircle2, Lock, ExternalLink, ChevronLeft,
 } from "lucide-react"
+import { AdminDeleteProject } from "@/components/admin-delete-project"
+import { useCurrentUser }     from "@/components/providers/current-user-provider"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -883,6 +885,7 @@ function LogEditPopover({ log, onSave, onClose }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function DocConPage() {
+  const { user } = useCurrentUser()
   const [allProjects,  setAllProjects]  = React.useState<ProjectSummary[]>([])
   const [poSearch,     setPoSearch]     = React.useState("")
   const [activeKey,    setActiveKey]    = React.useState<string | null>(null)
@@ -1206,6 +1209,17 @@ export default function DocConPage() {
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:border-indigo-300 hover:text-indigo-600 transition-colors">
                           <Pencil className="h-3.5 w-3.5" /> Edit Proyek
                         </button>
+                        {user.role === "ADMIN" && activeProject && (
+                          <AdminDeleteProject
+                            projectKey={activeProject.project_key}
+                            projectName={activeProject.display_name}
+                            onDeleted={() => {
+                              setAllProjects(prev => prev.filter(p => p.project_key !== activeProject.project_key))
+                              setActiveKey(null)
+                              setBillingAlert(null)
+                            }}
+                          />
+                        )}
                         <div className="text-right">
                           <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-widest mb-0.5">Progres Fase</p>
                           <p className={`text-2xl font-black tabular-nums leading-none ${currentProgress >= 80 ? "text-emerald-600" : currentProgress >= 40 ? "text-indigo-600" : "text-amber-500"}`}>{currentProgress}%</p>

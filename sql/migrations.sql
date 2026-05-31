@@ -151,3 +151,61 @@ CREATE INDEX IF NOT EXISTS idx_termin_invoices_project_key
 --  Nama penanggung jawab lapangan per proyek — ditampilkan di kartu galeri Doc Con.
 ALTER TABLE project_details
   ADD COLUMN IF NOT EXISTS pic_name TEXT;
+
+-- ── 18. Security auth columns di app_user_profiles ───────────────────────────
+ALTER TABLE app_user_profiles
+  ADD COLUMN IF NOT EXISTS password_hash TEXT,
+  ADD COLUMN IF NOT EXISTS totp_secret   TEXT,
+  ADD COLUMN IF NOT EXISTS totp_enabled  BOOLEAN DEFAULT false;
+
+-- ── 19. Fungsi cascade delete proyek (ADMIN-only, dipanggil via API) ──────────
+--  Menghapus semua baris terkait project_key secara atomik dalam satu transaksi.
+--  Urutan: child tables dulu → project_details terakhir (hindari orphaned rows).
+--  SECURITY DEFINER: fungsi berjalan dengan hak pemilik (melewati RLS),
+--  otorisasi ADMIN dilakukan di layer API sebelum RPC ini dipanggil.
+CREATE OR REPLACE FUNCTION public.delete_project_cascade(p_key TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  r_escalations INTEGER := 0;
+  r_costs       INTEGER := 0;
+  r_logs        INTEGER := 0;
+  r_schedule    INTEGER := 0;
+  r_termins     INTEGER := 0;
+  r_detail      INTEGER := 0;
+BEGIN
+  -- Child tables (no FK constraints but logically dependent)
+  DELETE FROM project_escalations   WHERE project_key = p_key;
+  GET DIAGNOSTICS r_escalations = ROW_COUNT;
+
+  DELETE FROM project_costs          WHERE project_key = p_key;
+  GET DIAGNOSTICS r_costs = ROW_COUNT;
+
+  DELETE FROM project_weekly_logs    WHERE project_key = p_key;
+  GET DIAGNOSTICS r_logs = ROW_COUNT;
+
+  DELETE FROM project_schedule_items WHERE project_key = p_key;
+  GET DIAGNOSTICS r_schedule = ROW_COUNT;
+
+  DELETE FROM termin_invoices         WHERE project_key = p_key;
+  GET DIAGNOSTICS r_termins = ROW_COUNT;
+
+  -- Master record — deleted last
+  DELETE FROM project_details         WHERE project_key = p_key;
+  GET DIAGNOSTICS r_detail = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'project_key',            p_key,
+    'project_details',        r_detail,
+    'project_costs',          r_costs,
+    'project_weekly_logs',    r_logs,
+    'project_schedule_items', r_schedule,
+    'project_escalations',    r_escalations,
+    'termin_invoices',        r_termins,
+    'total_rows_deleted',     r_escalations + r_costs + r_logs + r_schedule + r_termins + r_detail
+  );
+END;
+$$;

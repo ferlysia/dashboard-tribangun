@@ -15,6 +15,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from "recharts"
+import { AdminDeleteProject } from "@/components/admin-delete-project"
+import { useCurrentUser }     from "@/components/providers/current-user-provider"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -986,6 +988,7 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CostControlPage() {
+  const { user } = useCurrentUser()
   const [rows,        setRows]        = React.useState<ExecProjectRow[]>([])
   const [costsCache,  setCostsCache]  = React.useState<Record<string, CostItem[]>>({})
   const [detailCache, setDetailCache] = React.useState<Record<string, CCProjectDetail>>({})
@@ -1319,6 +1322,27 @@ export default function CostControlPage() {
                       onItemSaved={(id, patch) => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).map(c => c.id === id ? { ...c, ...patch } : c) }))}
                       onItemDeleted={id => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).filter(c => c.id !== id) }))}
                     />
+
+                    {/* Admin-only project purge — hidden for non-ADMIN roles */}
+                    {user.role === "ADMIN" && (
+                      <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-red-100 bg-red-50/40">
+                        <div>
+                          <p className="text-[11px] font-bold text-red-600">Zona ADMIN</p>
+                          <p className="text-[10px] text-red-400">Hapus proyek beserta seluruh data lintas divisi secara permanen.</p>
+                        </div>
+                        <AdminDeleteProject
+                          projectKey={activeKey}
+                          projectName={activeRow?.display_name ?? activeKey}
+                          onDeleted={() => {
+                            setActiveKey(null)
+                            setCostsCache(p => { const n = { ...p }; delete n[activeKey]; return n })
+                            setDetailCache(p => { const n = { ...p }; delete n[activeKey]; return n })
+                            setEscalCache(p => { const n = { ...p }; delete n[activeKey]; return n })
+                            loadSummary(true)
+                          }}
+                        />
+                      </div>
+                    )}
                   </>
                 )}
               </div>
