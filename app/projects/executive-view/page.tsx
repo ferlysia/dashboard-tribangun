@@ -24,6 +24,24 @@ const fShort = (n: number): string => {
 const fIDR = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n)
 
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000)             return "Baru saja"
+  if (ms < 3_600_000)          return `${Math.floor(ms / 60_000)}m lalu`
+  if (ms < 86_400_000)         return `${Math.floor(ms / 3_600_000)}j lalu`
+  if (ms < 7 * 86_400_000)     return `${Math.floor(ms / 86_400_000)}h lalu`
+  return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+}
+
+function dueBadge(due: string | null | undefined): { label: string; cls: string } | null {
+  if (!due) return null
+  const days = Math.ceil((new Date(due).getTime() - Date.now()) / 86_400_000)
+  if (days < 0)  return { label: `Terlambat ${Math.abs(days)}h`,  cls: "bg-red-50 text-red-600 border-red-200" }
+  if (days <= 14) return { label: `Due ${days}h lagi`,             cls: "bg-amber-50 text-amber-600 border-amber-200" }
+  return { label: new Date(due).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "2-digit" }), cls: "bg-neutral-50 text-neutral-400 border-neutral-200" }
+}
+
 function useDebounce<T>(value: T, ms: number): T {
   const [v, setV] = React.useState(value)
   React.useEffect(() => {
@@ -108,11 +126,14 @@ function ExecCard({ row }: { row: ExecProjectRow }) {
           }`}>
             {row.project_status}
           </span>
-          {row.po_number && (
-            <span className="text-[9px] font-mono text-neutral-300 truncate max-w-[90px]" title={row.po_number}>
-              {row.po_number}
-            </span>
-          )}
+          <div className="flex items-center gap-1.5">
+            {(() => { const d = dueBadge(row.due_date); return d ? <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${d.cls}`}>{d.label}</span> : null })()}
+            {row.po_number && (
+              <span className="text-[9px] font-mono text-neutral-300 truncate max-w-[80px]" title={row.po_number}>
+                {row.po_number}
+              </span>
+            )}
+          </div>
         </div>
         <h3 className="text-sm font-bold text-neutral-900 line-clamp-2 leading-snug mb-0.5">
           {row.display_name}
@@ -179,8 +200,8 @@ function ExecCard({ row }: { row: ExecProjectRow }) {
 
       {/* ── Footer meta ── */}
       <div className="pl-4 pr-4 pb-3 flex items-center justify-between border-t border-neutral-50 pt-2.5">
-        <span className="text-[9px] text-neutral-300 tabular-nums">
-          {row.log_count} log · {row.sched_count} fase
+        <span className="text-[9px] text-neutral-300 tabular-nums" title={row.last_updated_at ?? undefined}>
+          {relTime(row.last_updated_at)}
         </span>
         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${mt.bg} ${mt.text}`}>
           {mt.label}

@@ -23,6 +23,8 @@ type ProjectSummary = {
   termin_schedule: TerminEntry[]; site_location: string | null; description: string | null
   notes: string | null; po_value_manual: number; onedrive_folder_url: string | null
   pic_name: string | null; vo_entries: VOEntry[]; op_budget_vo: number
+  due_date:    string | null   // target selesai (YYYY-MM-DD)
+  updated_at:  string | null   // auto-bumped by DB trigger on any child mutation
 }
 
 type Phase = {
@@ -103,6 +105,88 @@ function hasTerminBell(phaseId: string, phases: Phase[], termins: TerminEntry[])
 
 function fmtRp(n: number): string { return n ? "Rp " + n.toLocaleString("id-ID") : "—" }
 
+/** Format a raw string into Indonesian thousands-separated display (10000 → "10.000") */
+function fmtRpInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "")
+  if (!digits) return ""
+  return parseInt(digits, 10).toLocaleString("id-ID")
+}
+/** Strip formatting dots and parse back to integer for DB payload */
+function parseRpInput(str: string): number {
+  return parseInt(str.replace(/[^0-9]/g, ""), 10) || 0
+}
+
+/** Relative timestamp: "Baru saja" / "5m lalu" / "2j lalu" / "3h lalu" */
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000)           return "Baru saja"
+  if (ms < 3_600_000)        return `${Math.floor(ms / 60_000)}m lalu`
+  if (ms < 86_400_000)       return `${Math.floor(ms / 3_600_000)}j lalu`
+  if (ms < 7 * 86_400_000)   return `${Math.floor(ms / 86_400_000)}h lalu`
+  return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+}
+
+// ─── Hybrid Progress Input ────────────────────────────────────────────────────
+// Keeps the existing quick-pick preset pattern + adds free-form number typing.
+
+const PROG_PRESETS = [0, 10, 25, 50, 75, 80, 90, 95, 100]
+
+function ProgressInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [raw, setRaw] = React.useState(String(value))
+  React.useEffect(() => { setRaw(String(value)) }, [value])
+
+  const clamp = (n: number) => Math.min(100, Math.max(0, n))
+  const color  = value >= 80 ? "#10b981" : value >= 40 ? "#6366f1" : "#f59e0b"
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-3">
+        <input
+          type="number" min={0} max={100}
+          value={raw}
+          title="Persentase progres"
+          aria-label="Persentase progres lapangan"
+          className="w-20 text-center font-black text-lg rounded-lg border border-neutral-200 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          style={{ color }}
+          onChange={e => {
+            setRaw(e.target.value)
+            const n = parseInt(e.target.value, 10)
+            if (!isNaN(n)) onChange(clamp(n))
+          }}
+          onBlur={() => {
+            const n = parseInt(raw, 10)
+            const c = isNaN(n) ? 0 : clamp(n)
+            onChange(c); setRaw(String(c))
+          }}
+        />
+        <div className="flex-1 h-2 rounded-full bg-neutral-200 overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${value}%`, background: color }} />
+        </div>
+        <span className="text-xs font-black tabular-nums w-8 text-right flex-shrink-0"
+          style={{ color }}>{value}%</span>
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        {PROG_PRESETS.map(p => (
+          <button key={p} type="button"
+            onClick={() => { onChange(p); setRaw(String(p)) }}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${
+              value === p ? "bg-indigo-600 text-white" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
+            }`}>
+            {p}%
+          </button>
+        ))}
+      </div>
+      {value >= 90 && (
+        <p className="flex items-center gap-1.5 text-[10px] text-emerald-600 font-semibold">
+          <CheckCircle2 className="h-3 w-3" /> Milestone ≥90% — termin terbuka otomatis saat disimpan.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function genKey(name: string): string {
   const base = name.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 28)
   return `${base}-${Date.now()}`
@@ -134,10 +218,11 @@ function EditProjectModal({ project, onSave, onClose }: {
     display_name: project.display_name, customer_name: project.customer_name ?? "",
     site_location: project.site_location ?? "", description: project.description ?? "",
     notes: project.notes ?? "", po_number: project.po_number ?? "",
-    po_value_manual: String(project.po_value_manual || ""),
+    po_value_manual: fmtRpInput(String(project.po_value_manual || "")),
     physical_progress: project.physical_progress, project_status: project.project_status,
     onedrive_folder_url: project.onedrive_folder_url ?? "", pic_name: project.pic_name ?? "",
     op_budget_vo: String(project.op_budget_vo || ""),
+    due_date: project.due_date ?? "",
   })
   const [voEntries, setVoEntries] = React.useState<VOEntry[]>(project.vo_entries ?? [])
   const [poLocked, setPoLocked] = React.useState(false)
@@ -161,10 +246,12 @@ function EditProjectModal({ project, onSave, onClose }: {
       const payload = {
         display_name: form.display_name, customer_name: form.customer_name,
         site_location: form.site_location, description: form.description,
-        notes: form.notes, po_value_manual: Number(form.po_value_manual) || 0,
+        notes: form.notes,
+        po_value_manual: parseRpInput(form.po_value_manual),
         physical_progress: form.physical_progress, project_status: form.project_status,
         onedrive_folder_url: form.onedrive_folder_url || null, pic_name: form.pic_name || null,
         op_budget_vo: voBudget, vo_entries: voEntries,
+        due_date: form.due_date || null,
         ...(poLocked ? {} : { po_number: form.po_number || null }),
       }
       const res = await fetch(`/api/project-details/${encodeURIComponent(project.project_key)}`,
@@ -175,7 +262,7 @@ function EditProjectModal({ project, onSave, onClose }: {
     } catch (err) { setSaveError(String(err)) } finally { setSaving(false) }
   }
 
-  const progOpts = [0,10,20,30,40,50,60,70,75,80,85,90,95,100]
+  // progOpts removed — replaced by ProgressInput hybrid component below
 
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
@@ -211,7 +298,16 @@ function EditProjectModal({ project, onSave, onClose }: {
                   {(poLocked || loadingPoCheck) && <div className="absolute right-3 top-1/2 -translate-y-1/2">{loadingPoCheck ? <RefreshCw className="h-3.5 w-3.5 text-neutral-300 animate-spin" /> : <Lock className="h-3.5 w-3.5 text-neutral-400" />}</div>}
                 </div>
               </FormField>
-              <FormField label="Nilai PO (Rp)"><input type="number" min={0} className={INPUT_CLS} value={form.po_value_manual} onChange={e => sf("po_value_manual", e.target.value)} placeholder="0" /></FormField>
+              <FormField label="Nilai PO (Rp)" note="Ketik angka — format otomatis (10.000)">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-neutral-400 pointer-events-none">Rp</span>
+                  <input className={`${INPUT_CLS} pl-8`} inputMode="numeric"
+                    title="Nilai PO kontrak"
+                    value={form.po_value_manual}
+                    onChange={e => sf("po_value_manual", fmtRpInput(e.target.value))}
+                    placeholder="0" />
+                </div>
+              </FormField>
               <FormField label="Link Folder OneDrive">
                 <div className="relative">
                   <input type="url" className={INPUT_CLS} value={form.onedrive_folder_url} onChange={e => sf("onedrive_folder_url", e.target.value)} placeholder="https://onedrive.live.com/…" />
@@ -222,20 +318,23 @@ function EditProjectModal({ project, onSave, onClose }: {
             {/* Progres */}
             <div className="rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 flex flex-col gap-4">
               <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres &amp; Status</p>
-              <FormField label="Progres Fisik (%)">
-                <div className="flex items-center gap-3">
-                  <select className={`${INPUT_CLS} w-28 flex-shrink-0`} value={form.physical_progress} onChange={e => sf("physical_progress", Number(e.target.value))}>
-                    {progOpts.map(p => <option key={p} value={p}>{p}%</option>)}
-                  </select>
-                  <div className="flex-1 h-2 rounded-full bg-neutral-200 overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{ width: `${form.physical_progress}%`, background: form.physical_progress >= 80 ? "#10b981" : form.physical_progress >= 40 ? "#6366f1" : "#f59e0b" }} /></div>
-                  <span className="text-xs font-black tabular-nums w-10 text-right flex-shrink-0" style={{ color: form.physical_progress >= 80 ? "#10b981" : form.physical_progress >= 40 ? "#6366f1" : "#f59e0b" }}>{form.physical_progress}%</span>
-                </div>
-                {form.physical_progress >= 90 && <p className="flex items-center gap-1.5 mt-1.5 text-[10px] text-emerald-600 font-semibold"><CheckCircle2 className="h-3 w-3" /> Milestone ≥90% — termin terbuka otomatis saat disimpan.</p>}
+              <FormField label="Progres Lapangan (%)">
+                <ProgressInput
+                  value={form.physical_progress}
+                  onChange={v => sf("physical_progress", v)}
+                />
               </FormField>
               <FormField label="Status Proyek">
-                <select className={INPUT_CLS} value={form.project_status} onChange={e => sf("project_status", e.target.value)}>
+                <select className={INPUT_CLS} title="Status proyek" aria-label="Status proyek" value={form.project_status} onChange={e => sf("project_status", e.target.value)}>
                   <option value="BERJALAN">BERJALAN</option><option value="SELESAI">SELESAI</option><option value="DITUNDA">DITUNDA</option>
                 </select>
+              </FormField>
+              <FormField label="Target Selesai" icon="📅">
+                <input type="date" className={INPUT_CLS}
+                  value={form.due_date}
+                  onChange={e => sf("due_date", e.target.value)}
+                  title="Target tanggal selesai proyek"
+                />
               </FormField>
             </div>
             {/* Deskripsi */}
@@ -292,7 +391,7 @@ function CreateCanvas({ onBack, onCreated }: {
     display_name: "", customer_name: "", site_location: "",
     pic_name: "", po_number: "", po_value_manual: "",
     onedrive_folder_url: "", project_status: "BERJALAN",
-    physical_progress: 0, description: "", notes: "",
+    physical_progress: 0, description: "", notes: "", due_date: "",
   })
   const [pendingPhases,  setPendingPhases]  = React.useState<PendingPhase[]>([])
   const [showPhaseForm,  setShowPhaseForm]  = React.useState(false)
@@ -331,10 +430,11 @@ function CreateCanvas({ onBack, onCreated }: {
         body: JSON.stringify({
           display_name: form.display_name, customer_name: form.customer_name,
           site_location: form.site_location, pic_name: form.pic_name || null,
-          po_number: form.po_number || null, po_value_manual: Number(form.po_value_manual) || 0,
+          po_number: form.po_number || null, po_value_manual: parseRpInput(form.po_value_manual),
           onedrive_folder_url: form.onedrive_folder_url || null,
           project_status: form.project_status, physical_progress: form.physical_progress,
           description: form.description, notes: form.notes, created_manually: true,
+          due_date: form.due_date || null,
           termin_schedule: pendingTermins.map((t, i) => ({
             id: `t_${Date.now()}_${i}`, nama: t.termin_name,
             target_progres: t.required_progress_trigger, persen_tagihan: t.billing_percentage,
@@ -365,9 +465,10 @@ function CreateCanvas({ onBack, onCreated }: {
         })),
         site_location: form.site_location || null,
         description: form.description || null, notes: form.notes || null,
-        po_value_manual: Number(form.po_value_manual) || 0,
+        po_value_manual: parseRpInput(form.po_value_manual),
         onedrive_folder_url: form.onedrive_folder_url || null,
         pic_name: form.pic_name || null, vo_entries: pendingVOs, op_budget_vo: voTotal,
+        due_date: form.due_date || null, updated_at: null,
       })
     } catch (err) { setSaveErr(String(err)) } finally { setSaving(false) }
   }
@@ -433,9 +534,15 @@ function CreateCanvas({ onBack, onCreated }: {
                 <input className={INPUT_CLS} value={form.po_number} onChange={e => sf("po_number", e.target.value)} placeholder="Contoh: 12345/TB-CENTRUM" />
               </FormField>
 
-              <FormField label="Nilai PO / Kontrak (Rp)">
-                <input type="number" min={0} className={INPUT_CLS} value={form.po_value_manual}
-                  onChange={e => sf("po_value_manual", e.target.value)} placeholder="0" />
+              <FormField label="Nilai PO / Kontrak (Rp)" note="Ketik angka — format otomatis (10.000)">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-neutral-400 pointer-events-none">Rp</span>
+                  <input className={`${INPUT_CLS} pl-8`} inputMode="numeric"
+                    title="Nilai PO kontrak"
+                    value={form.po_value_manual}
+                    onChange={e => sf("po_value_manual", fmtRpInput(e.target.value))}
+                    placeholder="0" />
+                </div>
               </FormField>
 
               <FormField label="Link Folder OneDrive">
@@ -449,10 +556,25 @@ function CreateCanvas({ onBack, onCreated }: {
               </FormField>
 
               <FormField label="Status Awal">
-                <select className={INPUT_CLS} value={form.project_status} onChange={e => sf("project_status", e.target.value)}>
+                <select className={INPUT_CLS} title="Status awal proyek" aria-label="Status awal proyek"
+                  value={form.project_status} onChange={e => sf("project_status", e.target.value)}>
                   <option value="BERJALAN">BERJALAN</option>
                   <option value="DITUNDA">DITUNDA</option>
                 </select>
+              </FormField>
+
+              <FormField label="Progres Lapangan Awal (%)">
+                <ProgressInput
+                  value={form.physical_progress}
+                  onChange={v => sf("physical_progress", v)}
+                />
+              </FormField>
+
+              <FormField label="Target Selesai" icon="📅">
+                <input type="date" className={INPUT_CLS}
+                  title="Target tanggal selesai proyek"
+                  value={form.due_date}
+                  onChange={e => sf("due_date", e.target.value)} />
               </FormField>
 
               <div className="sm:col-span-2">
@@ -817,10 +939,18 @@ function ProjectCard({ project, isActive, onFocus, onEdit }: {
             <p className="text-[11px] font-mono text-neutral-700 truncate">{project.po_number ?? <span className="text-neutral-300 italic not-italic">Belum diset</span>}</p>
           </div>
         </div>
+        {/* 🧑‍💼 PIC */}
+        <div className="flex items-start gap-2">
+          <span className="text-sm w-5 flex-shrink-0 leading-none mt-0.5">🧑‍💼</span>
+          <div className="min-w-0">
+            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">PIC</p>
+            <p className="text-[11px] text-neutral-700 truncate">{project.pic_name ?? <span className="text-neutral-300 italic">Belum diset</span>}</p>
+          </div>
+        </div>
         {/* Progress bar */}
         <div className="mt-auto pt-1">
           <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres Fisik</p>
+            <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres Lapangan</p>
             <p className="text-xs font-black tabular-nums" style={{ color: progColor }}>{prog}%</p>
           </div>
           <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
@@ -829,15 +959,33 @@ function ProjectCard({ project, isActive, onFocus, onEdit }: {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-4 pb-3.5 pt-2 border-t border-neutral-50">
-        <span className="text-[10px] text-neutral-400">{isActive ? "Workspace aktif" : "Klik untuk buka"}</span>
-        {/* Pencil → focus mode (same as card click) */}
-        <button type="button" onClick={e => { e.stopPropagation(); onFocus() }}
-          title="Buka workspace proyek"
-          className={`opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all ${isActive ? "opacity-100 bg-indigo-100 text-indigo-600" : "hover:bg-indigo-50 text-neutral-300 hover:text-indigo-600"}`}>
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
+      {/* Footer: last updated + due date */}
+      <div className="px-4 pb-3.5 pt-2 border-t border-neutral-50 flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] text-neutral-300 tabular-nums" title={project.updated_at ?? undefined}>
+            {project.updated_at ? relTime(project.updated_at) : "Belum diupdate"}
+          </span>
+          {project.due_date && (() => {
+            const days = Math.ceil((new Date(project.due_date).getTime() - Date.now()) / 86_400_000)
+            return (
+              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
+                days < 0 ? "bg-red-50 text-red-600 border-red-200" :
+                days <= 14 ? "bg-amber-50 text-amber-600 border-amber-200" :
+                "bg-neutral-50 text-neutral-400 border-neutral-200"
+              }`}>
+                📅 {days < 0 ? `Terlambat ${Math.abs(days)}h` : `Due ${days}h`}
+              </span>
+            )
+          })()}
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-neutral-400">{isActive ? "Workspace aktif" : "Klik untuk buka"}</span>
+          <button type="button" onClick={e => { e.stopPropagation(); onFocus() }}
+            title="Buka workspace proyek"
+            className={`opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all ${isActive ? "opacity-100 bg-indigo-100 text-indigo-600" : "hover:bg-indigo-50 text-neutral-300 hover:text-indigo-600"}`}>
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -932,6 +1080,7 @@ export default function DocConPage() {
         description?: string | null; notes?: string | null; po_value_manual?: number | null
         onedrive_folder_url?: string | null; pic_name?: string | null
         vo_entries?: VOEntry[] | null; op_budget_vo?: number | null
+        due_date?: string | null; updated_at?: string | null
       }>
       setAllProjects(rows.map(r => ({
         project_key: r.project_key, display_name: r.display_name || r.project_key,
@@ -942,6 +1091,8 @@ export default function DocConPage() {
         notes: r.notes ?? null, po_value_manual: r.po_value_manual ?? 0,
         onedrive_folder_url: r.onedrive_folder_url ?? null, pic_name: r.pic_name ?? null,
         vo_entries: Array.isArray(r.vo_entries) ? r.vo_entries : [], op_budget_vo: r.op_budget_vo ?? 0,
+        due_date:   r.due_date   ?? null,
+        updated_at: r.updated_at ?? null,
       })))
     }).catch(() => {}).finally(() => setLoadingProj(false))
   }, [])
@@ -1382,7 +1533,7 @@ export default function DocConPage() {
                           <p className="text-sm font-bold text-emerald-700">Finance Terbuka — Siap Ditagih</p>
                           <p className="text-xs text-emerald-600 mt-0.5">Progress {currentProgress}% memenuhi syarat: <span className="font-semibold">{billingAlert.join(", ")}</span>.</p>
                         </div>
-                        <button type="button" onClick={() => setBillingAlert(null)} className="p-1 rounded hover:bg-emerald-100 text-emerald-400"><X className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => setBillingAlert(null)} title="Tutup notifikasi" aria-label="Tutup notifikasi" className="p-1 rounded hover:bg-emerald-100 text-emerald-400"><X className="h-3.5 w-3.5" /></button>
                       </div>
                     )}
 

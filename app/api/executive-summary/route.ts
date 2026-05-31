@@ -28,6 +28,8 @@ export type ExecProjectRow = {
   has_doc_con_data:  boolean
   log_count:         number
   sched_count:       number
+  last_updated_at:   string | null   // project_details.updated_at — bumped by DB trigger on any child mutation
+  due_date:          string | null   // target selesai proyek (YYYY-MM-DD)
 }
 
 export async function GET() {
@@ -94,6 +96,8 @@ export async function GET() {
         financeStatus, unlockedTermins,
         has_doc_con_data:  log_count > 0 || sched_count > 0,
         log_count, sched_count,
+        last_updated_at: (p.updated_at as string | null) ?? null,
+        due_date:        (p.due_date   as string | null) ?? null,
       }
     })
 

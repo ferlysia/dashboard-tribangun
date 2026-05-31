@@ -209,3 +209,44 @@ BEGIN
   );
 END;
 $$;
+
+-- ── 20. Target selesai proyek (due_date) ─────────────────────────────────────
+ALTER TABLE project_details
+  ADD COLUMN IF NOT EXISTS due_date DATE;
+
+-- ── 21. Auto-bump project updated_at dari mutasi child tables ────────────────
+--  Fungsi dan 3 trigger ini memastikan updated_at di project_details selalu
+--  mencerminkan aktivitas terbaru lintas modul (costs, logs, schedule).
+--  DB menangani ini secara otomatis — API routes tidak perlu diubah.
+
+CREATE OR REPLACE FUNCTION public.bump_project_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE project_details
+    SET updated_at = NOW()
+    WHERE project_key = COALESCE(
+      (CASE WHEN TG_OP = 'DELETE' THEN OLD.project_key ELSE NEW.project_key END),
+      ''
+    );
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_costs_bump_project    ON project_costs;
+CREATE TRIGGER trg_costs_bump_project
+  AFTER INSERT OR UPDATE OR DELETE ON project_costs
+  FOR EACH ROW EXECUTE FUNCTION public.bump_project_updated_at();
+
+DROP TRIGGER IF EXISTS trg_logs_bump_project     ON project_weekly_logs;
+CREATE TRIGGER trg_logs_bump_project
+  AFTER INSERT OR UPDATE OR DELETE ON project_weekly_logs
+  FOR EACH ROW EXECUTE FUNCTION public.bump_project_updated_at();
+
+DROP TRIGGER IF EXISTS trg_schedule_bump_project ON project_schedule_items;
+CREATE TRIGGER trg_schedule_bump_project
+  AFTER INSERT OR UPDATE OR DELETE ON project_schedule_items
+  FOR EACH ROW EXECUTE FUNCTION public.bump_project_updated_at();
