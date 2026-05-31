@@ -116,15 +116,15 @@ function parseRpInput(str: string): number {
   return parseInt(str.replace(/[^0-9]/g, ""), 10) || 0
 }
 
-/** Relative timestamp: "Baru saja" / "5m lalu" / "2j lalu" / "3h lalu" */
+/** Relative timestamp — English format: "Last updated was 5m ago" */
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—"
+  if (!iso) return "Never updated"
   const ms = Date.now() - new Date(iso).getTime()
-  if (ms < 60_000)           return "Baru saja"
-  if (ms < 3_600_000)        return `${Math.floor(ms / 60_000)}m lalu`
-  if (ms < 86_400_000)       return `${Math.floor(ms / 3_600_000)}j lalu`
-  if (ms < 7 * 86_400_000)   return `${Math.floor(ms / 86_400_000)}h lalu`
-  return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+  if (ms < 60_000)           return "Last updated was just now"
+  if (ms < 3_600_000)        return `Last updated was ${Math.floor(ms / 60_000)}m ago`
+  if (ms < 86_400_000)       return `Last updated was ${Math.floor(ms / 3_600_000)}h ago`
+  if (ms < 7 * 86_400_000)   return `Last updated was ${Math.floor(ms / 86_400_000)}d ago`
+  return `Last updated ${new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`
 }
 
 // ─── Hybrid Progress Input ────────────────────────────────────────────────────
@@ -1148,10 +1148,28 @@ export default function DocConPage() {
     return grps
   }, [totalWeeks])
 
+  // ── Re-fetch updated_at from DB after any mutation ───────────────────────
+  // Mutations hit the DB which fires triggers that bump updated_at server-side.
+  // The local state cannot know the exact timestamp — only the DB does.
+  // This thin re-fetch keeps the "Last updated" card timestamps honest.
+  const refreshUpdatedAt = React.useCallback(async (key: string) => {
+    try {
+      const res = await fetch(`/api/project-details/${encodeURIComponent(key)}`)
+      if (!res.ok) return
+      const { data } = await res.json() as { data: { updated_at?: string | null } | null }
+      if (!data?.updated_at) return
+      setAllProjects(prev => prev.map(p =>
+        p.project_key === key ? { ...p, updated_at: data.updated_at! } : p
+      ))
+    } catch { /* non-critical — never block the mutation flow */ }
+  }, [])
+
   function handleProjectCreated(project: ProjectSummary) {
     setAllProjects(prev => [project, ...prev])
     setActiveKey(project.project_key)
     setIsCreating(false)
+    // Refresh after a short delay to let the DB write complete
+    setTimeout(() => refreshUpdatedAt(project.project_key), 500)
   }
 
   async function handleSaveEdit(updated: ProjectSummary) {
@@ -1164,6 +1182,7 @@ export default function DocConPage() {
       }
     }
     setEditProject(null)
+    void refreshUpdatedAt(updated.project_key)
   }
 
   async function sendTerminToFinance(terminId: string) {
@@ -1190,6 +1209,7 @@ export default function DocConPage() {
       if (!res.ok) throw new Error("Gagal menyimpan TOP")
       setAllProjects(prev => prev.map(p => p.project_key === activeKey ? { ...p, termin_schedule: termins } : p))
       setShowTopEditor(false)
+      void refreshUpdatedAt(activeKey)
     } finally { setSavingTop(false) }
   }
 
@@ -1203,6 +1223,7 @@ export default function DocConPage() {
       if (!phase) return
       setPhases(prev => [...prev, phase].sort((a, b) => a.week_number - b.week_number))
       setPhaseTask(""); setPhaseStartW(1); setPhaseEndW(1); setPhaseWeight("10"); setShowAddPhase(false)
+      void refreshUpdatedAt(activeKey)
     } finally { setAddingPhase(false) }
   }
 
@@ -1219,6 +1240,7 @@ export default function DocConPage() {
       const { data } = await res.json() as { data: WeekLog | null }
       if (data) setWeekLogs(prev => [...prev, data].sort((a, b) => a.week_number - b.week_number))
       setAddLogPhaseId(null); setAddLogWeek(1); setAddLogDesc(""); setAddLogPhoto(null)
+      void refreshUpdatedAt(activeKey)
     } finally { setAddingLog(false) }
   }
 
@@ -1226,6 +1248,7 @@ export default function DocConPage() {
     const res = await fetch(`/api/project-schedule/item/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_done: isDone }) })
     const { data } = await res.json() as { data: Phase | null }
     if (data) setPhases(prev => prev.map(p => p.id === id ? { ...p, ...data } : p))
+    if (activeKey) void refreshUpdatedAt(activeKey)
   }
 
   async function deletePhase(id: string) {
@@ -1233,6 +1256,7 @@ export default function DocConPage() {
     const orphanIds = weekLogs.filter(l => l.phase_id === id).map(l => l.id)
     await Promise.all(orphanIds.map(lid => fetch(`/api/project-weekly-logs/item/${lid}`, { method: "DELETE" }).catch(() => {})))
     setPhases(prev => prev.filter(p => p.id !== id)); setWeekLogs(prev => prev.filter(l => l.phase_id !== id))
+    if (activeKey) void refreshUpdatedAt(activeKey)
   }
 
   async function saveLog(logId: string, desc: string, photo: File | null) {
@@ -1245,11 +1269,13 @@ export default function DocConPage() {
     const { data } = await res.json() as { data: WeekLog | null }
     if (data) setWeekLogs(prev => prev.map(l => l.id === logId ? { ...l, ...data } : l))
     setEditingLogId(null)
+    if (activeKey) void refreshUpdatedAt(activeKey)
   }
 
   async function deleteLog(logId: string) {
     await fetch(`/api/project-weekly-logs/item/${logId}`, { method: "DELETE" })
     setWeekLogs(prev => prev.filter(l => l.id !== logId))
+    if (activeKey) void refreshUpdatedAt(activeKey)
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────

@@ -25,13 +25,13 @@ const fIDR = (n: number) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n)
 
 function relTime(iso: string | null | undefined): string {
-  if (!iso) return "—"
+  if (!iso) return "Never updated"
   const ms = Date.now() - new Date(iso).getTime()
-  if (ms < 60_000)             return "Baru saja"
-  if (ms < 3_600_000)          return `${Math.floor(ms / 60_000)}m lalu`
-  if (ms < 86_400_000)         return `${Math.floor(ms / 3_600_000)}j lalu`
-  if (ms < 7 * 86_400_000)     return `${Math.floor(ms / 86_400_000)}h lalu`
-  return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
+  if (ms < 60_000)             return "Last updated was just now"
+  if (ms < 3_600_000)          return `Last updated was ${Math.floor(ms / 60_000)}m ago`
+  if (ms < 86_400_000)         return `Last updated was ${Math.floor(ms / 3_600_000)}h ago`
+  if (ms < 7 * 86_400_000)     return `Last updated was ${Math.floor(ms / 86_400_000)}d ago`
+  return `Last updated ${new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}`
 }
 
 function dueBadge(due: string | null | undefined): { label: string; cls: string } | null {
