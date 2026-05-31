@@ -329,7 +329,7 @@ function EditProjectModal({ project, onSave, onClose }: {
                   <option value="BERJALAN">BERJALAN</option><option value="SELESAI">SELESAI</option><option value="DITUNDA">DITUNDA</option>
                 </select>
               </FormField>
-              <FormField label="Target Selesai" icon="📅">
+              <FormField label="Due Date" icon="📅">
                 <input type="date" className={INPUT_CLS}
                   value={form.due_date}
                   onChange={e => sf("due_date", e.target.value)}
