@@ -32,6 +32,7 @@ type CCProjectDetail = {
   op_budget_vo: number
   op_vo_gaji: number; op_vo_material: number; op_vo_transport: number
   op_vo_operasional: number; op_vo_sewa: number; op_vo_lainnya: number
+  op_lainnya_label?: string
 }
 
 type Escalation = {
@@ -88,6 +89,36 @@ function progColor(pct: number) {
   return pct > 100 ? "bg-red-500" : pct > 80 ? "bg-amber-400" : "bg-indigo-500"
 }
 
+// ─── Currency mask helpers ────────────────────────────────────────────────────
+// Display: "10.500.000" (Indonesian thousands separator, no "Rp" prefix)
+// Payload: 10500000 (clean integer for Supabase mutations)
+
+const DEFAULT_LAINNYA_LABEL = "Biaya Lainnya"
+
+/** Format a raw string / number as Indonesian thousands-separated display */
+function fmtRpInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "")
+  if (!digits) return ""
+  return parseInt(digits, 10).toLocaleString("id-ID")
+}
+
+/** Strip formatting separators and parse back to integer for DB payload */
+function parseRpInput(str: string): number {
+  return parseInt(str.replace(/[^0-9]/g, ""), 10) || 0
+}
+
+// ─── Category Labels Context ──────────────────────────────────────────────────
+// Provides live cat labels (including any custom "lainnya" override) to all
+// sub-components without prop drilling.
+
+const CatLabelsContext = React.createContext<Record<string, string>>(
+  Object.fromEntries(STREAMS.map(s => [s.key, s.label]))
+)
+
+function useCatLabels() {
+  return React.useContext(CatLabelsContext)
+}
+
 // ─── Margin Pill ──────────────────────────────────────────────────────────────
 
 function MarginPill({ margin, contractVal }: { margin: number; contractVal: number }) {
@@ -130,7 +161,7 @@ function ROIOverviewPanel({
   const utilPct   = contractVal > 0 ? Math.min(150, (actualCosts / contractVal) * 100) : 0
   const safety    = getSafetyState(netMargin)
 
-  const totalBudgetDef = STREAMS.reduce((s, st) => s + detail[st.detailField] + detail[st.voField], 0)
+  const totalBudgetDef = STREAMS.reduce((s, st) => s + Number(detail[st.detailField]) + Number(detail[st.voField]), 0)
   const budgetDefPct   = contractVal > 0 && totalBudgetDef > 0
     ? Math.min(100, (totalBudgetDef / contractVal) * 100) : 0
 
@@ -298,30 +329,32 @@ function CCProjectCard({ row, isActive, onFocus }: {
 
 function BudgetPlafonSection({
   projectKey, detail, costs, contractVal, saving,
-  onSave,
+  onSave, lainnyaLabel, onLainnyaLabelChange,
 }: {
   projectKey: string; detail: CCProjectDetail; costs: CostItem[]
   contractVal: number; saving: boolean
   onSave: (patch: Partial<CCProjectDetail>) => void
+  lainnyaLabel: string
+  onLainnyaLabelChange: (label: string) => void
 }) {
   const [form, setForm] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(STREAMS.map(s => [s.detailField, String(detail[s.detailField] || "")]))
+    Object.fromEntries(STREAMS.map(s => [s.detailField, fmtRpInput(String(detail[s.detailField] || ""))]))
   )
   const [showVO, setShowVO] = React.useState(false)
   const [voForm, setVoForm] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(STREAMS.map(s => [s.voField, String(detail[s.voField] || "")]))
+    Object.fromEntries(STREAMS.map(s => [s.voField, fmtRpInput(String(detail[s.voField] || ""))]))
   )
   const [dirty, setDirty] = React.useState(false)
 
   React.useEffect(() => {
-    setForm(Object.fromEntries(STREAMS.map(s => [s.detailField, String(detail[s.detailField] || "")])))
-    setVoForm(Object.fromEntries(STREAMS.map(s => [s.voField, String(detail[s.voField] || "")])))
+    setForm(Object.fromEntries(STREAMS.map(s => [s.detailField, fmtRpInput(String(detail[s.detailField] || ""))])))
+    setVoForm(Object.fromEntries(STREAMS.map(s => [s.voField, fmtRpInput(String(detail[s.voField] || ""))])))
     setDirty(false)
   }, [detail])
 
-  const totalBudget    = STREAMS.reduce((s, st) => s + (Number(form[st.detailField]) || 0), 0)
-  const totalVoBudget  = STREAMS.reduce((s, st) => s + (Number(voForm[st.voField]) || 0), 0)
-  const budgetOverage  = contractVal > 0 && totalBudget > contractVal
+  const totalBudget   = STREAMS.reduce((s, st) => s + parseRpInput(form[st.detailField]), 0)
+  const totalVoBudget = STREAMS.reduce((s, st) => s + parseRpInput(voForm[st.voField]), 0)
+  const budgetOverage = contractVal > 0 && totalBudget > contractVal
 
   // Actual per category (main stream)
   const actualByCategory = React.useMemo(() => {
@@ -343,16 +376,15 @@ function BudgetPlafonSection({
   function handleSave() {
     const patch: Partial<CCProjectDetail> = {}
     STREAMS.forEach(s => {
-      const v = Number(form[s.detailField]) || 0
-      ;(patch as Record<string, number>)[s.detailField] = v
+      ;(patch as Record<string, number>)[s.detailField] = parseRpInput(form[s.detailField])
     })
     if (showVO) {
       STREAMS.forEach(s => {
-        const v = Number(voForm[s.voField]) || 0
-        ;(patch as Record<string, number>)[s.voField] = v
+        ;(patch as Record<string, number>)[s.voField] = parseRpInput(voForm[s.voField])
       })
       patch.op_budget_vo = totalVoBudget
     }
+    patch.op_lainnya_label = lainnyaLabel.trim() || DEFAULT_LAINNYA_LABEL
     onSave(patch)
     setDirty(false)
   }
@@ -401,24 +433,41 @@ function BudgetPlafonSection({
       <div className="p-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-4">
           {STREAMS.map(s => {
-            const budget  = Number(form[s.detailField]) || 0
-            const actual  = actualByCategory[s.key] || 0
-            const pct     = budget > 0 ? Math.min(110, (actual / budget) * 100) : actual > 0 ? 110 : 0
+            const budget     = parseRpInput(form[s.detailField])
+            const actual     = actualByCategory[s.key] || 0
+            const pct        = budget > 0 ? Math.min(110, (actual / budget) * 100) : actual > 0 ? 110 : 0
             const overBudget = pct > 100
+            const displayLabel = s.key === "lainnya" ? lainnyaLabel : s.label
             return (
               <div key={s.key} className={`rounded-xl border p-3.5 transition-colors ${
                 overBudget && budget > 0 ? "bg-red-50/30 border-red-200" : "bg-neutral-50/40 border-neutral-100"
               }`}>
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${s.catColor}`}>{s.label}</span>
-                  {overBudget && budget > 0 && <span className="text-[9px] font-bold text-red-500">⚠ Melebihi</span>}
+                  {s.key === "lainnya" ? (
+                    <input
+                      value={lainnyaLabel}
+                      onChange={e => {
+                        const val = e.target.value
+                        const conflict = STREAMS.filter(x => x.key !== "lainnya").some(x => x.label.toLowerCase() === val.trim().toLowerCase())
+                        if (!conflict) { onLainnyaLabelChange(val); setDirty(true) }
+                      }}
+                      onBlur={e => { if (!e.target.value.trim()) { onLainnyaLabelChange(DEFAULT_LAINNYA_LABEL); setDirty(true) } }}
+                      maxLength={40}
+                      placeholder={DEFAULT_LAINNYA_LABEL}
+                      title="Klik untuk ubah nama kategori ini"
+                      className={`text-[9px] font-bold px-2 py-0.5 rounded border flex-1 min-w-0 mr-2 outline-none focus:ring-1 focus:ring-neutral-400/40 ${s.catColor}`}
+                    />
+                  ) : (
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${s.catColor}`}>{displayLabel}</span>
+                  )}
+                  {overBudget && budget > 0 && <span className="text-[9px] font-bold text-red-500 flex-shrink-0">⚠ Melebihi</span>}
                 </div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-[9px] font-semibold text-neutral-400 whitespace-nowrap">Plafon Rp</span>
                   <input
-                    type="number" min={0}
+                    type="text" inputMode="numeric"
                     value={form[s.detailField]}
-                    onChange={e => { setForm(p => ({ ...p, [s.detailField]: e.target.value })); setDirty(true) }}
+                    onChange={e => { setForm(p => ({ ...p, [s.detailField]: fmtRpInput(e.target.value) })); setDirty(true) }}
                     placeholder="0"
                     className="flex-1 min-w-0 text-xs rounded-lg border border-neutral-200 bg-white px-2 py-1.5 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10 tabular-nums transition-all"
                   />
@@ -427,7 +476,7 @@ function BudgetPlafonSection({
                   <div>
                     <div className="flex justify-between mb-1">
                       <span className="text-[9px] text-neutral-400">Aktual: {fShort(actual)}</span>
-                      <span className="text-[9px] tabular-nums font-bold" style={{ color: progColor(pct) === "bg-red-500" ? "#ef4444" : progColor(pct) === "bg-amber-400" ? "#f59e0b" : "#6366f1" }}>
+                      <span className={`text-[9px] tabular-nums font-bold ${progColor(pct) === "bg-red-500" ? "text-red-500" : progColor(pct) === "bg-amber-400" ? "text-amber-500" : "text-indigo-600"}`}>
                         {Math.round(pct)}%
                       </span>
                     </div>
@@ -467,16 +516,17 @@ function BudgetPlafonSection({
             </p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {STREAMS.map(s => {
-                const budget = Number(voForm[s.voField]) || 0
+                const budget = parseRpInput(voForm[s.voField])
                 const actual = actualVoByCategory[s.key] || 0
                 const pct    = budget > 0 ? Math.min(110, (actual / budget) * 100) : 0
+                const displayLabel = s.key === "lainnya" ? lainnyaLabel : s.label
                 return (
                   <div key={s.key} className="rounded-xl border border-amber-100 bg-amber-50/20 p-3">
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded border block mb-2 w-fit ${s.catColor}`}>{s.label}</span>
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded border block mb-2 w-fit ${s.catColor}`}>{displayLabel}</span>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-[9px] font-semibold text-neutral-400 whitespace-nowrap">VO Rp</span>
-                      <input type="number" min={0} value={voForm[s.voField]}
-                        onChange={e => { setVoForm(p => ({ ...p, [s.voField]: e.target.value })); setDirty(true) }}
+                      <input type="text" inputMode="numeric" value={voForm[s.voField]}
+                        onChange={e => { setVoForm(p => ({ ...p, [s.voField]: fmtRpInput(e.target.value) })); setDirty(true) }}
                         placeholder="0"
                         className="flex-1 min-w-0 text-xs rounded-lg border border-amber-200 bg-white px-2 py-1.5 outline-none focus:border-amber-400 tabular-nums" />
                     </div>
@@ -530,16 +580,17 @@ function BudgetActualMatrix({
     return m
   }, [costs])
 
-  const hasVoBudget = STREAMS.some(s => detail[s.voField] > 0)
+  const catLabels   = useCatLabels()
+  const hasVoBudget = STREAMS.some(s => Number(detail[s.voField]) > 0)
 
   const rows = STREAMS.map(s => {
-    const budgetPM    = detail[s.detailField]
-    const budgetVO    = detail[s.voField]
+    const budgetPM    = Number(detail[s.detailField])
+    const budgetVO    = Number(detail[s.voField])
     const totalBudget = budgetPM + budgetVO
     const terpakai    = (actualMain[s.key] || 0) + (actualVO[s.key] || 0)
     const sisa        = totalBudget - terpakai
     const pct         = totalBudget > 0 ? (terpakai / totalBudget) * 100 : terpakai > 0 ? 110 : 0
-    return { key: s.key, label: s.label, catColor: s.catColor, budgetPM, budgetVO, totalBudget, terpakai, sisa, pct }
+    return { key: s.key, label: catLabels[s.key] ?? s.label, catColor: s.catColor, budgetPM, budgetVO, totalBudget, terpakai, sisa, pct }
   })
 
   const totals = rows.reduce(
@@ -548,8 +599,8 @@ function BudgetActualMatrix({
   )
 
   const chartData = STREAMS.map(s => ({
-    name: s.label.split(/[\s/]/)[0],
-    budget: Math.round((detail[s.detailField] + detail[s.voField]) / 1_000),
+    name: (catLabels[s.key] ?? s.label).split(/[\s/]/)[0],
+    budget: Math.round((Number(detail[s.detailField]) + Number(detail[s.voField])) / 1_000),
     aktual: Math.round(((actualMain[s.key] || 0) + (actualVO[s.key] || 0)) / 1_000),
   }))
 
@@ -717,8 +768,9 @@ function CostItemView({ item, onEdit, onDelete, confirming, onConfirmDelete, onC
   item: CostItem; onEdit: () => void; onDelete: () => void
   confirming: boolean; onConfirmDelete: () => void; onCancelDelete: () => void
 }) {
-  const catLabel = CAT_LABELS[item.category] ?? item.category
-  const catColor = CAT_COLORS[item.category] ?? "bg-neutral-100 text-neutral-500 border-neutral-200"
+  const catLabels = useCatLabels()
+  const catLabel  = catLabels[item.category] ?? item.category
+  const catColor  = CAT_COLORS[item.category] ?? "bg-neutral-100 text-neutral-500 border-neutral-200"
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 group hover:bg-neutral-50 transition-colors">
       <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex-shrink-0 ${item.cost_stream === "vo" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-indigo-50 text-indigo-700 border-indigo-200"}`}>
@@ -758,14 +810,15 @@ function CostItemEdit({ item, onSave, onCancel, saving }: {
   onSave: (d: { description: string; amount: number; category: string; cost_date: string | null }) => void
   onCancel: () => void; saving: boolean
 }) {
-  const [desc,   setDesc]   = React.useState(item.description)
-  const [amount, setAmount] = React.useState(String(item.amount))
-  const [cat,    setCat]    = React.useState(item.category || "lainnya")
-  const [date,   setDate]   = React.useState(item.cost_date ?? "")
+  const catLabels = useCatLabels()
+  const [desc,          setDesc]          = React.useState(item.description)
+  const [amountDisplay, setAmountDisplay] = React.useState(() => fmtRpInput(String(item.amount)))
+  const [cat,           setCat]           = React.useState(item.category || "lainnya")
+  const [date,          setDate]          = React.useState(item.cost_date ?? "")
 
   const commit = () => {
-    const a = Number(amount.replace(/[^0-9.-]/g, ""))
-    if (!desc.trim() || isNaN(a) || a <= 0) return
+    const a = parseRpInput(amountDisplay)
+    if (!desc.trim() || a <= 0) return
     onSave({ description: desc.trim(), amount: a, category: cat, cost_date: date || null })
   }
 
@@ -773,15 +826,15 @@ function CostItemEdit({ item, onSave, onCancel, saving }: {
     <div className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50/70 border-l-2 border-indigo-400">
       <select value={cat} onChange={e => setCat(e.target.value)} title="Kategori biaya"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-indigo-400 flex-shrink-0">
-        {CATS.map(c => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+        {CATS.map(c => <option key={c} value={c}>{catLabels[c] ?? CAT_LABELS[c]}</option>)}
       </select>
       <input value={desc} onChange={e => setDesc(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commit() } if (e.key === "Escape") onCancel() }}
         placeholder="Deskripsi" autoFocus
         className="flex-1 min-w-0 text-xs border border-neutral-200 rounded px-2 py-1 bg-white outline-none focus:border-indigo-400" />
       <input value={date} onChange={e => setDate(e.target.value)} type="date" title="Tanggal biaya" placeholder="Tanggal"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-indigo-400 flex-shrink-0 w-32" />
-      <input value={amount} onChange={e => setAmount(e.target.value)}
-        placeholder="Jumlah"
+      <input value={amountDisplay} onChange={e => setAmountDisplay(fmtRpInput(e.target.value))}
+        inputMode="numeric" placeholder="Jumlah"
         className="text-xs border border-neutral-200 rounded px-2 py-1 bg-white outline-none focus:border-indigo-400 w-32 text-right tabular-nums flex-shrink-0" />
       <button type="button" onClick={commit} disabled={saving}
         className="flex items-center gap-1 px-2.5 py-1 rounded bg-indigo-600 text-white text-[11px] font-semibold hover:bg-indigo-700 disabled:opacity-50 flex-shrink-0">
@@ -797,6 +850,7 @@ function CostItemEdit({ item, onSave, onCancel, saving }: {
 function AddCostForm({ projectKey, onAdd, onCancel }: {
   projectKey: string; onAdd: (item: CostItem) => void; onCancel: () => void
 }) {
+  const catLabels = useCatLabels()
   const [desc,   setDesc]   = React.useState("")
   const [amount, setAmount] = React.useState("")
   const [cat,    setCat]    = React.useState("lainnya")
@@ -807,8 +861,8 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const a = Number(amount.replace(/[^0-9.-]/g, ""))
-    if (!desc.trim() || isNaN(a) || a <= 0) { setErr("Deskripsi dan jumlah wajib diisi."); return }
+    const a = parseRpInput(amount)
+    if (!desc.trim() || a <= 0) { setErr("Deskripsi dan jumlah wajib diisi."); return }
     setSaving(true); setErr(null)
     try {
       const res = await fetch("/api/project-costs", {
@@ -841,7 +895,7 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
       <select value={cat} onChange={e => setCat(e.target.value)}
         title="Kategori biaya" aria-label="Kategori biaya"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-emerald-400 flex-shrink-0">
-        {CATS.map(c => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+        {CATS.map(c => <option key={c} value={c}>{catLabels[c] ?? CAT_LABELS[c]}</option>)}
       </select>
       <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Deskripsi pengeluaran…" required autoFocus
         title="Deskripsi pengeluaran" aria-label="Deskripsi pengeluaran"
@@ -849,7 +903,8 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
       <input value={date} onChange={e => setDate(e.target.value)} type="date"
         title="Tanggal biaya" aria-label="Tanggal biaya" placeholder="Tanggal"
         className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-emerald-400 flex-shrink-0 w-32" />
-      <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="Jumlah (Rp)" required
+      <input value={amount} onChange={e => setAmount(fmtRpInput(e.target.value))}
+        inputMode="numeric" placeholder="Jumlah (Rp)" required
         title="Jumlah biaya" aria-label="Jumlah biaya"
         className="text-xs border border-neutral-200 rounded px-2 py-1 bg-white outline-none focus:border-emerald-400 w-32 text-right tabular-nums flex-shrink-0" />
       {err && <span className="text-[10px] text-amber-600 flex-shrink-0 max-w-[140px] truncate font-semibold">{err}</span>}
@@ -1079,6 +1134,7 @@ export default function CostControlPage() {
               op_vo_operasional: Number(row.op_vo_operasional || 0),
               op_vo_sewa:        Number(row.op_vo_sewa        || 0),
               op_vo_lainnya:     Number(row.op_vo_lainnya     || 0),
+              op_lainnya_label:  row.op_lainnya_label || undefined,
             }}))
           })
           .catch(() => setDetailCache(p => ({ ...p, [key]: { ...EMPTY_DETAIL } }))),
@@ -1148,7 +1204,12 @@ export default function CostControlPage() {
   const activeEscals = activeKey ? (escalCache[activeKey] ?? []).filter(e => !e.acknowledged_at) : []
   const activeActual = activeCosts ? activeCosts.reduce((s, c) => s + Number(c.amount), 0) : (activeRow?.totalCosts ?? 0)
   const activeProfit = (activeRow?.contractVal ?? 0) - activeActual
-  const activeMargin = (activeRow?.contractVal ?? 0) > 0 ? (activeProfit / (activeRow?.contractVal ?? 1)) * 100 : 0
+
+  const activeLainnyaLabel = (activeKey && detailCache[activeKey]?.op_lainnya_label) || DEFAULT_LAINNYA_LABEL
+  const activeCatLabels    = React.useMemo(
+    () => ({ ...CAT_LABELS, lainnya: activeLainnyaLabel }),
+    [activeLainnyaLabel]
+  )
 
   return (
     <SidebarProvider>
@@ -1236,6 +1297,7 @@ export default function CostControlPage() {
               </div>
             ) : (
               /* Focus Mode */
+              <CatLabelsContext.Provider value={activeCatLabels}>
               <div className="flex flex-col gap-5">
 
                 {/* Back + focused card */}
@@ -1304,6 +1366,11 @@ export default function CostControlPage() {
                       contractVal={activeRow?.contractVal ?? 0}
                       saving={savingDetail}
                       onSave={patch => handleSaveDetail(activeKey, patch)}
+                      lainnyaLabel={activeLainnyaLabel}
+                      onLainnyaLabelChange={label => setDetailCache(p => ({
+                        ...p,
+                        [activeKey]: { ...(p[activeKey] ?? EMPTY_DETAIL), op_lainnya_label: label },
+                      }))}
                     />
 
                     {/* Budget vs Actual comparison matrix */}
@@ -1346,6 +1413,7 @@ export default function CostControlPage() {
                   </>
                 )}
               </div>
+              </CatLabelsContext.Provider>
             )}
 
           </div>
