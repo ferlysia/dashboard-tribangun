@@ -344,13 +344,17 @@ function BudgetPlafonSection({
   const [voForm, setVoForm] = React.useState<Record<string, string>>(() =>
     Object.fromEntries(STREAMS.map(s => [s.voField, fmtRpInput(String(detail[s.voField] || ""))]))
   )
-  const [dirty, setDirty] = React.useState(false)
+  const [dirty,       setDirty]       = React.useState(false)
+  const [lainnyaDraft, setLainnyaDraft] = React.useState(lainnyaLabel)
 
   React.useEffect(() => {
     setForm(Object.fromEntries(STREAMS.map(s => [s.detailField, fmtRpInput(String(detail[s.detailField] || ""))])))
     setVoForm(Object.fromEntries(STREAMS.map(s => [s.voField, fmtRpInput(String(detail[s.voField] || ""))])))
     setDirty(false)
   }, [detail])
+
+  // Sync draft when parent switches active project
+  React.useEffect(() => { setLainnyaDraft(lainnyaLabel) }, [lainnyaLabel])
 
   const totalBudget   = STREAMS.reduce((s, st) => s + parseRpInput(form[st.detailField]), 0)
   const totalVoBudget = STREAMS.reduce((s, st) => s + parseRpInput(voForm[st.voField]), 0)
@@ -445,13 +449,21 @@ function BudgetPlafonSection({
                 <div className="flex items-center justify-between mb-2">
                   {s.key === "lainnya" ? (
                     <input
-                      value={lainnyaLabel}
+                      value={lainnyaDraft}
                       onChange={e => {
                         const val = e.target.value
                         const conflict = STREAMS.filter(x => x.key !== "lainnya").some(x => x.label.toLowerCase() === val.trim().toLowerCase())
-                        if (!conflict) { onLainnyaLabelChange(val); setDirty(true) }
+                        if (!conflict) {
+                          setLainnyaDraft(val)
+                          if (val.trim()) onLainnyaLabelChange(val)
+                          setDirty(true)
+                        }
                       }}
-                      onBlur={e => { if (!e.target.value.trim()) { onLainnyaLabelChange(DEFAULT_LAINNYA_LABEL); setDirty(true) } }}
+                      onBlur={() => {
+                        const final = lainnyaDraft.trim() || DEFAULT_LAINNYA_LABEL
+                        setLainnyaDraft(final)
+                        onLainnyaLabelChange(final)
+                      }}
                       maxLength={40}
                       placeholder={DEFAULT_LAINNYA_LABEL}
                       title="Klik untuk ubah nama kategori ini"
@@ -919,18 +931,23 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
 
 // ─── Realisasi Biaya Section ──────────────────────────────────────────────────
 
-function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItemSaved, onItemDeleted }: {
+function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItemSaved, onItemDeleted, lainnyaLabel, onLainnyaLabelChange }: {
   projectKey: string; costs: CostItem[] | undefined; loading: boolean
   onItemAdded: (item: CostItem) => void
   onItemSaved: (id: string, patch: Partial<CostItem>) => void
   onItemDeleted: (id: string) => void
+  lainnyaLabel: string
+  onLainnyaLabelChange: (label: string) => void
 }) {
-  const [editingId,  setEditingId]  = React.useState<string | null>(null)
-  const [savingId,   setSavingId]   = React.useState<string | null>(null)
-  const [confirmId,  setConfirmId]  = React.useState<string | null>(null)
-  const [deletingId, setDeletingId] = React.useState<string | null>(null)
-  const [showAdd,    setShowAdd]    = React.useState(false)
-  const [streamTab,  setStreamTab]  = React.useState<"all" | "main" | "vo">("all")
+  const [editingId,    setEditingId]    = React.useState<string | null>(null)
+  const [savingId,     setSavingId]     = React.useState<string | null>(null)
+  const [confirmId,    setConfirmId]    = React.useState<string | null>(null)
+  const [deletingId,   setDeletingId]   = React.useState<string | null>(null)
+  const [showAdd,      setShowAdd]      = React.useState(false)
+  const [streamTab,    setStreamTab]    = React.useState<"all" | "main" | "vo">("all")
+  const [lainnyaDraft, setLainnyaDraft] = React.useState(lainnyaLabel)
+
+  React.useEffect(() => { setLainnyaDraft(lainnyaLabel) }, [lainnyaLabel])
 
   const handleSave = async (id: string, data: { description: string; amount: number; category: string; cost_date: string | null }) => {
     setSavingId(id)
@@ -966,6 +983,31 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-neutral-50/60 border-b border-neutral-100">
         <div className="flex items-center gap-3 flex-wrap">
           <p className="text-sm font-bold text-neutral-900">Realisasi Biaya</p>
+          {/* Inline rename for "Biaya Lainnya" category */}
+          <div className="flex items-center gap-1 text-[10px] text-neutral-400">
+            <Pencil className="h-2.5 w-2.5 flex-shrink-0" />
+            <span className="whitespace-nowrap">Kat. Lainnya:</span>
+            <input
+              value={lainnyaDraft}
+              onChange={e => {
+                const val = e.target.value
+                const conflict = STREAMS.filter(x => x.key !== "lainnya").some(x => x.label.toLowerCase() === val.trim().toLowerCase())
+                if (!conflict) {
+                  setLainnyaDraft(val)
+                  if (val.trim()) onLainnyaLabelChange(val)
+                }
+              }}
+              onBlur={() => {
+                const final = lainnyaDraft.trim() || DEFAULT_LAINNYA_LABEL
+                setLainnyaDraft(final)
+                onLainnyaLabelChange(final)
+              }}
+              maxLength={40}
+              placeholder={DEFAULT_LAINNYA_LABEL}
+              title="Rename kategori Biaya Lainnya"
+              className="text-[10px] font-semibold text-neutral-600 bg-transparent border-b border-dashed border-neutral-300 focus:border-indigo-400 outline-none w-28 px-0.5 transition-colors"
+            />
+          </div>
           <div className="flex gap-0.5 p-0.5 rounded-md bg-neutral-100">
             {(["all", "main", "vo"] as const).map(f => {
               const count = f === "all" ? costs.length : costs.filter(c => c.cost_stream === f).length
@@ -1388,6 +1430,11 @@ export default function CostControlPage() {
                       onItemAdded={item => setCostsCache(p => ({ ...p, [activeKey]: [...(p[activeKey] ?? []), item] }))}
                       onItemSaved={(id, patch) => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).map(c => c.id === id ? { ...c, ...patch } : c) }))}
                       onItemDeleted={id => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).filter(c => c.id !== id) }))}
+                      lainnyaLabel={activeLainnyaLabel}
+                      onLainnyaLabelChange={label => setDetailCache(p => ({
+                        ...p,
+                        [activeKey]: { ...(p[activeKey] ?? EMPTY_DETAIL), op_lainnya_label: label },
+                      }))}
                     />
 
                     {/* Admin-only project purge — hidden for non-ADMIN roles */}
