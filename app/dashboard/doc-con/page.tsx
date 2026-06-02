@@ -7,10 +7,12 @@ import { SiteHeader } from "@/components/site-header"
 import {
   Search, Plus, Bell, CheckCheck, Trash2, Pencil,
   X, Save, Camera, RefreshCw, FolderOpen, BarChart3,
-  CheckCircle2, Lock, ExternalLink, ChevronLeft,
+  CheckCircle2, Lock, ExternalLink, ChevronLeft, AlertTriangle,
 } from "lucide-react"
 import { AdminDeleteProject } from "@/components/admin-delete-project"
 import { useCurrentUser }     from "@/components/providers/current-user-provider"
+import { toast }              from "sonner"
+import { Toaster }            from "@/components/ui/sonner"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ const PILL = [
   { bg: "#fee2e2", text: "#7f1d1d", done: "#ef4444", border: "#fecaca" },
 ]
 const COL_W     = 60
-const INPUT_CLS = "w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+const INPUT_CLS = "w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
 
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
@@ -352,7 +354,7 @@ function EditProjectModal({ project, onSave, onClose }: {
               {voEntries.length === 0 ? <div className="text-center py-4 rounded-xl border border-dashed border-neutral-200"><p className="text-xs text-neutral-300 italic">Belum ada VO</p></div> : (
                 <div className="flex flex-col gap-2.5">
                   {voEntries.map((vo, idx) => (
-                    <div key={vo.id} className="p-3 rounded-xl border border-neutral-200 bg-white flex flex-col gap-2">
+                    <div key={vo.id} className="p-3 rounded-xl border border-border bg-card flex flex-col gap-2">
                       <div className="grid grid-cols-2 gap-2">
                         <div><p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">No. PO VO</p><input className={INPUT_CLS} value={vo.po_number} onChange={e => setVoEntries(p => p.map((v, i) => i === idx ? { ...v, po_number: e.target.value } : v))} /></div>
                         <div><p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">Nilai PO (Rp)</p><input type="number" min={0} className={INPUT_CLS} value={vo.nilai_po || ""} onChange={e => setVoEntries(p => p.map((v, i) => i === idx ? { ...v, nilai_po: Number(e.target.value) } : v))} /></div>
@@ -370,7 +372,7 @@ function EditProjectModal({ project, onSave, onClose }: {
           </div>
         </form>
 
-        <div className="flex gap-2.5 px-6 py-4 border-t border-neutral-200 flex-shrink-0 bg-white">
+        <div className="flex gap-2.5 px-6 py-4 border-t border-border flex-shrink-0 bg-card">
           <button type="submit" form="edit-proj-form" disabled={saving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
             {saving ? <><RefreshCw className="h-4 w-4 animate-spin" /> Menyimpan…</> : <><Save className="h-4 w-4" /> Simpan Perubahan</>}
           </button>
@@ -478,7 +480,7 @@ function CreateCanvas({ onBack, onCreated }: {
   return (
     <div className="flex flex-col min-h-full">
       {/* Canvas sticky header */}
-      <div className="sticky top-0 z-20 flex items-center justify-between bg-white/95 backdrop-blur-sm border-b border-neutral-200 px-6 py-3.5 flex-shrink-0">
+      <div className="sticky top-0 z-20 flex items-center justify-between bg-background/95 backdrop-blur-sm border-b border-border px-6 py-3.5 flex-shrink-0">
         <button type="button" onClick={onBack}
           className="flex items-center gap-1.5 text-sm font-semibold text-neutral-500 hover:text-foreground transition-colors">
           <ChevronLeft className="h-4 w-4" /> Batal
@@ -509,7 +511,7 @@ function CreateCanvas({ onBack, onCreated }: {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-neutral-200 bg-white p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="rounded-2xl border border-border bg-card p-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div className="sm:col-span-2">
                 <FormField label="Nama Proyek" required>
                   <input className={`${INPUT_CLS} text-sm py-3`} value={form.display_name} required
@@ -618,13 +620,13 @@ function CreateCanvas({ onBack, onCreated }: {
                 <div className="grid gap-3 sm:grid-cols-4 mb-4">
                   <div className="sm:col-span-2">
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Nama Fase</label>
-                    <input className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                    <input className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
                       value={phTask} onChange={e => setPhTask(e.target.value)} placeholder="Contoh: Pondasi, Instalasi Panel…" />
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Mulai (W)</label>
                     <select title="Pilih minggu mulai"
-                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                      className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
                       value={phStartW} onChange={e => { const v = Number(e.target.value); setPhStartW(v); if (phEndW < v) setPhEndW(v) }}>
                       {Array.from({ length: 48 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
                     </select>
@@ -632,7 +634,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <div>
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Selesai (W)</label>
                     <select title="Pilih minggu selesai"
-                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                      className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
                       value={phEndW} onChange={e => setPhEndW(Number(e.target.value))}>
                       {Array.from({ length: 48 }, (_, i) => i + 1).filter(w => w >= phStartW).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
                     </select>
@@ -642,7 +644,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider whitespace-nowrap">Bobot Progress (%)</label>
                   <input type="text" inputMode="numeric" pattern="[0-9]*"
                     title="Bobot progress fase (%)" placeholder="10"
-                    className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                    className="w-20 text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
                     value={phWeight} onChange={e => setPhWeight(e.target.value.replace(/\D/g, ""))} />
                   {totalPendingWeight > 0 && (
                     <p className="text-[10px] text-neutral-400">Total fase saat ini: <span className={`font-bold ${totalPendingWeight + (Number(phWeight) || 0) > 100 ? "text-red-500" : "text-neutral-600"}`}>{totalPendingWeight + (Number(phWeight) || 0)}%</span></p>
@@ -665,8 +667,8 @@ function CreateCanvas({ onBack, onCreated }: {
                 <p className="text-xs text-neutral-300">Klik &ldquo;Tambah Fase&rdquo; untuk membangun timeline proyek sekarang, atau lewati dan lakukan setelah proyek dibuat.</p>
               </div>
             ) : (
-              <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
-                <div className="px-4 py-3 border-b border-neutral-100 bg-neutral-50 flex items-center justify-between">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{pendingPhases.length} Fase Dijadwalkan</span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${totalPendingWeight === 100 ? "bg-emerald-100 text-emerald-700" : totalPendingWeight > 100 ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700"}`}>
                     Total Bobot: {totalPendingWeight}%{totalPendingWeight === 100 ? " ✓" : ""}
@@ -717,13 +719,13 @@ function CreateCanvas({ onBack, onCreated }: {
                 <div className="grid gap-3 sm:grid-cols-3 mb-4">
                   <div className="sm:col-span-1">
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Nama Termin</label>
-                    <input className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                    <input className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
                       value={tName} onChange={e => setTName(e.target.value)} placeholder="Contoh: DP 30%, Progress 40%…" />
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Trigger Progres (%)</label>
                     <input type="text" inputMode="numeric" pattern="[0-9]*"
-                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                      className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
                       value={tTrigger} onChange={e => setTTrigger(e.target.value.replace(/\D/g, ""))}
                       placeholder="50" />
                     <p className="text-[9px] text-neutral-400 mt-1">Tagihan terbuka saat progres fisik ≥ nilai ini</p>
@@ -731,7 +733,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <div>
                     <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Porsi Tagihan (%)</label>
                     <input type="text" inputMode="numeric" pattern="[0-9]*"
-                      className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
+                      className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400 transition-all"
                       value={tBillingPct} onChange={e => setTBillingPct(e.target.value.replace(/\D/g, ""))}
                       placeholder="30" />
                     <p className="text-[9px] text-neutral-400 mt-1">% dari total nilai kontrak</p>
@@ -759,8 +761,8 @@ function CreateCanvas({ onBack, onCreated }: {
                 <p className="text-xs text-neutral-300">TOP opsional — bisa ditambahkan setelah proyek dibuat.</p>
               </div>
             ) : (
-              <div className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
-                <div className="px-4 py-3 border-b border-neutral-100 bg-neutral-50 flex items-center justify-between">
+              <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{pendingTermins.length} Termin Dijadwalkan</span>
                   {(() => {
                     const total = pendingTermins.reduce((s, t) => s + t.billing_percentage, 0)
@@ -813,7 +815,7 @@ function CreateCanvas({ onBack, onCreated }: {
             ) : (
               <div className="flex flex-col gap-2.5">
                 {pendingVOs.map((vo, idx) => (
-                  <div key={vo.id} className="p-4 rounded-xl border border-neutral-200 bg-white grid grid-cols-3 gap-3 items-start">
+                  <div key={vo.id} className="p-4 rounded-xl border border-border bg-card grid grid-cols-3 gap-3 items-start">
                     <div>
                       <p className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider mb-1">No. PO VO</p>
                       <input className={INPUT_CLS} value={vo.po_number} placeholder="PO Kerja Tambah"
@@ -860,7 +862,7 @@ function CreateCanvas({ onBack, onCreated }: {
             <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/40 flex flex-col items-center justify-center py-12 gap-2">
               <div className="flex gap-2">
                 {[1,2,3].map(i => (
-                  <div key={i} className="h-20 w-32 rounded-xl bg-white border border-neutral-100 animate-pulse" style={{ opacity: 1 - i * 0.2 }} />
+                  <div key={i} className="h-20 w-32 rounded-xl bg-card border border-border animate-pulse" style={{ opacity: 1 - i * 0.2 }} />
                 ))}
               </div>
               <p className="text-xs text-neutral-400 mt-3 font-medium">Log lapangan akan tersedia di sini</p>
@@ -1008,7 +1010,7 @@ function LogEditPopover({ log, onSave, onClose }: {
   }
 
   return (
-    <div className="mt-2 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+    <div className="mt-2 rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[11px] font-bold text-neutral-600 uppercase tracking-wider">Edit Log — {weekToLabel(log.week_number)}</span>
         <button type="button" onClick={onClose} className="p-1 rounded hover:bg-neutral-100 text-neutral-400"><X className="h-3.5 w-3.5" /></button>
@@ -1067,6 +1069,11 @@ export default function DocConPage() {
   const [showTopEditor,  setShowTopEditor]  = React.useState(false)
   const [editingTop,     setEditingTop]     = React.useState<TerminEntry[]>([])
   const [savingTop,      setSavingTop]      = React.useState(false)
+
+  const [confirmDeletePhaseId, setConfirmDeletePhaseId] = React.useState<string | null>(null)
+  const [deletingPhaseId,      setDeletingPhaseId]      = React.useState<string | null>(null)
+  const [confirmDeleteLogId,   setConfirmDeleteLogId]   = React.useState<string | null>(null)
+  const [deletingLogId,        setDeletingLogId]        = React.useState<string | null>(null)
 
   const debouncedSearch = useDebounce(poSearch, 280)
 
@@ -1138,15 +1145,20 @@ export default function DocConPage() {
 
   const activeProject   = allProjects.find(p => p.project_key === activeKey)
   const currentProgress = computeProgress(phases)
-  const maxWeek         = phases.length > 0 ? Math.max(...phases.map(p => Math.max(p.week_number, p.end_week || p.week_number))) : 1
-  const totalWeeks = Math.max(maxWeek, 8)
-  const weekArr    = Array.from({ length: totalWeeks }, (_, k) => k + 1)
-  const monthGrps  = React.useMemo(() => {
+  // Dynamic grid bounds: snap left edge to earliest phase's month, eliminate empty leading columns
+  const minWeek        = phases.length > 0 ? Math.min(...phases.map(p => p.week_number)) : 1
+  const maxWeek        = phases.length > 0 ? Math.max(...phases.map(p => Math.max(p.week_number, p.end_week || p.week_number))) : 1
+  const gridStartMo    = Math.floor((minWeek - 1) / 4)
+  const gridStartWeek  = gridStartMo * 4 + 1
+  const rawSpan        = maxWeek - gridStartWeek + 1
+  const totalGridWeeks = Math.max(Math.ceil(rawSpan / 4) * 4, 8)
+  const weekArr        = Array.from({ length: totalGridWeeks }, (_, k) => gridStartWeek + k)
+  const monthGrps      = React.useMemo(() => {
     const grps: { label: string; count: number }[] = []
-    let wIdx = 0, mOff = 0
-    while (wIdx < totalWeeks) { grps.push({ label: MONTHS_ID[mOff % 12], count: Math.min(4, totalWeeks - wIdx) }); wIdx += 4; mOff++ }
+    let wIdx = 0, mOff = gridStartMo
+    while (wIdx < totalGridWeeks) { grps.push({ label: MONTHS_ID[mOff % 12], count: Math.min(4, totalGridWeeks - wIdx) }); wIdx += 4; mOff++ }
     return grps
-  }, [totalWeeks])
+  }, [totalGridWeeks, gridStartMo])
 
   // ── Re-fetch updated_at from DB after any mutation ───────────────────────
   // Mutations hit the DB which fires triggers that bump updated_at server-side.
@@ -1252,11 +1264,21 @@ export default function DocConPage() {
   }
 
   async function deletePhase(id: string) {
-    await fetch(`/api/project-schedule/item/${id}`, { method: "DELETE" })
-    const orphanIds = weekLogs.filter(l => l.phase_id === id).map(l => l.id)
-    await Promise.all(orphanIds.map(lid => fetch(`/api/project-weekly-logs/item/${lid}`, { method: "DELETE" }).catch(() => {})))
-    setPhases(prev => prev.filter(p => p.id !== id)); setWeekLogs(prev => prev.filter(l => l.phase_id !== id))
-    if (activeKey) void refreshUpdatedAt(activeKey)
+    setDeletingPhaseId(id)
+    try {
+      const orphanIds = weekLogs.filter(l => l.phase_id === id).map(l => l.id)
+      await fetch(`/api/project-schedule/item/${id}`, { method: "DELETE" })
+      await Promise.all(orphanIds.map(lid => fetch(`/api/project-weekly-logs/item/${lid}`, { method: "DELETE" }).catch(() => {})))
+      setPhases(prev => prev.filter(p => p.id !== id))
+      setWeekLogs(prev => prev.filter(l => l.phase_id !== id))
+      if (activeKey) void refreshUpdatedAt(activeKey)
+      toast.success(orphanIds.length > 0 ? `Fase & ${orphanIds.length} log terhapus` : "Fase berhasil dihapus")
+    } catch {
+      toast.error("Gagal menghapus fase — coba lagi")
+    } finally {
+      setDeletingPhaseId(null)
+      setConfirmDeletePhaseId(null)
+    }
   }
 
   async function saveLog(logId: string, desc: string, photo: File | null) {
@@ -1273,9 +1295,18 @@ export default function DocConPage() {
   }
 
   async function deleteLog(logId: string) {
-    await fetch(`/api/project-weekly-logs/item/${logId}`, { method: "DELETE" })
-    setWeekLogs(prev => prev.filter(l => l.id !== logId))
-    if (activeKey) void refreshUpdatedAt(activeKey)
+    setDeletingLogId(logId)
+    try {
+      await fetch(`/api/project-weekly-logs/item/${logId}`, { method: "DELETE" })
+      setWeekLogs(prev => prev.filter(l => l.id !== logId))
+      if (activeKey) void refreshUpdatedAt(activeKey)
+      toast.success("Log berhasil dihapus")
+    } catch {
+      toast.error("Gagal menghapus log — coba lagi")
+    } finally {
+      setDeletingLogId(null)
+      setConfirmDeleteLogId(null)
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1300,7 +1331,7 @@ export default function DocConPage() {
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
                   <input type="search" value={poSearch} onChange={e => setPoSearch(e.target.value)}
                     placeholder="Cari Berdasarkan Nomor PO Utama..."
-                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-neutral-200 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 focus:bg-white transition-all" />
+                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl border border-border bg-muted text-foreground focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 focus:bg-background transition-all" />
                 </div>
                 <button type="button" onClick={() => { setIsCreating(true); setActiveKey(null) }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm shadow-indigo-200 flex-shrink-0">
@@ -1319,7 +1350,7 @@ export default function DocConPage() {
                     {loadingProj ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                         {[1,2,3,4].map(i => (
-                          <div key={i} className="rounded-2xl border border-neutral-100 bg-white overflow-hidden animate-pulse">
+                          <div key={i} className="rounded-2xl border border-border bg-card overflow-hidden animate-pulse">
                             <div className="h-20 bg-neutral-50" />
                             <div className="p-4 flex flex-col gap-3">
                               <div className="h-2.5 bg-neutral-100 rounded-full w-3/4" />
@@ -1331,7 +1362,7 @@ export default function DocConPage() {
                       </div>
                     ) : filteredProjects.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-24 rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/40">
-                        <div className="h-14 w-14 rounded-2xl bg-white border border-neutral-200 flex items-center justify-center mb-4 shadow-sm"><FolderOpen className="h-6 w-6 text-neutral-300" /></div>
+                        <div className="h-14 w-14 rounded-2xl bg-card border border-border flex items-center justify-center mb-4 shadow-sm"><FolderOpen className="h-6 w-6 text-neutral-300" /></div>
                         <p className="text-sm font-semibold text-neutral-500 mb-1">{debouncedSearch ? `Tidak ada proyek untuk "${debouncedSearch}"` : "Belum ada proyek"}</p>
                         <p className="text-xs text-neutral-400 mb-4">{debouncedSearch ? "Coba kata kunci lain." : "Klik \"+ Proyek Baru\" untuk mulai."}</p>
                         {!debouncedSearch && (
@@ -1500,20 +1531,20 @@ export default function DocConPage() {
                               <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest mb-4">Edit TOP Schedule</p>
                               <div className="flex flex-col gap-2.5 mb-4">
                                 {editingTop.map((t, i) => (
-                                  <div key={t.id} className="grid grid-cols-3 gap-2 items-center bg-white rounded-lg border border-neutral-200 p-3">
+                                  <div key={t.id} className="grid grid-cols-3 gap-2 items-center bg-card rounded-lg border border-border p-3">
                                     <input className={INPUT_CLS} value={t.nama} placeholder={`Termin ${i+1}`}
                                       onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, nama: e.target.value } : x))} />
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-[9px] text-neutral-400 whitespace-nowrap">Trigger %</span>
                                       <input type="text" inputMode="numeric" title="Trigger progres" placeholder="50"
-                                        className="flex-1 text-xs rounded-lg border border-neutral-200 bg-white px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                        className="flex-1 text-xs rounded-lg border border-border bg-background text-foreground px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                                         value={t.target_progres}
                                         onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, target_progres: Number(e.target.value.replace(/\D/g,"")) || 0 } : x))} />
                                     </div>
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-[9px] text-neutral-400 whitespace-nowrap">Tagihan %</span>
                                       <input type="text" inputMode="numeric" title="Porsi tagihan" placeholder="30"
-                                        className="flex-1 text-xs rounded-lg border border-neutral-200 bg-white px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                        className="flex-1 text-xs rounded-lg border border-border bg-background text-foreground px-2 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                                         value={t.persen_tagihan}
                                         onChange={e => setEditingTop(prev => prev.map((x, j) => j === i ? { ...x, persen_tagihan: Number(e.target.value.replace(/\D/g,"")) || 0 } : x))} />
                                       <button type="button" aria-label="Hapus termin" title="Hapus termin"
@@ -1597,19 +1628,19 @@ export default function DocConPage() {
                               <div className="grid gap-3 sm:grid-cols-4 mb-4">
                                 <div className="sm:col-span-2">
                                   <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Nama Fase</label>
-                                  <input className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                  <input className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                                     value={phaseTask} onChange={e => setPhaseTask(e.target.value)} placeholder="Contoh: Pondasi, Instalasi Panel…" required />
                                 </div>
                                 <div>
                                   <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Mulai (W)</label>
-                                  <select title="Pilih minggu mulai" className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                  <select title="Pilih minggu mulai" className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                                     value={phaseStartW} onChange={e => { const v = Number(e.target.value); setPhaseStartW(v); if (phaseEndW < v) setPhaseEndW(v) }}>
                                     {Array.from({ length: 48 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
                                   </select>
                                 </div>
                                 <div>
                                   <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Selesai (W)</label>
-                                  <select title="Pilih minggu selesai" className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                  <select title="Pilih minggu selesai" className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                                     value={phaseEndW} onChange={e => setPhaseEndW(Number(e.target.value))}>
                                     {Array.from({ length: 48 }, (_, i) => i + 1).filter(w => w >= phaseStartW).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
                                   </select>
@@ -1619,7 +1650,7 @@ export default function DocConPage() {
                                 <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider whitespace-nowrap">Bobot Progress (%)</label>
                                 <input type="text" inputMode="numeric" pattern="[0-9]*"
                                   title="Bobot progress fase (%)" placeholder="10"
-                                  className="w-20 text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+                                  className="w-20 text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
                                   value={phaseWeight} onChange={e => setPhaseWeight(e.target.value.replace(/\D/g, ""))} />
                                 <p className="text-[10px] text-neutral-400">Total semua fase idealnya = 100%</p>
                               </div>
@@ -1632,6 +1663,32 @@ export default function DocConPage() {
                               </div>
                             </form>
                           )}
+
+                          {/* Phase delete confirmation banner */}
+                          {confirmDeletePhaseId && (() => {
+                            const ph = phases.find(p => p.id === confirmDeletePhaseId)
+                            if (!ph) return null
+                            const logCount = weekLogs.filter(l => l.phase_id === ph.id).length
+                            return (
+                              <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-800">
+                                <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                                <p className="text-xs text-red-700 dark:text-red-400 flex-1 min-w-0">
+                                  Hapus fase <strong className="font-bold">&ldquo;{ph.task_description}&rdquo;</strong>
+                                  {logCount > 0 && <> beserta <strong>{logCount} log</strong> terlampir</>}?
+                                </p>
+                                <button type="button" disabled={deletingPhaseId === ph.id}
+                                  onClick={() => deletePhase(ph.id)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-[11px] font-bold hover:bg-red-600 disabled:opacity-50 transition-colors flex-shrink-0">
+                                  {deletingPhaseId === ph.id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                  {deletingPhaseId === ph.id ? "Menghapus…" : "Hapus"}
+                                </button>
+                                <button type="button" onClick={() => setConfirmDeletePhaseId(null)}
+                                  className="px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-700 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 flex-shrink-0">
+                                  Batal
+                                </button>
+                              </div>
+                            )
+                          })()}
 
                           {phases.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-14 rounded-xl border border-dashed border-neutral-200 bg-neutral-50/50">
@@ -1660,14 +1717,19 @@ export default function DocConPage() {
                                         <span className="text-xs min-w-0 flex-1 truncate font-medium" title={ph.task_description} style={{ color: ph.is_done ? "#9ca3af" : "#374151", textDecoration: ph.is_done ? "line-through" : "none" }}>{ph.task_description}</span>
                                         <div className="flex-shrink-0 flex items-center gap-1">
                                           {hasBell && <span title="Milestone termin"><Bell className="h-3 w-3 text-amber-400" /></span>}
-                                          <button type="button" title="Hapus fase" aria-label="Hapus fase" onClick={() => deletePhase(ph.id)} className="opacity-0 group-hover/row:opacity-100 transition-opacity text-neutral-300 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
+                                          <button type="button" title="Hapus fase" aria-label="Hapus fase"
+                                            onClick={() => setConfirmDeletePhaseId(ph.id)}
+                                            disabled={deletingPhaseId === ph.id}
+                                            className="text-neutral-300 hover:text-red-400 transition-colors disabled:opacity-40">
+                                            <Trash2 className="h-3 w-3" />
+                                          </button>
                                         </div>
                                       </div>
                                     )
                                   })}
                                 </div>
                                 <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
-                                  <div style={{ minWidth: totalWeeks * COL_W }}>
+                                  <div style={{ minWidth: totalGridWeeks * COL_W }}>
                                     <div className="flex border-b border-border bg-muted">
                                       {monthGrps.map((mg, mi) => (
                                         <div key={mi} className="flex-shrink-0 flex items-center justify-center border-r border-neutral-100 py-1.5" style={{ width: COL_W * mg.count }}>
@@ -1687,11 +1749,11 @@ export default function DocConPage() {
                                       const startW  = Math.max(1, ph.week_number)
                                       const endW    = Math.max(startW, ph.end_week || ph.week_number)
                                       const hasBell = hasTerminBell(ph.id, phases, activeProject?.termin_schedule ?? [])
-                                      const barLeft  = (startW - 1) * COL_W + 4
+                                      const barLeft  = (startW - gridStartWeek) * COL_W + 4
                                       const barWidth = (endW - startW + 1) * COL_W - 8
                                       const lblLeft  = barLeft + barWidth + 6
                                       return (
-                                        <div key={ph.id} className="relative border-b border-neutral-100" style={{ minHeight: 48, width: totalWeeks * COL_W }}>
+                                        <div key={ph.id} className="relative border-b border-neutral-100" style={{ minHeight: 48, width: totalGridWeeks * COL_W }}>
                                           <div className="absolute inset-0 flex pointer-events-none">{weekArr.map(w => <div key={w} className="flex-shrink-0 h-full border-r border-neutral-50" style={{ width: COL_W }} />)}</div>
                                           <div className="absolute flex items-center gap-1.5 rounded-full px-3 shadow-sm overflow-hidden transition-all duration-300"
                                             style={{ left: barLeft, width: barWidth, height: 28, top: "50%", transform: "translateY(-50%)", background: ph.is_done ? c.done : c.bg, color: c.text, zIndex: 1, border: `1px solid ${ph.is_done ? "transparent" : c.border}` }}>
@@ -1699,8 +1761,8 @@ export default function DocConPage() {
                                             {ph.is_done && <CheckCheck className="h-2.5 w-2.5 flex-shrink-0" style={{ color: "#fff" }} />}
                                             <span className="text-[10px] font-bold tabular-nums whitespace-nowrap" style={{ color: ph.is_done ? "#fff" : c.text }}>{ph.progress_weight}%</span>
                                           </div>
-                                          {lblLeft < totalWeeks * COL_W - 24 && (
-                                            <div className="absolute text-[10px] font-medium text-neutral-400 whitespace-nowrap overflow-hidden" style={{ left: lblLeft, top: "50%", transform: "translateY(-50%)", maxWidth: totalWeeks * COL_W - lblLeft - 4 }}>{ph.task_description}</div>
+                                          {lblLeft < totalGridWeeks * COL_W - 24 && (
+                                            <div className="absolute text-[10px] font-medium text-neutral-400 whitespace-nowrap overflow-hidden" style={{ left: lblLeft, top: "50%", transform: "translateY(-50%)", maxWidth: totalGridWeeks * COL_W - lblLeft - 4 }}>{ph.task_description}</div>
                                           )}
                                         </div>
                                       )
@@ -1753,13 +1815,14 @@ export default function DocConPage() {
                                           <div>
                                             <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Minggu ke-</label>
                                             <input type="text" inputMode="numeric" pattern="[0-9]*"
-                                              className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
+                                              title="Nomor minggu" placeholder="1"
+                                              className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
                                               value={addLogWeek} onChange={e => setAddLogWeek(Number(e.target.value.replace(/\D/g, "")) || 1)} />
                                             <p className="text-[9px] text-neutral-400 mt-1">{weekToLabel(addLogWeek)}</p>
                                           </div>
                                           <div className="sm:col-span-2">
                                             <label className="text-[10px] font-bold text-neutral-500 mb-1.5 block uppercase tracking-wider">Deskripsi Pekerjaan</label>
-                                            <textarea className="w-full text-xs rounded-lg border border-neutral-200 bg-white px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400" style={{ minHeight: 68 }} value={addLogDesc} onChange={e => setAddLogDesc(e.target.value)} placeholder="Apa yang dikerjakan minggu ini…" />
+                                            <textarea className="w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400" style={{ minHeight: 68 }} value={addLogDesc} onChange={e => setAddLogDesc(e.target.value)} placeholder="Apa yang dikerjakan minggu ini…" />
                                           </div>
                                         </div>
                                         <div className="mb-4">
@@ -1799,28 +1862,45 @@ export default function DocConPage() {
                                                   const isEditing = editingLogId === log.id
                                                   return (
                                                     <div key={log.id}>
-                                                      <div className="group flex items-start gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-muted/60 transition-colors">
-                                                        <span className="text-[9px] font-black px-2 py-1 rounded-md mt-0.5 whitespace-nowrap flex-shrink-0" style={{ background: c.bg, color: c.text }}>{weekToLabel(log.week_number)}</span>
-                                                        <div className="flex-1 min-w-0">
-                                                          {isFilled ? (
-                                                            <>
-                                                              <p className="text-xs text-neutral-700 leading-relaxed line-clamp-2">{log.description}</p>
-                                                              <div className="flex items-center gap-3 mt-1.5">
-                                                                {log.photo_url && <a href={log.photo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-indigo-500 hover:underline"><Camera className="h-2.5 w-2.5" /> Foto</a>}
-                                                                <span className="text-[9px] text-neutral-400 tabular-nums">{log.progress_pct}% progres</span>
-                                                              </div>
-                                                            </>
-                                                          ) : (
-                                                            <p className="text-xs text-neutral-300 italic">Kosong — belum diisi</p>
-                                                          )}
+                                                      {confirmDeleteLogId === log.id ? (
+                                                        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-red-100 bg-red-50 dark:bg-red-950/30">
+                                                          <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                                                          <span className="text-[11px] text-red-700 dark:text-red-400 flex-1 min-w-0 truncate">
+                                                            Hapus log <strong>{weekToLabel(log.week_number)}</strong>?
+                                                          </span>
+                                                          <button type="button" disabled={deletingLogId === log.id}
+                                                            onClick={() => deleteLog(log.id)}
+                                                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500 text-white text-[10px] font-bold hover:bg-red-600 disabled:opacity-50 flex-shrink-0">
+                                                            {deletingLogId === log.id ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : null}
+                                                            {deletingLogId === log.id ? "…" : "Hapus"}
+                                                          </button>
+                                                          <button type="button" onClick={() => setConfirmDeleteLogId(null)}
+                                                            className="px-2.5 py-1 rounded-lg border border-red-200 text-[10px] font-medium text-red-600 hover:bg-red-100 flex-shrink-0">Batal</button>
                                                         </div>
-                                                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                                                          <button type="button" title="Edit log" aria-label="Edit log" onClick={() => setEditingLogId(isEditing ? null : log.id)} className={`p-1.5 rounded-lg transition-colors ${isEditing ? "bg-indigo-100 text-indigo-600" : "hover:bg-neutral-100 text-neutral-400 hover:text-indigo-600"}`}><Pencil className="h-3 w-3" /></button>
-                                                          <button type="button" title="Hapus log" aria-label="Hapus log" onClick={() => deleteLog(log.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-neutral-300 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
+                                                      ) : (
+                                                        <div className="group flex items-start gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-muted/60 transition-colors">
+                                                          <span className="text-[9px] font-black px-2 py-1 rounded-md mt-0.5 whitespace-nowrap flex-shrink-0" style={{ background: c.bg, color: c.text }}>{weekToLabel(log.week_number)}</span>
+                                                          <div className="flex-1 min-w-0">
+                                                            {isFilled ? (
+                                                              <>
+                                                                <p className="text-xs text-foreground leading-relaxed line-clamp-2">{log.description}</p>
+                                                                <div className="flex items-center gap-3 mt-1.5">
+                                                                  {log.photo_url && <a href={log.photo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-indigo-500 hover:underline"><Camera className="h-2.5 w-2.5" /> Foto</a>}
+                                                                  <span className="text-[9px] text-neutral-400 tabular-nums">{log.progress_pct}% progres</span>
+                                                                </div>
+                                                              </>
+                                                            ) : (
+                                                              <p className="text-xs text-neutral-400 italic">Kosong — belum diisi</p>
+                                                            )}
+                                                          </div>
+                                                          <div className="flex items-center gap-0.5 flex-shrink-0">
+                                                            <button type="button" title="Edit log" aria-label="Edit log" onClick={() => setEditingLogId(isEditing ? null : log.id)} className={`p-1.5 rounded-lg transition-colors ${isEditing ? "bg-indigo-100 text-indigo-600" : "hover:bg-neutral-100 text-neutral-400 hover:text-indigo-600"}`}><Pencil className="h-3 w-3" /></button>
+                                                            <button type="button" title="Hapus log" aria-label="Hapus log" onClick={() => setConfirmDeleteLogId(log.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-neutral-300 hover:text-red-400 transition-colors"><Trash2 className="h-3 w-3" /></button>
+                                                          </div>
                                                         </div>
-                                                      </div>
+                                                      )}
                                                       {isEditing && (
-                                                        <div className="px-4 pb-4 bg-neutral-50 border-b border-neutral-100">
+                                                        <div className="px-4 pb-4 bg-muted/50 border-b border-border">
                                                           <LogEditPopover log={log} onSave={saveLog} onClose={() => setEditingLogId(null)} />
                                                         </div>
                                                       )}
@@ -1849,6 +1929,7 @@ export default function DocConPage() {
         </div>
 
         {editProject && <EditProjectModal project={editProject} onSave={handleSaveEdit} onClose={() => setEditProject(null)} />}
+        <Toaster richColors position="bottom-right" />
       </SidebarInset>
     </SidebarProvider>
   )
