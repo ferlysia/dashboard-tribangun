@@ -1,57 +1,242 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar }  from "@/components/app-sidebar"
 import { SiteHeader }  from "@/components/site-header"
-import { Toaster }     from "@/components/ui/sonner"
-import { toast }       from "sonner"
 import {
-  Save, Plus, Trash2, RefreshCw, FolderOpen, BarChart3,
-  ExternalLink, CheckCircle2, TrendingUp, TrendingDown,
-  Minus, Lock, Bell, ChevronLeft, ChevronDown, ChevronRight,
-  Camera, CheckCheck,
+  FolderOpen, BarChart3, Receipt, Wallet,
+  CheckCheck, Lock, Camera, TrendingUp, TrendingDown,
+  Minus, ExternalLink, CheckCircle2, X, ChevronRight,
 } from "lucide-react"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
-type PendingPhase = {
-  tempId: string; task_description: string
-  week_number: number; end_week: number; progress_weight: number
+type Phase = {
+  id: string
+  task_description: string
+  week_number: number
+  end_week: number
+  progress_weight: number
+  is_done: boolean
 }
 
-type PendingTermin = {
-  tempId: string; termin_name: string
-  required_progress_trigger: number; billing_percentage: number
+type WeekLog = {
+  id: string
+  phase_id: string
+  week_number: number
+  description: string
+  progress_pct: number
+  created_by: string
 }
 
-type VOEntry = { id: string; po_number: string; description: string; nilai_po: number }
+type TerminEntry = {
+  id: string
+  nama: string
+  target_progres: number
+  persen_tagihan: number
+  status: "TERKUNCI" | "SIAP_TAGIH" | "PROSES_COLLECT" | "LUNAS"
+}
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+type BudgetStream = {
+  label: string
+  main: number
+  vo: number
+}
 
-const GANTT_YEAR = 2026
-const MONTHS_ID  = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"]
-const PILL       = [
+type Project = {
+  id: string
+  display_name: string
+  customer_name: string
+  site_location: string
+  pic_name: string
+  po_number: string
+  contract_value: number
+  project_status: "BERJALAN" | "SELESAI" | "DITUNDA"
+  physical_progress: number
+  description: string
+  due_date: string
+  onedrive_url?: string
+  phases: Phase[]
+  logs: WeekLog[]
+  termins: TerminEntry[]
+  budget: BudgetStream[]
+}
+
+type DivTab = "doccon" | "cc" | "finance"
+
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const GANTT_YEAR  = 2026
+const MONTHS_ID   = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"]
+const COL_W       = 52
+const PILL = [
   { bg: "#dbeafe", text: "#1e40af", done: "#3b82f6", border: "#bfdbfe" },
   { bg: "#d1fae5", text: "#065f46", done: "#10b981", border: "#a7f3d0" },
   { bg: "#fce7f3", text: "#831843", done: "#ec4899", border: "#fbcfe8" },
   { bg: "#ede9fe", text: "#4c1d95", done: "#8b5cf6", border: "#ddd6fe" },
   { bg: "#fef3c7", text: "#78350f", done: "#f59e0b", border: "#fde68a" },
+  { bg: "#fee2e2", text: "#7f1d1d", done: "#ef4444", border: "#fecaca" },
 ]
 
-const BUDGET_STREAMS: { key: string; label: string; voKey: string }[] = [
-  { key: "gaji",        label: "Gaji & Tunjangan",    voKey: "vo_gaji"        },
-  { key: "material",    label: "Material / Bahan",     voKey: "vo_material"    },
-  { key: "transport",   label: "Transport & Logistik", voKey: "vo_transport"   },
-  { key: "operasional", label: "Biaya Operasional",    voKey: "vo_operasional" },
-  { key: "sewa",        label: "Sewa & Utilitas",      voKey: "vo_sewa"        },
-  { key: "lainnya",     label: "Biaya Lainnya",        voKey: "vo_lainnya"     },
-]
+// ─── Mock Data ─────────────────────────────────────────────────────────────────
 
-const INPUT_CLS = "w-full text-xs rounded-lg border border-border bg-background text-foreground px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
+const MOCK_PROJECTS: Project[] = [
+  {
+    id: "p1",
+    display_name: "BANJARMASIN CENTRUM 30kW",
+    customer_name: "PT. Sinar Matahari Nusantara",
+    site_location: "Banjarmasin, Kalimantan Selatan",
+    pic_name: "Budi Santoso",
+    po_number: "12345/TB-BJM-2026",
+    contract_value: 850_000_000,
+    project_status: "BERJALAN",
+    physical_progress: 65,
+    description: "Instalasi sistem PLTS atap kapasitas 30kW untuk gedung komersial Centrum Plaza. Lingkup meliputi pengadaan material, instalasi panel surya, wiring system, dan commissioning grid-tie inverter.",
+    due_date: "2026-09-30",
+    phases: [
+      { id: "ph1-1", task_description: "Survey & Perencanaan",  week_number: 1,  end_week: 4,  progress_weight: 10, is_done: true  },
+      { id: "ph1-2", task_description: "Pengadaan Material",    week_number: 5,  end_week: 8,  progress_weight: 20, is_done: true  },
+      { id: "ph1-3", task_description: "Instalasi Panel Surya", week_number: 9,  end_week: 16, progress_weight: 35, is_done: true  },
+      { id: "ph1-4", task_description: "Wiring & Koneksi",      week_number: 17, end_week: 20, progress_weight: 25, is_done: false },
+      { id: "ph1-5", task_description: "Commissioning & Test",  week_number: 21, end_week: 24, progress_weight: 10, is_done: false },
+    ],
+    logs: [
+      { id: "l1-1", phase_id: "ph1-1", week_number: 2,  description: "Survei lokasi selesai. Denah final dan titik mounting disetujui klien.", progress_pct: 10, created_by: "Budi S." },
+      { id: "l1-2", phase_id: "ph1-2", week_number: 6,  description: "Material panel 30 unit dan inverter 3-phase tiba di gudang logistik.", progress_pct: 30, created_by: "Rizky P." },
+      { id: "l1-3", phase_id: "ph1-3", week_number: 11, description: "Instalasi 15 panel baris pertama selesai. Struktur rangka terpasang kokoh.", progress_pct: 50, created_by: "Budi S." },
+      { id: "l1-4", phase_id: "ph1-3", week_number: 15, description: "Semua 30 panel terpasang. Output test awal 28.4kW peak — hampir target.", progress_pct: 65, created_by: "Hendra W." },
+    ],
+    termins: [
+      { id: "t1-1", nama: "DP Kontrak 30%",        target_progres: 0,  persen_tagihan: 30, status: "LUNAS"          },
+      { id: "t1-2", nama: "Progress 50% Lapangan",  target_progres: 50, persen_tagihan: 40, status: "PROSES_COLLECT" },
+      { id: "t1-3", nama: "Pelunasan Serah Terima", target_progres: 95, persen_tagihan: 30, status: "TERKUNCI"       },
+    ],
+    budget: [
+      { label: "Gaji & Tunjangan",     main: 80_000_000,  vo: 0 },
+      { label: "Material / Bahan",     main: 420_000_000, vo: 0 },
+      { label: "Transport & Logistik", main: 30_000_000,  vo: 0 },
+      { label: "Biaya Operasional",    main: 25_000_000,  vo: 0 },
+      { label: "Sewa & Utilitas",      main: 20_000_000,  vo: 0 },
+      { label: "Biaya Lainnya",        main: 15_000_000,  vo: 0 },
+    ],
+  },
+  {
+    id: "p2",
+    display_name: "SURABAYA INDUSTRIAL SOLAR 75kW",
+    customer_name: "CV. Industri Mandiri Sejahtera",
+    site_location: "Rungkut Industrial Estate, Surabaya",
+    pic_name: "Rizky Pratama",
+    po_number: "78901/TB-SBY-2026",
+    contract_value: 1_250_000_000,
+    project_status: "BERJALAN",
+    physical_progress: 38,
+    description: "PLTS skala industri 75kW untuk kawasan pabrik. Sistem terdiri dari 250 panel monokristallin, 3 unit string inverter, dan panel monitoring berbasis IoT real-time.",
+    due_date: "2026-10-15",
+    phases: [
+      { id: "ph2-1", task_description: "Mobilisasi & Persiapan Site", week_number: 9,  end_week: 12, progress_weight: 15, is_done: true  },
+      { id: "ph2-2", task_description: "Pondasi & Struktur Mounting", week_number: 13, end_week: 16, progress_weight: 23, is_done: true  },
+      { id: "ph2-3", task_description: "Instalasi Panel 250 Unit",    week_number: 17, end_week: 24, progress_weight: 35, is_done: false },
+      { id: "ph2-4", task_description: "Wiring, IoT & Commissioning", week_number: 25, end_week: 32, progress_weight: 27, is_done: false },
+    ],
+    logs: [
+      { id: "l2-1", phase_id: "ph2-1", week_number: 10, description: "Mobilisasi tim 8 orang ke site Surabaya. Gudang material dan peralatan sudah siap.", progress_pct: 15, created_by: "Rizky P." },
+      { id: "l2-2", phase_id: "ph2-2", week_number: 14, description: "Pondasi beton 60 titik selesai. Struktur galvanis terpasang 80% dari rencana awal.", progress_pct: 38, created_by: "Rizky P." },
+    ],
+    termins: [
+      { id: "t2-1", nama: "DP Awal 25%",  target_progres: 0,  persen_tagihan: 25, status: "SIAP_TAGIH" },
+      { id: "t2-2", nama: "Progress 60%", target_progres: 60, persen_tagihan: 75, status: "TERKUNCI"   },
+    ],
+    budget: [
+      { label: "Gaji & Tunjangan",     main: 120_000_000, vo: 0 },
+      { label: "Material / Bahan",     main: 850_000_000, vo: 0 },
+      { label: "Transport & Logistik", main: 55_000_000,  vo: 0 },
+      { label: "Biaya Operasional",    main: 75_000_000,  vo: 0 },
+      { label: "Sewa & Utilitas",      main: 50_000_000,  vo: 0 },
+      { label: "Biaya Lainnya",        main: 40_000_000,  vo: 0 },
+    ],
+  },
+  {
+    id: "p3",
+    display_name: "JAKARTA TOWER RETROFIT 120kW",
+    customer_name: "PT. Tower Abadi Gemilang",
+    site_location: "SCBD, Jakarta Selatan",
+    pic_name: "Hendra Wijaya",
+    po_number: "56789/TB-JKT-2025",
+    contract_value: 2_100_000_000,
+    project_status: "SELESAI",
+    physical_progress: 100,
+    description: "Retrofit sistem PLTS existing 120kW pada rooftop gedung perkantoran 20 lantai. Termasuk penggantian inverter lama, penambahan 80 panel tier-1, dan upgrade sistem monitoring SCADA.",
+    due_date: "2026-05-31",
+    onedrive_url: "https://onedrive.live.com/",
+    phases: [
+      { id: "ph3-1", task_description: "Audit & Desain Sistem",          week_number: 1,  end_week: 4,  progress_weight: 8,  is_done: true },
+      { id: "ph3-2", task_description: "Pengadaan Material & Logistik",  week_number: 5,  end_week: 8,  progress_weight: 15, is_done: true },
+      { id: "ph3-3", task_description: "Pembongkaran Sistem Lama",       week_number: 9,  end_week: 10, progress_weight: 10, is_done: true },
+      { id: "ph3-4", task_description: "Instalasi Panel Baru 80 Unit",   week_number: 11, end_week: 18, progress_weight: 32, is_done: true },
+      { id: "ph3-5", task_description: "Inverter & SCADA Integration",   week_number: 19, end_week: 22, progress_weight: 25, is_done: true },
+      { id: "ph3-6", task_description: "Commissioning & Hand-Over",      week_number: 23, end_week: 24, progress_weight: 10, is_done: true },
+    ],
+    logs: [
+      { id: "l3-1", phase_id: "ph3-1", week_number: 2,  description: "Audit kondisi panel lama — 40% dalam kondisi degraded, keputusan ganti semua.",      progress_pct: 8,   created_by: "Hendra W." },
+      { id: "l3-2", phase_id: "ph3-3", week_number: 9,  description: "Pembongkaran 40 panel lama selesai 1 hari lebih cepat dari jadwal baseline.",          progress_pct: 33,  created_by: "Hendra W." },
+      { id: "l3-3", phase_id: "ph3-4", week_number: 14, description: "80 panel baru terpasang penuh. Output test awal: 105kW peak — target 120kW hampir.",   progress_pct: 65,  created_by: "Budi S."   },
+      { id: "l3-4", phase_id: "ph3-5", week_number: 20, description: "SCADA online. Dashboard monitoring real-time aktif, data logger terintegrasi sempurna.", progress_pct: 90,  created_by: "Hendra W." },
+      { id: "l3-5", phase_id: "ph3-6", week_number: 24, description: "Serah terima ke klien selesai. Semua dokumen as-built dan garansi telah diserahkan. ✓",  progress_pct: 100, created_by: "Hendra W." },
+    ],
+    termins: [
+      { id: "t3-1", nama: "DP Mobilisasi 30%",     target_progres: 0,   persen_tagihan: 30, status: "LUNAS" },
+      { id: "t3-2", nama: "Progress 60% Lapangan", target_progres: 60,  persen_tagihan: 40, status: "LUNAS" },
+      { id: "t3-3", nama: "Serah Terima Akhir",    target_progres: 100, persen_tagihan: 30, status: "LUNAS" },
+    ],
+    budget: [
+      { label: "Gaji & Tunjangan",     main: 180_000_000,   vo: 0 },
+      { label: "Material / Bahan",     main: 1_150_000_000, vo: 0 },
+      { label: "Transport & Logistik", main: 80_000_000,    vo: 0 },
+      { label: "Biaya Operasional",    main: 65_000_000,    vo: 0 },
+      { label: "Sewa & Utilitas",      main: 50_000_000,    vo: 0 },
+      { label: "Biaya Lainnya",        main: 30_000_000,    vo: 0 },
+    ],
+  },
+  {
+    id: "p4",
+    display_name: "BALIKPAPAN SOLAR FARM 250kW",
+    customer_name: "Dinas ESDM Kota Balikpapan",
+    site_location: "Kawasan Industri Kariangau, Balikpapan",
+    pic_name: "Agus Priyanto",
+    po_number: "34567/TB-BPP-2026",
+    contract_value: 3_500_000_000,
+    project_status: "DITUNDA",
+    physical_progress: 15,
+    description: "Pembangunan solar farm skala 250kW untuk mensuplai kebutuhan listrik kawasan industri. Proyek ditunda karena proses revisi perizinan lahan yang sedang berjalan di Pemda setempat.",
+    due_date: "2026-12-31",
+    phases: [
+      { id: "ph4-1", task_description: "Perizinan & Land Clearing",    week_number: 21, end_week: 24, progress_weight: 15, is_done: true  },
+      { id: "ph4-2", task_description: "Pondasi & Civil Works",        week_number: 25, end_week: 36, progress_weight: 40, is_done: false },
+      { id: "ph4-3", task_description: "Instalasi Panel & Elektrikal", week_number: 37, end_week: 48, progress_weight: 45, is_done: false },
+    ],
+    logs: [
+      { id: "l4-1", phase_id: "ph4-1", week_number: 22, description: "Land clearing 60% area selesai. IMB dalam proses revisi — proyek hold sementara per instruksi klien.", progress_pct: 15, created_by: "Agus P." },
+    ],
+    termins: [
+      { id: "t4-1", nama: "DP Mobilisasi 15%", target_progres: 10, persen_tagihan: 15, status: "SIAP_TAGIH" },
+      { id: "t4-2", nama: "Progress 50%",       target_progres: 50, persen_tagihan: 55, status: "TERKUNCI"   },
+      { id: "t4-3", nama: "Serah Terima 100%",  target_progres: 95, persen_tagihan: 30, status: "TERKUNCI"   },
+    ],
+    budget: [
+      { label: "Gaji & Tunjangan",     main: 320_000_000,   vo: 0 },
+      { label: "Material / Bahan",     main: 2_200_000_000, vo: 0 },
+      { label: "Transport & Logistik", main: 200_000_000,   vo: 0 },
+      { label: "Biaya Operasional",    main: 200_000_000,   vo: 0 },
+      { label: "Sewa & Utilitas",      main: 150_000_000,   vo: 0 },
+      { label: "Biaya Lainnya",        main: 100_000_000,   vo: 0 },
+    ],
+  },
+]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function weekToMonthIdx(w: number): number { return Math.floor((w - 1) / 4) }
 
 function weekToLabel(w: number): string {
   const totalMo = Math.floor((w - 1) / 4)
@@ -60,265 +245,736 @@ function weekToLabel(w: number): string {
   return `${MONTHS_ID[totalMo % 12]} '${String(year).slice(2)} W${wInMo}`
 }
 
-function fmtRpInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "")
-  if (!digits) return ""
-  return parseInt(digits, 10).toLocaleString("id-ID")
-}
-
-function parseRpInput(str: string): number {
-  return parseInt(str.replace(/[^0-9]/g, ""), 10) || 0
+function fmtRp(n: number): string {
+  if (!n) return "—"
+  return "Rp " + n.toLocaleString("id-ID")
 }
 
 function fShort(n: number): string {
   const abs  = Math.abs(n)
   const sign = n < 0 ? "−" : ""
-  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(1)}M`
-  if (abs >= 1_000_000)     return `${sign}${(abs / 1_000_000).toFixed(1)}Jt`
-  if (abs >= 1_000)         return `${sign}${(abs / 1_000).toFixed(0)}Rb`
-  return `${sign}${Math.round(abs)}`
+  if (abs >= 1_000_000_000) return `${sign}Rp ${(abs / 1_000_000_000).toFixed(1)}M`
+  if (abs >= 1_000_000)     return `${sign}Rp ${(abs / 1_000_000).toFixed(0)}Jt`
+  if (abs >= 1_000)         return `${sign}Rp ${(abs / 1_000).toFixed(0)}Rb`
+  return `${sign}Rp ${Math.round(abs)}`
 }
 
-function genKey(name: string): string {
-  const base = name.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 28)
-  return `${base}-${Date.now()}`
+function marginTier(m: number) {
+  if (m >= 15) return {
+    label: "AMAN",
+    dot: "bg-emerald-500",
+    bg: "bg-emerald-50 dark:bg-emerald-950/40",
+    text: "text-emerald-700 dark:text-emerald-400",
+    badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
+    border: "border-emerald-200 dark:border-emerald-800",
+  }
+  if (m >= 5) return {
+    label: "WASPADA",
+    dot: "bg-amber-400",
+    bg: "bg-amber-50 dark:bg-amber-950/40",
+    text: "text-amber-700 dark:text-amber-400",
+    badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+    border: "border-amber-200 dark:border-amber-800",
+  }
+  if (m >= 0) return {
+    label: "KRITIS",
+    dot: "bg-orange-400",
+    bg: "bg-orange-50 dark:bg-orange-950/40",
+    text: "text-orange-700 dark:text-orange-400",
+    badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400",
+    border: "border-orange-200 dark:border-orange-800",
+  }
+  return {
+    label: "RUGI",
+    dot: "bg-red-500",
+    bg: "bg-red-50 dark:bg-red-950/40",
+    text: "text-red-700 dark:text-red-400",
+    badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+    border: "border-red-200 dark:border-red-800",
+  }
 }
 
-function marginTier(m: number): { label: string; accent: string; bg: string; text: string; ring: string } {
-  if (m >= 15) return { label: "AMAN",    accent: "bg-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-950/40",  text: "text-emerald-700 dark:text-emerald-400", ring: "ring-emerald-200 dark:ring-emerald-800" }
-  if (m >= 5)  return { label: "WASPADA", accent: "bg-amber-400",   bg: "bg-amber-50 dark:bg-amber-950/40",      text: "text-amber-700 dark:text-amber-400",     ring: "ring-amber-200 dark:ring-amber-800"     }
-  if (m >= 0)  return { label: "KRITIS",  accent: "bg-orange-400",  bg: "bg-orange-50 dark:bg-orange-950/40",    text: "text-orange-700 dark:text-orange-400",   ring: "ring-orange-200 dark:ring-orange-800"   }
-  return              { label: "RUGI",    accent: "bg-red-500",     bg: "bg-red-50 dark:bg-red-950/40",          text: "text-red-700 dark:text-red-400",         ring: "ring-red-200 dark:ring-red-800"         }
-}
+// ─── Gantt Chart (read-only) ──────────────────────────────────────────────────
 
-// ─── Bos View Live Preview Card ───────────────────────────────────────────────
+function GanttView({ phases }: { phases: Phase[] }) {
+  if (phases.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-10 rounded-xl border border-dashed border-border">
+        <p className="text-xs text-muted-foreground">Belum ada fase dijadwalkan</p>
+      </div>
+    )
+  }
 
-interface BosViewPreviewProps {
-  displayName:  string
-  customerName: string
-  status:       string
-  progress:     number
-  contractVal:  number
-  totalBudget:  number
-  terminCount:  number
-  phaseCount:   number
-  dueDate:      string
-}
+  const minWeek        = Math.min(...phases.map(p => p.week_number))
+  const maxWeek        = Math.max(...phases.map(p => Math.max(p.week_number, p.end_week)))
+  const gridStartMo    = Math.floor((minWeek - 1) / 4)
+  const gridStartWeek  = gridStartMo * 4 + 1
+  const rawSpan        = maxWeek - gridStartWeek + 1
+  const totalGridWeeks = Math.max(Math.ceil(rawSpan / 4) * 4, 8)
+  const weekArr        = Array.from({ length: totalGridWeeks }, (_, k) => gridStartWeek + k)
 
-function BosViewPreviewCard(p: BosViewPreviewProps) {
-  const mt         = marginTier(p.contractVal > 0 ? ((p.contractVal - p.totalBudget) / p.contractVal) * 100 : 0)
-  const netProfit  = p.contractVal - p.totalBudget
-  const netMargin  = p.contractVal > 0 ? ((p.contractVal - p.totalBudget) / p.contractVal) * 100 : 0
-  const progAccent = p.progress >= 80 ? "bg-emerald-500" : p.progress >= 40 ? "bg-indigo-500" : "bg-amber-400"
-  const progText   = p.progress >= 80 ? "text-emerald-600 dark:text-emerald-400" : p.progress >= 40 ? "text-indigo-600 dark:text-indigo-400" : "text-amber-500"
-  const ProfitIcon = netProfit > 0 ? TrendingUp : netProfit < 0 ? TrendingDown : Minus
-  const profitText = netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"
-
-  const daysLeft = p.dueDate
-    ? Math.ceil((new Date(p.dueDate).getTime() - Date.now()) / 86_400_000)
-    : null
-
-  const isEmpty = !p.displayName.trim()
+  const monthGrps: { label: string; count: number }[] = []
+  let wIdx = 0, mOff = gridStartMo
+  while (wIdx < totalGridWeeks) {
+    monthGrps.push({ label: MONTHS_ID[mOff % 12], count: Math.min(4, totalGridWeeks - wIdx) })
+    wIdx += 4; mOff++
+  }
 
   return (
-    <div className={`
-      relative flex flex-col bg-card rounded-2xl border border-border
-      overflow-hidden shadow-md transition-all duration-300
-      ring-1 ${mt.ring}
-    `}>
-      {/* Left margin safety accent */}
-      <div className={`absolute left-0 top-0 bottom-0 w-1 ${mt.accent} transition-all duration-500`} />
+    <div className="rounded-xl overflow-hidden border border-border bg-card shadow-sm">
+      <div className="flex">
+        {/* Phase label column */}
+        <div className="w-48 flex-shrink-0 border-r border-border">
+          <div className="px-3 bg-muted border-b border-border" style={{ height: 52 }}>
+            <div className="flex items-center h-full">
+              <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Fase</span>
+            </div>
+          </div>
+          {phases.map((ph, i) => {
+            const c = PILL[i % PILL.length]
+            return (
+              <div key={ph.id}
+                className="flex items-center gap-2 px-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
+                style={{ minHeight: 44 }}>
+                <div className="flex-shrink-0 h-4 w-4 rounded flex items-center justify-center"
+                  style={{
+                    background: ph.is_done ? c.done : "transparent",
+                    border: `1.5px solid ${ph.is_done ? c.done : "#d1d5db"}`,
+                  }}>
+                  {ph.is_done && <CheckCheck className="h-2.5 w-2.5 text-white" />}
+                </div>
+                <div className="flex-shrink-0 h-2 w-2 rounded-full" style={{ background: c.done }} />
+                <span className="text-[11px] min-w-0 flex-1 truncate font-medium"
+                  title={ph.task_description}
+                  style={{
+                    color: ph.is_done ? "#9ca3af" : undefined,
+                    textDecoration: ph.is_done ? "line-through" : "none",
+                  }}>
+                  {ph.task_description}
+                </span>
+              </div>
+            )
+          })}
+        </div>
 
-      {/* Live badge */}
-      <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted border border-border text-[9px] font-bold text-muted-foreground">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-        LIVE PREVIEW
+        {/* Gantt grid */}
+        <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
+          <div style={{ minWidth: totalGridWeeks * COL_W }}>
+            {/* Month headers */}
+            <div className="flex border-b border-border bg-muted">
+              {monthGrps.map((mg, mi) => (
+                <div key={mi}
+                  className="flex-shrink-0 flex items-center justify-center border-r border-border/50 py-1.5"
+                  style={{ width: COL_W * mg.count }}>
+                  <span className="text-[9px] font-black text-muted-foreground tracking-widest uppercase">{mg.label}</span>
+                </div>
+              ))}
+            </div>
+            {/* Week headers */}
+            <div className="flex border-b border-border bg-muted">
+              {weekArr.map(w => (
+                <div key={w}
+                  className="flex-shrink-0 flex items-center justify-center py-1.5 border-r border-border/30"
+                  style={{ width: COL_W }}>
+                  <span className="text-[9px] font-bold text-muted-foreground">W{((w - 1) % 4) + 1}</span>
+                </div>
+              ))}
+            </div>
+            {/* Phase bars */}
+            {phases.map((ph, i) => {
+              const c        = PILL[i % PILL.length]
+              const startW   = Math.max(1, ph.week_number)
+              const endW     = Math.max(startW, ph.end_week)
+              const barLeft  = (startW - gridStartWeek) * COL_W + 4
+              const barWidth = (endW - startW + 1) * COL_W - 8
+              const lblLeft  = barLeft + barWidth + 6
+              return (
+                <div key={ph.id}
+                  className="relative border-b border-border last:border-0"
+                  style={{ minHeight: 44, width: totalGridWeeks * COL_W }}>
+                  {/* Column grid lines */}
+                  <div className="absolute inset-0 flex pointer-events-none">
+                    {weekArr.map(w => (
+                      <div key={w} className="flex-shrink-0 h-full border-r border-border/20" style={{ width: COL_W }} />
+                    ))}
+                  </div>
+                  {/* Bar */}
+                  <div
+                    className="absolute flex items-center gap-1.5 rounded-full px-3 shadow-sm transition-all"
+                    style={{
+                      left: barLeft, width: barWidth, height: 26,
+                      top: "50%", transform: "translateY(-50%)",
+                      background: ph.is_done ? c.done : c.bg,
+                      border: `1px solid ${ph.is_done ? "transparent" : c.border}`,
+                      zIndex: 1,
+                    }}>
+                    {ph.is_done && <CheckCheck className="h-2.5 w-2.5 flex-shrink-0" style={{ color: "#fff" }} />}
+                    <span className="text-[10px] font-bold tabular-nums whitespace-nowrap"
+                      style={{ color: ph.is_done ? "#fff" : c.text }}>
+                      {ph.progress_weight}%
+                    </span>
+                  </div>
+                  {/* Label outside bar */}
+                  {lblLeft < totalGridWeeks * COL_W - 24 && (
+                    <div
+                      className="absolute text-[10px] font-medium text-muted-foreground whitespace-nowrap overflow-hidden"
+                      style={{
+                        left: lblLeft, top: "50%", transform: "translateY(-50%)",
+                        maxWidth: totalGridWeeks * COL_W - lblLeft - 4,
+                      }}>
+                      {ph.task_description}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Log Mingguan Stream (read-only) ─────────────────────────────────────────
+
+function LogStream({ phases, logs }: { phases: Phase[]; logs: WeekLog[] }) {
+  if (logs.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 rounded-xl border border-dashed border-border bg-muted/30">
+        <Camera className="h-8 w-8 text-muted-foreground/30 mb-2" />
+        <p className="text-xs text-muted-foreground">Belum ada log mingguan tercatat</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {phases.map((ph, i) => {
+        const c         = PILL[i % PILL.length]
+        const phaseLogs = logs
+          .filter(l => l.phase_id === ph.id)
+          .sort((a, b) => a.week_number - b.week_number)
+        if (phaseLogs.length === 0) return null
+        return (
+          <div key={ph.id}>
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+              <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: c.done }} />
+              <span className="text-xs font-bold text-foreground">{ph.task_description}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {weekToLabel(ph.week_number)} → {weekToLabel(ph.end_week)}
+              </span>
+              <span className={`ml-auto text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                ph.is_done
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800"
+                  : "bg-muted text-muted-foreground border border-border"
+              }`}>
+                {ph.is_done ? "✓ Selesai" : `${ph.progress_weight}% bobot`}
+              </span>
+            </div>
+            <div className="rounded-xl border border-border overflow-hidden">
+              {phaseLogs.map((log, li) => (
+                <div key={log.id}
+                  className={`flex items-start gap-3 px-4 py-3 hover:bg-muted/40 transition-colors ${
+                    li < phaseLogs.length - 1 ? "border-b border-border/50" : ""
+                  }`}>
+                  <span
+                    className="text-[9px] font-black px-2 py-1 rounded-md mt-0.5 whitespace-nowrap flex-shrink-0"
+                    style={{ background: c.bg, color: c.text }}>
+                    {weekToLabel(log.week_number)}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground leading-relaxed">{log.description}</p>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="text-[9px] text-muted-foreground tabular-nums">{log.progress_pct}% progres</span>
+                      <span className="text-[9px] text-muted-foreground">oleh {log.created_by}</span>
+                    </div>
+                  </div>
+                  <div className="h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: c.bg }}>
+                    <CheckCircle2 className="h-3.5 w-3.5" style={{ color: c.done }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Doc Con Tab ──────────────────────────────────────────────────────────────
+
+function DocConTab({ project }: { project: Project }) {
+  const progress   = project.physical_progress
+  const progColor  = progress >= 80 ? "#10b981" : progress >= 40 ? "#6366f1" : "#f59e0b"
+  const donePhases = project.phases.filter(p => p.is_done).length
+
+  return (
+    <div className="flex flex-col gap-6">
+
+      {/* Scope of work block */}
+      <div className="rounded-xl border border-border bg-muted/30 p-4">
+        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-2">Deskripsi Pekerjaan</p>
+        <p className="text-sm text-foreground leading-relaxed">{project.description}</p>
       </div>
 
-      {/* Header */}
-      <div className="pl-5 pr-14 pt-4 pb-3 border-b border-border">
-        <div className="flex items-start gap-2 mb-1.5">
-          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-            p.status === "SELESAI" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" :
-            p.status === "DITUNDA" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" :
-            "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400"
-          }`}>
-            {p.status || "BERJALAN"}
-          </span>
-          {daysLeft !== null && (
-            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${
-              daysLeft < 0  ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800" :
-              daysLeft <= 14 ? "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800" :
-              "bg-neutral-50 text-neutral-400 border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700"
-            }`}>
-              📅 {daysLeft < 0 ? `Terlambat ${Math.abs(daysLeft)}h` : `Due ${daysLeft}h`}
-            </span>
-          )}
-        </div>
-        <h3 className={`text-sm font-bold leading-snug mb-0.5 ${isEmpty ? "text-muted-foreground italic" : "text-foreground"}`}>
-          {isEmpty ? "Nama proyek akan tampil di sini…" : p.displayName}
-        </h3>
-        <p className="text-[11px] text-muted-foreground truncate">{p.customerName || "—"}</p>
+      {/* Meta chips */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label: "📍 Lokasi",   value: project.site_location     },
+          { label: "🧑‍💼 PIC",    value: project.pic_name          },
+          { label: "📜 No. PO",   value: project.po_number         },
+          { label: "💰 Kontrak",  value: fmtRp(project.contract_value) },
+        ].map(m => (
+          <div key={m.label} className="rounded-xl border border-border bg-card p-3">
+            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">{m.label}</p>
+            <p className="text-xs font-semibold text-foreground truncate">{m.value}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Three Pillars */}
-      <div className="pl-5 pr-4 pt-3.5 pb-4 flex flex-col gap-3.5 flex-1">
+      {/* OneDrive link */}
+      {project.onedrive_url && (
+        <a href={project.onedrive_url} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-indigo-500 hover:text-indigo-700 hover:underline transition-colors">
+          <ExternalLink className="h-3 w-3" /> OneDrive Project Folder →
+        </a>
+      )}
 
-        {/* Pillar 1 — Progress (Doc Con) */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Progres Fisik</span>
-            <span className={`text-xs font-black tabular-nums ${progText}`}>{p.progress}%</span>
-          </div>
-          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-700 ${progAccent}`} style={{ width: `${Math.min(100, p.progress)}%` }} />
-          </div>
-          {p.phaseCount > 0 && (
-            <p className="text-[9px] text-muted-foreground mt-1">{p.phaseCount} fase dijadwalkan</p>
-          )}
-        </div>
-
-        {/* Pillar 2 — Profitability (Cost Control) */}
-        <div className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${mt.bg}`}>
-          <div>
-            <p className={`text-[9px] font-black uppercase tracking-widest ${mt.text} opacity-70`}>Net Margin</p>
-            {p.contractVal > 0 && (
-              <p className={`text-[9px] ${mt.text} opacity-60 tabular-nums`}>
-                {fShort(p.contractVal)} → {fShort(p.totalBudget)}
-              </p>
-            )}
-          </div>
-          <div className="text-right">
-            <p className={`text-xl font-black tabular-nums leading-none ${mt.text}`}>
-              {netMargin >= 0 ? "+" : ""}{netMargin.toFixed(1)}%
-            </p>
-            {p.contractVal > 0 && (
-              <p className={`text-[10px] tabular-nums font-semibold ${profitText} flex items-center justify-end gap-0.5 mt-0.5`}>
-                <ProfitIcon className="h-2.5 w-2.5" />
-                {fShort(netProfit)}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Pillar 3 — Finance (termin) */}
-        <div className="flex items-center justify-between">
-          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Status Tagihan</span>
-          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border bg-neutral-100 text-neutral-500 border-neutral-200 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-400">
-            <Lock className="h-3 w-3" /> TERKUNCI
+      {/* Physical progress */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Progres Fisik Lapangan</p>
+          <span className="text-3xl font-black tabular-nums leading-none" style={{ color: progColor }}>
+            {progress}%
           </span>
         </div>
-
-        {p.terminCount > 0 && (
-          <p className="text-[10px] text-muted-foreground font-medium -mt-1">
-            ↳ {p.terminCount} termin pembayaran dijadwalkan
+        <div className="h-2 w-full rounded-full bg-muted overflow-hidden mb-2">
+          <div className="h-full rounded-full transition-all duration-700"
+            style={{ width: `${progress}%`, background: progColor }} />
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <p className="text-[10px] text-muted-foreground">
+            {donePhases} dari {project.phases.length} fase selesai
           </p>
-        )}
+          {project.due_date && (() => {
+            const days = Math.ceil((new Date(project.due_date).getTime() - Date.now()) / 86_400_000)
+            return (
+              <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border ${
+                days < 0
+                  ? "bg-red-50 text-red-600 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800"
+                  : days <= 30
+                  ? "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}>
+                📅 {days < 0 ? `Terlambat ${Math.abs(days)}h` : `Due ${days}h`}
+              </span>
+            )
+          })()}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="pl-5 pr-4 pb-3 flex items-center justify-between border-t border-border pt-2.5">
-        <span className="text-[9px] text-muted-foreground">Preview — belum disimpan</span>
-        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${mt.bg} ${mt.text}`}>{mt.label}</span>
+      {/* Gantt Chart */}
+      <div>
+        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3">
+          Jadwal &amp; Rencana — {GANTT_YEAR}
+        </p>
+        <GanttView phases={project.phases} />
       </div>
+
+      {/* Log Mingguan */}
+      <div>
+        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3">
+          Log Mingguan Aktual
+        </p>
+        <LogStream phases={project.phases} logs={project.logs} />
+      </div>
+
     </div>
   )
 }
 
-// ─── FormField ────────────────────────────────────────────────────────────────
+// ─── Cost Control Tab ─────────────────────────────────────────────────────────
 
-function FormField({ label, icon, note, required, children }: {
-  label: string; icon?: string; note?: string; required?: boolean; children: React.ReactNode
-}) {
+function CostControlTab({ project }: { project: Project }) {
+  const totalBudget  = project.budget.reduce((s, b) => s + b.main + b.vo, 0)
+  const netProfit    = project.contract_value - totalBudget
+  const netMarginPct = project.contract_value > 0 ? (netProfit / project.contract_value) * 100 : 0
+  const mt           = marginTier(netMarginPct)
+  const ProfitIcon   = netProfit > 0 ? TrendingUp : netProfit < 0 ? TrendingDown : Minus
+
   return (
-    <div>
-      <label className="flex items-center gap-1.5 text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1.5">
-        {icon && <span className="text-sm">{icon}</span>}{label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {children}
-      {note && <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">{note}</p>}
+    <div className="flex flex-col gap-6">
+
+      {/* Hero margin + profit banner */}
+      <div className={`rounded-2xl border ${mt.border} ${mt.bg} p-5`}>
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className={`text-[9px] font-black uppercase tracking-widest ${mt.text} opacity-70 mb-1`}>
+              Net Margin
+            </p>
+            <p className={`text-5xl font-black tabular-nums leading-none ${mt.text}`}>
+              {netMarginPct >= 0 ? "+" : ""}{netMarginPct.toFixed(1)}%
+            </p>
+            <span className={`inline-block mt-3 text-[10px] font-bold px-2.5 py-1 rounded-full ${mt.badge}`}>
+              {mt.label}
+            </span>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className={`text-[9px] font-black uppercase tracking-widest ${mt.text} opacity-70 mb-1`}>
+              Net Profit
+            </p>
+            <p className={`text-xl font-black tabular-nums leading-tight flex items-center justify-end gap-1.5 ${
+              netProfit >= 0
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
+            }`}>
+              <ProfitIcon className="h-5 w-5" />
+              {fmtRp(Math.abs(netProfit))}
+            </p>
+            <div className="mt-3 flex flex-col gap-0.5">
+              <p className={`text-[10px] ${mt.text} opacity-70`}>Kontrak: {fmtRp(project.contract_value)}</p>
+              <p className={`text-[10px] ${mt.text} opacity-70`}>Budget:  {fmtRp(totalBudget)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Budget stream breakdown */}
+      <div className="rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 bg-muted border-b border-border">
+          <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+            Alokasi Budget per Stream
+          </p>
+        </div>
+        <div className="divide-y divide-border">
+          {project.budget.map((b, idx) => {
+            const subtotal = b.main + b.vo
+            const pct      = totalBudget > 0 ? (subtotal / totalBudget) * 100 : 0
+            return (
+              <div key={idx} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-foreground">{b.label}</p>
+                  {b.vo > 0 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Main: {fmtRp(b.main)} + VO: {fmtRp(b.vo)}
+                    </p>
+                  )}
+                </div>
+                <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden flex-shrink-0">
+                  <div className="h-full rounded-full bg-indigo-400" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs font-bold text-foreground tabular-nums flex-shrink-0 w-36 text-right">
+                  {fmtRp(subtotal)}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+        <div className="px-4 py-3 border-t border-border bg-muted flex items-center justify-between">
+          <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">Total Budget</span>
+          <span className="text-sm font-black text-foreground tabular-nums">{fmtRp(totalBudget)}</span>
+        </div>
+      </div>
+
     </div>
   )
 }
 
-// ─── Section Accordion ────────────────────────────────────────────────────────
+// ─── Finance Tab ──────────────────────────────────────────────────────────────
 
-function SectionHeader({
-  title, subtitle, accent, open, onToggle, badge,
+function FinanceTab({ project }: { project: Project }) {
+  const cv       = project.contract_value
+  const paidAmt  = project.termins
+    .filter(t => t.status === "LUNAS")
+    .reduce((s, t) => s + Math.round(cv * t.persen_tagihan / 100), 0)
+  const billedAmt = project.termins
+    .filter(t => t.status === "PROSES_COLLECT" || t.status === "SIAP_TAGIH")
+    .reduce((s, t) => s + Math.round(cv * t.persen_tagihan / 100), 0)
+  const lockedAmt = project.termins
+    .filter(t => t.status === "TERKUNCI")
+    .reduce((s, t) => s + Math.round(cv * t.persen_tagihan / 100), 0)
+
+  return (
+    <div className="flex flex-col gap-6">
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Sudah Lunas",    value: fmtRp(paidAmt),   cls: "text-emerald-600 dark:text-emerald-400" },
+          { label: "Sedang Ditagih", value: fmtRp(billedAmt), cls: "text-amber-600 dark:text-amber-400"     },
+          { label: "Terkunci",       value: fmtRp(lockedAmt), cls: "text-muted-foreground"                  },
+        ].map(item => (
+          <div key={item.label} className="rounded-xl border border-border bg-card p-3 text-center">
+            <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">{item.label}</p>
+            <p className={`text-sm font-black tabular-nums ${item.cls}`}>{item.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Termin milestone list */}
+      <div className="rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 bg-muted border-b border-border">
+          <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+            Milestone Pembayaran — Terms of Payment
+          </p>
+        </div>
+        <div className="divide-y divide-border">
+          {project.termins.map((t, i) => {
+            const amt      = cv > 0 ? Math.round(cv * t.persen_tagihan / 100) : 0
+            const isLunas  = t.status === "LUNAS"
+            const isBilled = t.status === "PROSES_COLLECT"
+            const isReady  = t.status === "SIAP_TAGIH"
+            const isLocked = t.status === "TERKUNCI"
+            return (
+              <div key={t.id}
+                className={`flex items-center gap-4 px-4 py-4 transition-colors ${
+                  isLunas  ? "bg-emerald-50/50 dark:bg-emerald-950/20" :
+                  isBilled ? "bg-blue-50/50 dark:bg-blue-950/20"       :
+                  isReady  ? "bg-amber-50/50 dark:bg-amber-950/20"     :
+                  "hover:bg-muted/40"
+                }`}>
+                {/* Index circle */}
+                <div className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center text-xs font-black ${
+                  isLunas  ? "bg-emerald-500 text-white" :
+                  isBilled ? "bg-blue-500 text-white"    :
+                  isReady  ? "bg-amber-400 text-white"   :
+                  "bg-muted text-muted-foreground"
+                }`}>{i + 1}</div>
+                {/* Termin name + meta */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground">{t.nama}</p>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    <span className="text-[10px] text-muted-foreground">Trigger: ≥{t.target_progres}% progres</span>
+                    <span className="text-[10px] text-muted-foreground">Porsi: {t.persen_tagihan}%</span>
+                    {amt > 0 && (
+                      <span className="text-[10px] font-semibold text-foreground">≈ {fmtRp(amt)}</span>
+                    )}
+                  </div>
+                </div>
+                {/* Status badge */}
+                <div className="flex-shrink-0">
+                  {isLunas  && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-400 dark:border-emerald-800">
+                      <CheckCircle2 className="h-3 w-3" /> LUNAS
+                    </span>
+                  )}
+                  {isBilled && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-400 dark:border-blue-800">
+                      ⏳ DITAGIH
+                    </span>
+                  )}
+                  {isReady  && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/40 dark:text-amber-400 dark:border-amber-800">
+                      ⚡ SIAP TAGIH
+                    </span>
+                  )}
+                  {isLocked && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold bg-muted text-muted-foreground border border-border">
+                      <Lock className="h-3 w-3" /> TERKUNCI
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+// ─── Project Summary Card ─────────────────────────────────────────────────────
+
+function ProjectSummaryCard({
+  project, isActive, onClick,
 }: {
-  title: string; subtitle: string; accent: string; open: boolean; onToggle: () => void; badge?: React.ReactNode
+  project: Project
+  isActive: boolean
+  onClick: () => void
 }) {
+  const totalBudget = project.budget.reduce((s, b) => s + b.main + b.vo, 0)
+  const netMargin   = project.contract_value > 0
+    ? ((project.contract_value - totalBudget) / project.contract_value) * 100
+    : 0
+  const mt          = marginTier(netMargin)
+  const progress    = project.physical_progress
+  const progColor   = progress >= 80 ? "#10b981" : progress >= 40 ? "#6366f1" : "#f59e0b"
+
   return (
     <button
       type="button"
-      onClick={onToggle}
-      className={`w-full flex items-center gap-3 px-5 py-4 text-left transition-colors ${open ? "rounded-t-2xl" : "rounded-2xl"} border border-border bg-card hover:bg-muted/60`}
+      onClick={onClick}
+      className={`
+        w-full text-left relative flex flex-col rounded-2xl bg-card border
+        cursor-pointer transition-all duration-200 overflow-hidden hover:shadow-md
+        ${isActive
+          ? "border-indigo-400 shadow-lg shadow-indigo-100/60 dark:shadow-indigo-900/40 ring-1 ring-indigo-400/20"
+          : "border-border hover:border-neutral-300 dark:hover:border-neutral-600"
+        }
+      `}
     >
-      <div className={`h-8 w-8 rounded-xl flex items-center justify-center flex-shrink-0 ${accent}`}>
-        {open ? <ChevronDown className="h-4 w-4 text-white" /> : <ChevronRight className="h-4 w-4 text-white" />}
+      {isActive && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500" />
+      )}
+      {/* Left margin health dot */}
+      <div className={`absolute left-0 top-4 bottom-4 w-1 rounded-r-full ${mt.dot}`} />
+
+      {/* Header */}
+      <div className="pl-5 pr-4 pt-4 pb-3 border-b border-border">
+        <div className="flex items-start justify-between gap-2 mb-1.5">
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider flex-shrink-0 ${
+            project.project_status === "SELESAI"
+              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+              : project.project_status === "DITUNDA"
+              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+              : "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400"
+          }`}>
+            {project.project_status}
+          </span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${mt.badge}`}>
+            {mt.label}
+          </span>
+        </div>
+        <h3 className="text-sm font-bold text-foreground leading-snug line-clamp-2">{project.display_name}</h3>
+        <p className="text-[11px] text-muted-foreground truncate mt-0.5">{project.customer_name}</p>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-bold text-foreground">{title}</p>
-        <p className="text-[11px] text-muted-foreground">{subtitle}</p>
+
+      {/* Body */}
+      <div className="pl-5 pr-4 pt-3 pb-4 flex flex-col gap-3 flex-1">
+        {/* Progress */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Progres Fisik</span>
+            <span className="text-xs font-black tabular-nums" style={{ color: progColor }}>{progress}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${progress}%`, background: progColor }} />
+          </div>
+        </div>
+
+        {/* Net margin chip */}
+        <div className={`rounded-lg px-3 py-2 ${mt.bg}`}>
+          <div className="flex items-center justify-between">
+            <span className={`text-[9px] font-black uppercase tracking-widest ${mt.text} opacity-70`}>Net Margin</span>
+            <span className={`text-sm font-black tabular-nums ${mt.text}`}>
+              {netMargin >= 0 ? "+" : ""}{netMargin.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+
+        {/* Finance billing dots */}
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Billing</span>
+          <div className="flex gap-1.5">
+            {project.termins.map((t, i) => (
+              <div key={t.id}
+                title={`T${i + 1}: ${t.nama} — ${t.status}`}
+                className={`h-2 w-5 rounded-full ${
+                  t.status === "LUNAS"           ? "bg-emerald-500" :
+                  t.status === "PROSES_COLLECT"  ? "bg-blue-500"    :
+                  t.status === "SIAP_TAGIH"      ? "bg-amber-400"   :
+                  "bg-muted-foreground/25"
+                }`}
+              />
+            ))}
+          </div>
+        </div>
       </div>
-      {badge}
+
+      {/* Footer */}
+      <div className="pl-5 pr-4 pb-3 pt-2 border-t border-border flex items-center justify-between">
+        <span className="text-[9px] text-muted-foreground font-mono truncate">{project.po_number}</span>
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-200 flex-shrink-0 ${
+          isActive ? "text-indigo-500 rotate-90" : "text-muted-foreground/50"
+        }`} />
+      </div>
     </button>
   )
 }
 
-// ─── Progress Quick-Pick ──────────────────────────────────────────────────────
+// ─── Project Detail Panel ─────────────────────────────────────────────────────
 
-const PROG_PRESETS = [0, 10, 25, 50, 75, 90, 100]
+function ProjectDetailPanel({
+  project, onClose,
+}: {
+  project: Project
+  onClose: () => void
+}) {
+  const [activeTab, setActiveTab] = React.useState<DivTab>("doccon")
 
-function ProgressInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const [raw, setRaw] = React.useState(String(value))
-  React.useEffect(() => { setRaw(String(value)) }, [value])
-  const clamp = (n: number) => Math.min(100, Math.max(0, n))
-  const color  = value >= 80 ? "#10b981" : value >= 40 ? "#6366f1" : "#f59e0b"
+  const tabs: { id: DivTab; label: string; icon: React.ReactNode; active: string }[] = [
+    {
+      id: "doccon",
+      label: "Doc Con",
+      icon: <BarChart3 className="h-3.5 w-3.5" />,
+      active: "text-indigo-600 dark:text-indigo-400 border-indigo-600 dark:border-indigo-400",
+    },
+    {
+      id: "cc",
+      label: "Cost Control",
+      icon: <Receipt className="h-3.5 w-3.5" />,
+      active: "text-violet-600 dark:text-violet-400 border-violet-600 dark:border-violet-400",
+    },
+    {
+      id: "finance",
+      label: "Finance",
+      icon: <Wallet className="h-3.5 w-3.5" />,
+      active: "text-amber-600 dark:text-amber-400 border-amber-600 dark:border-amber-400",
+    },
+  ]
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-3">
-        <input type="number" min={0} max={100} value={raw}
-          title="Persentase progres" aria-label="Persentase progres"
-          className="w-20 text-center font-black text-lg rounded-lg border border-border bg-background py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-          style={{ color }}
-          onChange={e => { setRaw(e.target.value); const n = parseInt(e.target.value, 10); if (!isNaN(n)) onChange(clamp(n)) }}
-          onBlur={() => { const n = parseInt(raw, 10); const c = isNaN(n) ? 0 : clamp(n); onChange(c); setRaw(String(c)) }}
-        />
-        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${value}%`, background: color }} />
+    <div className="rounded-2xl border border-border bg-card shadow-xl overflow-hidden">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/40">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
+            <FolderOpen className="h-4 w-4 text-white" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-foreground truncate">{project.display_name}</p>
+            <p className="text-[11px] text-muted-foreground truncate">
+              {project.customer_name} · {project.site_location}
+            </p>
+          </div>
         </div>
-        <span className="text-xs font-black tabular-nums w-8 text-right flex-shrink-0" style={{ color }}>{value}%</span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Tutup panel"
+          title="Tutup panel"
+          className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
+          <X className="h-4 w-4" />
+        </button>
       </div>
-      <div className="flex gap-1.5 flex-wrap">
-        {PROG_PRESETS.map(preset => (
-          <button key={preset} type="button" onClick={() => { onChange(preset); setRaw(String(preset)) }}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${value === preset ? "bg-indigo-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
-            {preset}%
+
+      {/* Division tab bar */}
+      <div className="flex items-center px-6 border-b border-border bg-card overflow-x-auto">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-3.5 text-xs font-bold transition-all border-b-2 -mb-px whitespace-nowrap flex-shrink-0 ${
+              activeTab === tab.id
+                ? tab.active
+                : "text-muted-foreground border-transparent hover:text-foreground"
+            }`}>
+            {tab.icon}
+            {tab.label}
           </button>
         ))}
       </div>
-    </div>
-  )
-}
 
-// ─── Currency Budget Input ────────────────────────────────────────────────────
-
-function BudgetInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{label}</p>
-      <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">Rp</span>
-        <input
-          inputMode="numeric"
-          title={label}
-          className={`${INPUT_CLS} pl-8`}
-          value={value}
-          onChange={e => onChange(fmtRpInput(e.target.value))}
-          placeholder="0"
-        />
+      {/* Tab content */}
+      <div className="px-6 py-6 overflow-y-auto" style={{ maxHeight: "72vh" }}>
+        {activeTab === "doccon"  && <DocConTab      project={project} />}
+        {activeTab === "cc"      && <CostControlTab project={project} />}
+        {activeTab === "finance" && <FinanceTab     project={project} />}
       </div>
     </div>
   )
@@ -327,134 +983,14 @@ function BudgetInput({ label, value, onChange }: { label: string; value: string;
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function NewProjectPage() {
-  const router = useRouter()
+  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const activeProject = MOCK_PROJECTS.find(p => p.id === activeId) ?? null
 
-  // ── Doc Con form fields ────────────────────────────────────────────────────
-  const [form, setForm] = React.useState({
-    display_name: "", customer_name: "", site_location: "", pic_name: "",
-    po_number: "", po_value_manual: "", onedrive_folder_url: "",
-    project_status: "BERJALAN", physical_progress: 0,
-    description: "", notes: "", due_date: "",
-  })
-  function sf<K extends keyof typeof form>(k: K, v: (typeof form)[K]) { setForm(p => ({ ...p, [k]: v })) }
+  const totalContract = MOCK_PROJECTS.reduce((s, p) => s + p.contract_value, 0)
+  const activeCount   = MOCK_PROJECTS.filter(p => p.project_status === "BERJALAN").length
+  const doneCount     = MOCK_PROJECTS.filter(p => p.project_status === "SELESAI").length
+  const heldCount     = MOCK_PROJECTS.filter(p => p.project_status === "DITUNDA").length
 
-  // ── Phases ─────────────────────────────────────────────────────────────────
-  const [pendingPhases,  setPendingPhases]  = React.useState<PendingPhase[]>([])
-  const [showPhaseForm,  setShowPhaseForm]  = React.useState(false)
-  const [phTask,         setPhTask]         = React.useState("")
-  const [phStartW,       setPhStartW]       = React.useState(1)
-  const [phEndW,         setPhEndW]         = React.useState(1)
-  const [phWeight,       setPhWeight]       = React.useState("10")
-
-  // ── Terms of Payment ───────────────────────────────────────────────────────
-  const [pendingTermins, setPendingTermins] = React.useState<PendingTermin[]>([])
-  const [showTerminForm, setShowTerminForm] = React.useState(false)
-  const [tName,          setTName]          = React.useState("")
-  const [tTrigger,       setTTrigger]       = React.useState("50")
-  const [tBillingPct,    setTBillingPct]    = React.useState("30")
-
-  // ── VO Entries ─────────────────────────────────────────────────────────────
-  const [pendingVOs, setPendingVOs] = React.useState<VOEntry[]>([])
-
-  // ── Cost Control budget fields ─────────────────────────────────────────────
-  const [budget, setBudget] = React.useState<Record<string, string>>({
-    gaji: "", material: "", transport: "", operasional: "", sewa: "", lainnya: "",
-    vo_gaji: "", vo_material: "", vo_transport: "", vo_operasional: "", vo_sewa: "", vo_lainnya: "",
-  })
-  function sb(k: string, v: string) { setBudget(p => ({ ...p, [k]: v })) }
-
-  // ── Section open/close ─────────────────────────────────────────────────────
-  const [openSection, setOpenSection] = React.useState<"doccon" | "cc" | "finance" | null>("doccon")
-  function toggleSection(s: "doccon" | "cc" | "finance") {
-    setOpenSection(prev => prev === s ? null : s)
-  }
-
-  const [saving, setSaving] = React.useState(false)
-
-  // ── Derived preview values ─────────────────────────────────────────────────
-  const poValue    = parseRpInput(form.po_value_manual)
-  const voTotal    = pendingVOs.reduce((s, v) => s + (Number(v.nilai_po) || 0), 0)
-  const contractVal = poValue + voTotal
-  const totalBudget = Object.values(budget).reduce((s, v) => s + parseRpInput(v), 0)
-  const totalPendingWeight = pendingPhases.reduce((s, p) => s + p.progress_weight, 0)
-  const totalTerminPct     = pendingTermins.reduce((s, t) => s + t.billing_percentage, 0)
-
-  // ── Phase helpers ──────────────────────────────────────────────────────────
-  function addPendingPhase() {
-    if (!phTask.trim()) return
-    setPendingPhases(prev => [...prev, {
-      tempId: `tmp_${Date.now()}`, task_description: phTask.trim(),
-      week_number: phStartW, end_week: phEndW, progress_weight: Number(phWeight) || 10,
-    }])
-    setPhTask(""); setPhStartW(1); setPhEndW(1); setPhWeight("10"); setShowPhaseForm(false)
-  }
-
-  // ── Submit ─────────────────────────────────────────────────────────────────
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!form.display_name.trim()) { toast.error("Nama proyek wajib diisi"); return }
-    setSaving(true)
-    try {
-      const key = genKey(form.display_name)
-      const payload = {
-        display_name:       form.display_name,
-        customer_name:      form.customer_name  || null,
-        site_location:      form.site_location  || null,
-        pic_name:           form.pic_name       || null,
-        po_number:          form.po_number      || null,
-        po_value_manual:    parseRpInput(form.po_value_manual),
-        onedrive_folder_url: form.onedrive_folder_url || null,
-        project_status:     form.project_status,
-        physical_progress:  form.physical_progress,
-        description:        form.description    || null,
-        notes:              form.notes          || null,
-        due_date:           form.due_date       || null,
-        created_manually:   true,
-        // Cost Control budget
-        op_gaji:        parseRpInput(budget.gaji),
-        op_material:    parseRpInput(budget.material),
-        op_transport:   parseRpInput(budget.transport),
-        op_operasional: parseRpInput(budget.operasional),
-        op_sewa:        parseRpInput(budget.sewa),
-        op_lainnya:     parseRpInput(budget.lainnya),
-        op_vo_gaji:        parseRpInput(budget.vo_gaji),
-        op_vo_material:    parseRpInput(budget.vo_material),
-        op_vo_transport:   parseRpInput(budget.vo_transport),
-        op_vo_operasional: parseRpInput(budget.vo_operasional),
-        op_vo_sewa:        parseRpInput(budget.vo_sewa),
-        op_vo_lainnya:     parseRpInput(budget.vo_lainnya),
-        // Finance
-        termin_schedule: pendingTermins.map((t, i) => ({
-          id: `t_${Date.now()}_${i}`, nama: t.termin_name,
-          target_progres: t.required_progress_trigger, persen_tagihan: t.billing_percentage,
-        })),
-        vo_entries:  pendingVOs,
-        op_budget_vo: voTotal,
-      }
-
-      const res = await fetch(`/api/project-details/${encodeURIComponent(key)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error ?? "Gagal membuat proyek")
-
-      for (const ph of pendingPhases) {
-        await fetch(`/api/project-schedule/${encodeURIComponent(key)}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ week_number: ph.week_number, end_week: ph.end_week, task_description: ph.task_description, progress_weight: ph.progress_weight }),
-        }).catch(() => {})
-      }
-
-      toast.success("Proyek berhasil dibuat! Mengalihkan ke workspace…")
-      setTimeout(() => router.push("/dashboard/doc-con"), 1800)
-    } catch (err) {
-      toast.error(String(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -462,598 +998,63 @@ export default function NewProjectPage() {
         <SiteHeader />
 
         <div className="flex flex-1 flex-col min-h-0 overflow-y-auto">
-          <div className="max-w-4xl mx-auto w-full px-6 py-8 flex flex-col gap-8">
+          <div className="max-w-7xl mx-auto w-full px-6 py-8 flex flex-col gap-8">
 
             {/* Page header */}
-            <div className="flex items-center gap-4">
-              <button type="button" onClick={() => router.back()}
-                className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
-                <ChevronLeft className="h-4 w-4" /> Kembali
-              </button>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-lg font-black text-foreground tracking-tight">Buat Proyek Baru</h1>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Preview terupdate langsung — 3 divisi dalam satu sesi.</p>
-              </div>
-              <button type="submit" form="new-proj-form" disabled={saving || !form.display_name.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm shadow-indigo-200 dark:shadow-none flex-shrink-0">
-                {saving ? <><RefreshCw className="h-4 w-4 animate-spin" /> Membuat…</> : <><Save className="h-4 w-4" /> Buat Proyek</>}
-              </button>
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">
+                Master Directory
+              </p>
+              <h1 className="text-2xl font-black text-foreground tracking-tight">Project Portfolio</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {MOCK_PROJECTS.length} proyek — review operasional terpadu Doc Con · Cost Control · Finance
+              </p>
             </div>
 
-            {/* ─── BOS VIEW LIVE PREVIEW ─── */}
-            <section>
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-3">
-                Bos View — Live Preview
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <BosViewPreviewCard
-                  displayName={form.display_name}
-                  customerName={form.customer_name}
-                  status={form.project_status}
-                  progress={form.physical_progress}
-                  contractVal={contractVal}
-                  totalBudget={totalBudget}
-                  terminCount={pendingTermins.length}
-                  phaseCount={pendingPhases.length}
-                  dueDate={form.due_date}
-                />
-                {/* KPI strip alongside */}
-                <div className="flex flex-col gap-3">
-                  <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ringkasan Kontrak</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <p className="text-[9px] text-muted-foreground uppercase tracking-widest">Nilai PO</p>
-                        <p className="text-sm font-black text-foreground tabular-nums">{contractVal > 0 ? `Rp ${contractVal.toLocaleString("id-ID")}` : "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-muted-foreground uppercase tracking-widest">Total Budget</p>
-                        <p className="text-sm font-black text-foreground tabular-nums">{totalBudget > 0 ? `Rp ${totalBudget.toLocaleString("id-ID")}` : "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-muted-foreground uppercase tracking-widest">Net Profit</p>
-                        <p className={`text-sm font-black tabular-nums ${contractVal - totalBudget >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
-                          {contractVal > 0 ? `${contractVal - totalBudget >= 0 ? "+" : ""}Rp ${(contractVal - totalBudget).toLocaleString("id-ID")}` : "—"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-muted-foreground uppercase tracking-widest">Net Margin</p>
-                        <p className={`text-sm font-black tabular-nums ${contractVal > 0 && ((contractVal - totalBudget) / contractVal) * 100 >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
-                          {contractVal > 0 ? `${(((contractVal - totalBudget) / contractVal) * 100).toFixed(1)}%` : "—"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-2">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Struktur</p>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <p className={`text-xl font-black ${totalPendingWeight > 100 ? "text-red-500" : totalPendingWeight === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{pendingPhases.length}</p>
-                        <p className="text-[9px] text-muted-foreground">Fase</p>
-                      </div>
-                      <div>
-                        <p className={`text-xl font-black ${totalTerminPct > 100 ? "text-red-500" : totalTerminPct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>{pendingTermins.length}</p>
-                        <p className="text-[9px] text-muted-foreground">Termin</p>
-                      </div>
-                      <div>
-                        <p className="text-xl font-black text-foreground">{pendingVOs.length}</p>
-                        <p className="text-[9px] text-muted-foreground">VO</p>
-                      </div>
-                    </div>
-                  </div>
+            {/* KPI strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Total Proyek",    value: String(MOCK_PROJECTS.length), sub: "dalam direktori"    },
+                { label: "Sedang Berjalan", value: String(activeCount),          sub: "proyek aktif"       },
+                { label: "Nilai Portfolio", value: fShort(totalContract),        sub: "total kontrak"      },
+                { label: "Selesai / Ditunda", value: `${doneCount} / ${heldCount}`, sub: "serah terima · hold" },
+              ].map(s => (
+                <div key={s.label} className="rounded-xl border border-border bg-card p-4">
+                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1">{s.label}</p>
+                  <p className="text-2xl font-black text-foreground tabular-nums">{s.value}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{s.sub}</p>
                 </div>
+              ))}
+            </div>
+
+            {/* Project grid */}
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-4">
+                Direktori Proyek — klik kartu untuk buka review terpadu
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {MOCK_PROJECTS.map(p => (
+                  <ProjectSummaryCard
+                    key={p.id}
+                    project={p}
+                    isActive={activeId === p.id}
+                    onClick={() => setActiveId(prev => prev === p.id ? null : p.id)}
+                  />
+                ))}
               </div>
-            </section>
+            </div>
 
-            {/* ─── UNIFIED FORM ─── */}
-            <form id="new-proj-form" onSubmit={handleCreate} className="flex flex-col gap-4">
+            {/* Expanded detail panel */}
+            {activeProject && (
+              <ProjectDetailPanel
+                project={activeProject}
+                onClose={() => setActiveId(null)}
+              />
+            )}
 
-              {/* ══════════════════════════════════════════════════════════════ */}
-              {/* DIVISION 1: DOC CON                                          */}
-              {/* ══════════════════════════════════════════════════════════════ */}
-              <div className="rounded-2xl border border-border overflow-hidden shadow-sm">
-                <SectionHeader
-                  title="Document Control (Doc Con)"
-                  subtitle="Identitas proyek, kontrak, jadwal, dan log"
-                  accent="bg-indigo-600"
-                  open={openSection === "doccon"}
-                  onToggle={() => toggleSection("doccon")}
-                  badge={
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400 flex-shrink-0">
-                      DIV 1
-                    </span>
-                  }
-                />
-
-                {openSection === "doccon" && (
-                  <div className="border-t border-border bg-card px-6 py-6 flex flex-col gap-6">
-
-                    {/* Identitas */}
-                    <div>
-                      <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-4">Identitas & Kontrak</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="sm:col-span-2">
-                          <FormField label="Nama Proyek" required>
-                            <input className={`${INPUT_CLS} text-sm py-3`} value={form.display_name} required
-                              onChange={e => sf("display_name", e.target.value)}
-                              placeholder="Contoh: BANJARMASIN CENTRUM 30kW" />
-                          </FormField>
-                        </div>
-                        <FormField label="Nama Klien">
-                          <input className={INPUT_CLS} value={form.customer_name} onChange={e => sf("customer_name", e.target.value)} placeholder="PT. / CV. nama klien" />
-                        </FormField>
-                        <FormField label="Penanggung Jawab" icon="🧑‍💼">
-                          <input className={INPUT_CLS} value={form.pic_name} onChange={e => sf("pic_name", e.target.value)} placeholder="Nama PIC lapangan" />
-                        </FormField>
-                        <FormField label="Site / Lokasi" icon="📍">
-                          <input className={INPUT_CLS} value={form.site_location} onChange={e => sf("site_location", e.target.value)} placeholder="Contoh: Banjarmasin Centrum 30kW" />
-                        </FormField>
-                        <FormField label="Nomor PO Utama" icon="📜">
-                          <input className={INPUT_CLS} value={form.po_number} onChange={e => sf("po_number", e.target.value)} placeholder="12345/TB-CENTRUM" />
-                        </FormField>
-                        <FormField label="Nilai PO / Kontrak (Rp)" note="Ketik angka — format otomatis">
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">Rp</span>
-                            <input className={`${INPUT_CLS} pl-8`} inputMode="numeric" title="Nilai PO"
-                              value={form.po_value_manual} onChange={e => sf("po_value_manual", fmtRpInput(e.target.value))} placeholder="0" />
-                          </div>
-                        </FormField>
-                        <FormField label="Link Folder OneDrive">
-                          <div className="relative">
-                            <input type="url" className={INPUT_CLS} value={form.onedrive_folder_url}
-                              onChange={e => sf("onedrive_folder_url", e.target.value)} placeholder="https://onedrive.live.com/…" />
-                            {form.onedrive_folder_url && (
-                              <a href={form.onedrive_folder_url} target="_blank" rel="noopener noreferrer"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-500"><ExternalLink className="h-3.5 w-3.5" /></a>
-                            )}
-                          </div>
-                        </FormField>
-                        <FormField label="Status Awal">
-                          <select className={INPUT_CLS} title="Status proyek" aria-label="Status proyek"
-                            value={form.project_status} onChange={e => sf("project_status", e.target.value)}>
-                            <option value="BERJALAN">BERJALAN</option>
-                            <option value="DITUNDA">DITUNDA</option>
-                          </select>
-                        </FormField>
-                        <FormField label="Due Date" icon="📅">
-                          <input type="date" className={INPUT_CLS} title="Target tanggal selesai"
-                            value={form.due_date} onChange={e => sf("due_date", e.target.value)} />
-                        </FormField>
-                        <div className="sm:col-span-2">
-                          <FormField label="Progres Fisik Awal (%)">
-                            <ProgressInput value={form.physical_progress} onChange={v => sf("physical_progress", v)} />
-                          </FormField>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <FormField label="Deskripsi Pekerjaan">
-                            <textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 80 }}
-                              value={form.description} onChange={e => sf("description", e.target.value)}
-                              placeholder="Lingkup pekerjaan secara singkat…" />
-                          </FormField>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <FormField label="Catatan Internal">
-                            <textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 60 }}
-                              value={form.notes} onChange={e => sf("notes", e.target.value)}
-                              placeholder="Catatan khusus tim internal…" />
-                          </FormField>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Jadwal & Rencana */}
-                    <div className="rounded-xl border border-border overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
-                        <div className="flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4 text-indigo-500" />
-                          <p className="text-xs font-bold text-foreground">Jadwal &amp; Rencana — {GANTT_YEAR}</p>
-                          {pendingPhases.length > 0 && (
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                              totalPendingWeight === 100 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" :
-                              totalPendingWeight > 100  ? "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400" :
-                              "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                            }`}>
-                              {totalPendingWeight}%{totalPendingWeight === 100 ? " ✓" : ""}
-                            </span>
-                          )}
-                        </div>
-                        <button type="button" onClick={() => setShowPhaseForm(v => !v)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
-                          <Plus className="h-3 w-3" /> Tambah Fase
-                        </button>
-                      </div>
-
-                      {showPhaseForm && (
-                        <div className="px-4 py-4 border-b border-border bg-indigo-50/30 dark:bg-indigo-950/20">
-                          <div className="grid gap-3 sm:grid-cols-4 mb-3">
-                            <div className="sm:col-span-2">
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Nama Fase</label>
-                              <input className={INPUT_CLS} value={phTask} onChange={e => setPhTask(e.target.value)} placeholder="Pondasi, Instalasi Panel…" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Mulai (W)</label>
-                              <select title="Minggu mulai" className={INPUT_CLS} value={phStartW}
-                                onChange={e => { const v = Number(e.target.value); setPhStartW(v); if (phEndW < v) setPhEndW(v) }}>
-                                {Array.from({ length: 48 }, (_, i) => i + 1).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Selesai (W)</label>
-                              <select title="Minggu selesai" className={INPUT_CLS} value={phEndW}
-                                onChange={e => setPhEndW(Number(e.target.value))}>
-                                {Array.from({ length: 48 }, (_, i) => i + 1).filter(w => w >= phStartW).map(w => <option key={w} value={w}>{weekToLabel(w)}</option>)}
-                              </select>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4 mb-3">
-                            <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap">Bobot (%)</label>
-                            <input type="text" inputMode="numeric" pattern="[0-9]*" title="Bobot fase" placeholder="10"
-                              className="w-20 text-xs rounded-lg border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400"
-                              value={phWeight} onChange={e => setPhWeight(e.target.value.replace(/\D/g, ""))} />
-                            {pendingPhases.length > 0 && (
-                              <p className="text-[10px] text-muted-foreground">
-                                Total setelah ini: <span className={`font-bold ${totalPendingWeight + (Number(phWeight) || 0) > 100 ? "text-red-500" : "text-foreground"}`}>
-                                  {totalPendingWeight + (Number(phWeight) || 0)}%
-                                </span>
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <button type="button" disabled={!phTask.trim()} onClick={addPendingPhase}
-                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-                              <Plus className="h-3.5 w-3.5" /> Tambah
-                            </button>
-                            <button type="button" onClick={() => { setShowPhaseForm(false); setPhTask("") }}
-                              className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted transition-colors">Batal</button>
-                          </div>
-                        </div>
-                      )}
-
-                      {pendingPhases.length === 0 ? (
-                        <div className="px-4 py-8 text-center">
-                          <p className="text-xs text-muted-foreground">Belum ada fase — opsional, dapat ditambahkan setelah proyek dibuat.</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-border">
-                          {pendingPhases.map((ph, i) => {
-                            const c = PILL[i % PILL.length]
-                            return (
-                              <div key={ph.tempId} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                                <div className="flex-shrink-0 h-2.5 w-2.5 rounded-full" style={{ background: c.done }} />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-semibold text-foreground truncate">{ph.task_description}</p>
-                                  <p className="text-[10px] text-muted-foreground">{weekToLabel(ph.week_number)} → {weekToLabel(ph.end_week)}</p>
-                                </div>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0" style={{ background: c.bg, color: c.text }}>{ph.progress_weight}%</span>
-                                <button type="button" onClick={() => setPendingPhases(p => p.filter(x => x.tempId !== ph.tempId))}
-                                  className="flex-shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
-                                  <Trash2 className="h-3 w-3" />
-                                </button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Log Mingguan placeholder */}
-                    <div className="rounded-xl border border-dashed border-border bg-muted/30 flex flex-col items-center justify-center py-8 gap-2">
-                      <Camera className="h-8 w-8 text-muted-foreground/40" />
-                      <p className="text-xs font-medium text-muted-foreground">Log Mingguan Aktual</p>
-                      <p className="text-[11px] text-muted-foreground/70 text-center max-w-xs">
-                        Log lapangan tersedia setelah proyek dibuat dan fase pertama ditambahkan.
-                      </p>
-                    </div>
-
-                  </div>
-                )}
-              </div>
-
-              {/* ══════════════════════════════════════════════════════════════ */}
-              {/* DIVISION 2: COST CONTROL                                     */}
-              {/* ══════════════════════════════════════════════════════════════ */}
-              <div className="rounded-2xl border border-border overflow-hidden shadow-sm">
-                <SectionHeader
-                  title="Cost Control"
-                  subtitle="Alokasi budget per stream — kalkulasi net margin otomatis"
-                  accent="bg-violet-600"
-                  open={openSection === "cc"}
-                  onToggle={() => toggleSection("cc")}
-                  badge={
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400 flex-shrink-0">
-                      DIV 2
-                    </span>
-                  }
-                />
-
-                {openSection === "cc" && (
-                  <div className="border-t border-border bg-card px-6 py-6 flex flex-col gap-6">
-
-                    {/* Live margin banner */}
-                    {contractVal > 0 && (() => {
-                      const mt = marginTier(((contractVal - totalBudget) / contractVal) * 100)
-                      return (
-                        <div className={`flex items-center justify-between rounded-xl px-4 py-3 ${mt.bg} border border-current/10`}>
-                          <div>
-                            <p className={`text-[9px] font-black uppercase tracking-widest ${mt.text} opacity-70`}>Net Margin Live</p>
-                            <p className={`text-[11px] ${mt.text} opacity-60`}>Kontrak {`Rp ${contractVal.toLocaleString("id-ID")}`} − Budget {`Rp ${totalBudget.toLocaleString("id-ID")}`}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className={`text-2xl font-black tabular-nums ${mt.text}`}>
-                              {(((contractVal - totalBudget) / contractVal) * 100) >= 0 ? "+" : ""}
-                              {(((contractVal - totalBudget) / contractVal) * 100).toFixed(1)}%
-                            </p>
-                            <p className={`text-xs font-bold ${mt.text} opacity-80`}>{mt.label}</p>
-                          </div>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Main budget */}
-                    <div>
-                      <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3">Budget Utama (Main Stream)</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {BUDGET_STREAMS.map(s => (
-                          <BudgetInput key={s.key} label={s.label} value={budget[s.key]} onChange={v => sb(s.key, v)} />
-                        ))}
-                      </div>
-                      {Object.entries(budget).filter(([k]) => !k.startsWith("vo_")).some(([, v]) => v) && (
-                        <p className="mt-2 text-[10px] text-muted-foreground text-right">
-                          Subtotal Main: <span className="font-bold text-foreground">
-                            Rp {BUDGET_STREAMS.reduce((s, b) => s + parseRpInput(budget[b.key]), 0).toLocaleString("id-ID")}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* VO budget */}
-                    <div>
-                      <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3">Budget VO (Variation Order Stream)</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {BUDGET_STREAMS.map(s => (
-                          <BudgetInput key={s.voKey} label={s.label} value={budget[s.voKey]} onChange={v => sb(s.voKey, v)} />
-                        ))}
-                      </div>
-                      {Object.entries(budget).filter(([k]) => k.startsWith("vo_")).some(([, v]) => v) && (
-                        <p className="mt-2 text-[10px] text-muted-foreground text-right">
-                          Subtotal VO: <span className="font-bold text-foreground">
-                            Rp {BUDGET_STREAMS.reduce((s, b) => s + parseRpInput(budget[b.voKey]), 0).toLocaleString("id-ID")}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-
-                    {/* VO entries (kerja tambah) */}
-                    <div className="rounded-xl border border-border overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
-                        <p className="text-xs font-bold text-foreground">Kerja Tambah / VO</p>
-                        <button type="button"
-                          onClick={() => setPendingVOs(prev => [...prev, { id: `vo_${Date.now()}`, po_number: "", description: "", nilai_po: 0 }])}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors">
-                          <Plus className="h-3 w-3" /> Tambah VO
-                        </button>
-                      </div>
-                      {pendingVOs.length === 0 ? (
-                        <div className="px-4 py-6 text-center">
-                          <p className="text-xs text-muted-foreground italic">Belum ada VO — opsional.</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-border">
-                          {pendingVOs.map((vo, idx) => (
-                            <div key={vo.id} className="p-4 grid grid-cols-3 gap-3 items-center">
-                              <div>
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1">No. PO VO</p>
-                                <input className={INPUT_CLS} value={vo.po_number} placeholder="PO Kerja Tambah"
-                                  onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, po_number: e.target.value } : v))} />
-                              </div>
-                              <div>
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Nilai (Rp)</p>
-                                <input type="number" min={0} className={INPUT_CLS} value={vo.nilai_po || ""} placeholder="0"
-                                  onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, nilai_po: Number(e.target.value) } : v))} />
-                              </div>
-                              <div className="flex gap-2">
-                                <div className="flex-1">
-                                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Deskripsi</p>
-                                  <input className={INPUT_CLS} value={vo.description} placeholder="Deskripsi VO…"
-                                    onChange={e => setPendingVOs(p => p.map((v, i) => i === idx ? { ...v, description: e.target.value } : v))} />
-                                </div>
-                                <button type="button" onClick={() => setPendingVOs(p => p.filter((_, i) => i !== idx))}
-                                  className="mt-5 p-2 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 flex-shrink-0">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          <div className="px-4 py-2 border-t border-border bg-muted">
-                            <p className="text-[10px] text-muted-foreground text-right">
-                              Total VO: <span className="font-bold text-foreground">Rp {voTotal.toLocaleString("id-ID")}</span>
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-                )}
-              </div>
-
-              {/* ══════════════════════════════════════════════════════════════ */}
-              {/* DIVISION 3: FINANCE                                          */}
-              {/* ══════════════════════════════════════════════════════════════ */}
-              <div className="rounded-2xl border border-border overflow-hidden shadow-sm">
-                <SectionHeader
-                  title="Finance"
-                  subtitle="Terms of Payment, milestone tagihan, dan realisasi billing"
-                  accent="bg-amber-500"
-                  open={openSection === "finance"}
-                  onToggle={() => toggleSection("finance")}
-                  badge={
-                    <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 flex-shrink-0">
-                      DIV 3
-                    </span>
-                  }
-                />
-
-                {openSection === "finance" && (
-                  <div className="border-t border-border bg-card px-6 py-6 flex flex-col gap-6">
-
-                    {/* Billing preview based on contract value */}
-                    {contractVal > 0 && pendingTermins.length > 0 && (
-                      <div className="rounded-xl border border-border bg-muted/30 p-4">
-                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-3">Proyeksi Tagihan</p>
-                        <div className="flex flex-col gap-2">
-                          {pendingTermins.map((t, i) => {
-                            const amt = Math.round(contractVal * t.billing_percentage / 100)
-                            return (
-                              <div key={t.tempId} className="flex items-center gap-3">
-                                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 flex-shrink-0">T{i+1}</span>
-                                <span className="text-xs text-foreground flex-1 truncate">{t.termin_name}</span>
-                                <span className="text-[10px] text-muted-foreground flex-shrink-0">Trigger ≥{t.required_progress_trigger}%</span>
-                                <span className="text-xs font-bold text-foreground flex-shrink-0">Rp {amt.toLocaleString("id-ID")}</span>
-                                <span className="text-[9px] text-muted-foreground flex-shrink-0">({t.billing_percentage}%)</span>
-                              </div>
-                            )
-                          })}
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
-                          <span className="text-[10px] text-muted-foreground">Total termin</span>
-                          <span className={`text-[10px] font-bold ${totalTerminPct === 100 ? "text-emerald-600 dark:text-emerald-400" : totalTerminPct > 100 ? "text-red-500" : "text-amber-600 dark:text-amber-400"}`}>
-                            {totalTerminPct}% dari kontrak {totalTerminPct === 100 ? "✓" : ""}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Finance status explanation */}
-                    <div className="rounded-xl border border-border bg-muted/30 p-4 flex items-start gap-3">
-                      <Lock className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-xs font-semibold text-foreground">Status awal: TERKUNCI</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          Tagihan terbuka otomatis saat progres fisik mencapai threshold termin.
-                          Setelah terbuka, Doc Con dapat mengirim ke Finance untuk diproses.
-                        </p>
-                        <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground">
-                          <span>Sudah Ditagih: —</span>
-                          <span>·</span>
-                          <span>Realisasi: —</span>
-                          <span>·</span>
-                          <span>Lunas: —</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Terms of Payment */}
-                    <div className="rounded-xl border border-border overflow-hidden">
-                      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-bold text-foreground">Terms of Payment (TOP)</p>
-                          {pendingTermins.length > 0 && (
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                              totalTerminPct === 100 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" :
-                              totalTerminPct > 100 ? "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400" :
-                              "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                            }`}>
-                              {totalTerminPct}% {totalTerminPct === 100 ? "✓" : ""}
-                            </span>
-                          )}
-                        </div>
-                        <button type="button" onClick={() => setShowTerminForm(v => !v)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition-colors">
-                          <Plus className="h-3 w-3" /> Tambah Termin
-                        </button>
-                      </div>
-
-                      {showTerminForm && (
-                        <div className="px-4 py-4 border-b border-border bg-amber-50/30 dark:bg-amber-950/10">
-                          <div className="grid gap-3 sm:grid-cols-3 mb-3">
-                            <div className="sm:col-span-1">
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Nama Termin</label>
-                              <input className={INPUT_CLS} value={tName} onChange={e => setTName(e.target.value)} placeholder="DP 30%, Progress 50%…" />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Trigger (%)</label>
-                              <input type="text" inputMode="numeric" pattern="[0-9]*" title="Trigger progres"
-                                className={INPUT_CLS} value={tTrigger}
-                                onChange={e => setTTrigger(e.target.value.replace(/\D/g, ""))} placeholder="50" />
-                              <p className="text-[9px] text-muted-foreground mt-1">Terbuka saat progres ≥ nilai ini</p>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold text-muted-foreground mb-1.5 block uppercase tracking-wider">Porsi (%)</label>
-                              <input type="text" inputMode="numeric" pattern="[0-9]*" title="Porsi tagihan"
-                                className={INPUT_CLS} value={tBillingPct}
-                                onChange={e => setTBillingPct(e.target.value.replace(/\D/g, ""))} placeholder="30" />
-                              <p className="text-[9px] text-muted-foreground mt-1">% dari total nilai kontrak</p>
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button type="button" disabled={!tName.trim()}
-                              onClick={() => {
-                                if (!tName.trim()) return
-                                setPendingTermins(prev => [...prev, {
-                                  tempId: `pt_${Date.now()}`, termin_name: tName.trim(),
-                                  required_progress_trigger: Number(tTrigger) || 50,
-                                  billing_percentage: Number(tBillingPct) || 30,
-                                }])
-                                setTName(""); setTTrigger("50"); setTBillingPct("30"); setShowTerminForm(false)
-                              }}
-                              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-white text-xs font-bold hover:bg-amber-600 disabled:opacity-50 transition-colors">
-                              <Plus className="h-3.5 w-3.5" /> Tambah
-                            </button>
-                            <button type="button" onClick={() => { setShowTerminForm(false); setTName("") }}
-                              className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted transition-colors">Batal</button>
-                          </div>
-                        </div>
-                      )}
-
-                      {pendingTermins.length === 0 ? (
-                        <div className="px-4 py-6 text-center">
-                          <p className="text-xs text-muted-foreground">Belum ada termin — opsional, dapat dikonfigurasi setelah proyek dibuat.</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-border">
-                          {pendingTermins.map((t, i) => (
-                            <div key={t.tempId} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 flex-shrink-0">T{i+1}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-semibold text-foreground">{t.termin_name}</p>
-                                <p className="text-[10px] text-muted-foreground">Trigger: ≥{t.required_progress_trigger}% · Porsi: {t.billing_percentage}%
-                                  {contractVal > 0 && <span className="ml-1 text-foreground font-medium">≈ Rp {Math.round(contractVal * t.billing_percentage / 100).toLocaleString("id-ID")}</span>}
-                                </p>
-                              </div>
-                              <button type="button" onClick={() => setPendingTermins(p => p.filter(x => x.tempId !== t.tempId))}
-                                className="flex-shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-                )}
-              </div>
-
-              {/* Submit CTA */}
-              <div className="pt-2 pb-8">
-                <button type="submit" disabled={saving || !form.display_name.trim()}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-md shadow-indigo-200/60 dark:shadow-none text-sm">
-                  {saving
-                    ? <><RefreshCw className="h-4 w-4 animate-spin" /> Membuat Proyek…</>
-                    : <><Save className="h-4 w-4" /> Buat &amp; Buka Workspace Doc Con</>
-                  }
-                </button>
-                <p className="text-center text-[11px] text-muted-foreground mt-2">
-                  Semua data tersimpan ke database — Anda akan diarahkan ke workspace Doc Con.
-                </p>
-              </div>
-
-            </form>
           </div>
         </div>
 
-        <Toaster richColors position="bottom-right" />
       </SidebarInset>
     </SidebarProvider>
   )
