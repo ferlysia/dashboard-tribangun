@@ -7,15 +7,13 @@
  *   2. Issues the full __tup_session cookie (12h)
  */
 
-import { NextResponse }   from "next/server"
-import { authenticator } from "otplib"
+import { NextResponse }        from "next/server"
+import { verify as totpVerify } from "otplib"
 import {
   verifyToken, signSession, sessionCookieOpts,
   normaliseRole, COOKIE_NAME,
 } from "@/lib/auth/session"
 import { supabaseConfig } from "@/lib/supabase/config"
-
-const TOTP = authenticator.clone({ window: 1 })
 
 function svcHeaders() {
   return {
@@ -49,7 +47,8 @@ export async function POST(req: Request) {
   // ── Verify OTP against the client-provided secret ─────────────────────────
   //    Even if the client sends an arbitrary secret, the OTP verification
   //    ensures they possess an authenticator bound to that exact secret.
-  const isValid = TOTP.verify({ token: body.otp, secret: body.secret })
+  const result  = await totpVerify({ token: body.otp, secret: body.secret, epochTolerance: 30 })
+  const isValid = typeof result === "boolean" ? result : result.valid
   if (!isValid) {
     return NextResponse.json(
       { error: "Kode OTP tidak valid. Pastikan waktu perangkat Anda sudah benar." },
