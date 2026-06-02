@@ -52,6 +52,7 @@ const NAV_MAIN = [
   { title: "Clients",                 url: "/clients",               icon: Users           },
   { title: "Lifecycle",               url: "/lifecycle",             icon: Clock           },
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
+  { title: "New Project",             url: "/dashboard/new-project", icon: Plus            },
   { title: "Doc Con",                  url: "/dashboard/doc-con",        icon: ClipboardList   },
   { title: "Cost Control",             url: "/dashboard/cost-control",   icon: Receipt         },
   { title: "Finance",                  url: "/dashboard/finance",        icon: Wallet          },

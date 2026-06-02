@@ -1720,7 +1720,7 @@ export default function DocConPage() {
                                           <button type="button" title="Hapus fase" aria-label="Hapus fase"
                                             onClick={() => setConfirmDeletePhaseId(ph.id)}
                                             disabled={deletingPhaseId === ph.id}
-                                            className="text-neutral-300 hover:text-red-400 transition-colors disabled:opacity-40">
+                                            className="p-1.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors disabled:opacity-40 flex-shrink-0">
                                             <Trash2 className="h-3 w-3" />
                                           </button>
                                         </div>
@@ -1895,7 +1895,7 @@ export default function DocConPage() {
                                                           </div>
                                                           <div className="flex items-center gap-0.5 flex-shrink-0">
                                                             <button type="button" title="Edit log" aria-label="Edit log" onClick={() => setEditingLogId(isEditing ? null : log.id)} className={`p-1.5 rounded-lg transition-colors ${isEditing ? "bg-indigo-100 text-indigo-600" : "hover:bg-neutral-100 text-neutral-400 hover:text-indigo-600"}`}><Pencil className="h-3 w-3" /></button>
-                                                            <button type="button" title="Hapus log" aria-label="Hapus log" onClick={() => setConfirmDeleteLogId(log.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-neutral-300 hover:text-red-400 transition-colors"><Trash2 className="h-3 w-3" /></button>
+                                                            <button type="button" title="Hapus log" aria-label="Hapus log" onClick={() => setConfirmDeleteLogId(log.id)} className="p-1.5 rounded-lg bg-red-50 text-red-400 hover:bg-red-100 hover:text-red-600 transition-colors"><Trash2 className="h-3 w-3" /></button>
                                                           </div>
                                                         </div>
                                                       )}
