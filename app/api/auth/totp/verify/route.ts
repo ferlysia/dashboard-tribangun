@@ -5,13 +5,18 @@
  * Fetches the TOTP secret from the database, verifies, and issues the session cookie.
  */
 
-import { NextResponse }              from "next/server"
-import { verify as totpVerify }     from "otplib"
+import { NextResponse }   from "next/server"
+import { authenticator } from "otplib"
 import {
   verifyToken, signSession, sessionCookieOpts,
   normaliseRole, COOKIE_NAME,
 } from "@/lib/auth/session"
 import { supabaseConfig } from "@/lib/supabase/config"
+
+// window: 1 → accepts the previous, current, and next 30-second time step.
+// Compensates for user typing latency + minor server clock drift without
+// weakening security. All major TOTP providers (GitHub, AWS, Google) use this.
+const TOTP = authenticator.clone({ window: 1 })
 
 function svcHeaders() {
   return {
@@ -55,20 +60,20 @@ export async function POST(req: Request) {
   }
 
   // ── Verify OTP ─────────────────────────────────────────────────────────────
-  const result  = await totpVerify({ token: body.otp, secret: user.totp_secret as string })
-  const isValid = typeof result === "boolean" ? result : result.valid
+  const isValid = TOTP.verify({ token: body.otp, secret: user.totp_secret as string })
   if (!isValid) {
     return NextResponse.json({ error: "Kode OTP tidak valid. Coba lagi." }, { status: 400 })
   }
 
   // ── Issue full session cookie ──────────────────────────────────────────────
+  const role = normaliseRole(user.role)
   const sessionToken = await signSession({
     email,
     name:  (user.full_name as string) || email,
-    role:  normaliseRole(user.role),
+    role,
   })
 
-  const res = NextResponse.json({ ok: true })
+  const res = NextResponse.json({ ok: true, role })
   res.cookies.set(COOKIE_NAME, sessionToken, sessionCookieOpts())
   return res
 }

@@ -6,7 +6,7 @@ import {
   Eye, EyeOff, LogIn, ArrowRight, Shield,
   ShieldCheck, QrCode, ChevronLeft,
 } from "lucide-react"
-import { useCurrentUser } from "@/components/providers/current-user-provider"
+import { useCurrentUser, type AppRole } from "@/components/providers/current-user-provider"
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 
@@ -274,8 +274,8 @@ export default function LoginPage() {
 
   const formatSecret = (s: string) => s.match(/.{1,4}/g)?.join(" ") ?? s
 
-  const finalise = (name: string, email: string) => {
-    setUser({ name, firstName: name.split(" ")[0], email })
+  const finalise = (name: string, email: string, role?: AppRole) => {
+    setUser({ name, firstName: name.split(" ")[0], email, role })
     router.push(nextUrl)
   }
 
@@ -315,7 +315,7 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? "Verifikasi gagal."); setOtp(""); return }
-      finalise(userName, userEmail)
+      finalise(userName, userEmail, data.role as AppRole | undefined)
     } catch { setError("Tidak dapat terhubung ke server.") }
     finally  { setLoading(false) }
   }, [otp, loading, tempToken, totpSecret, userName, userEmail]) // eslint-disable-line
@@ -334,7 +334,7 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error ?? "Kode OTP tidak valid."); setOtp(""); return }
-      finalise(userName, userEmail)
+      finalise(userName, userEmail, data.role as AppRole | undefined)
     } catch { setError("Tidak dapat terhubung ke server.") }
     finally  { setLoading(false) }
   }, [otp, loading, tempToken, userName, userEmail]) // eslint-disable-line

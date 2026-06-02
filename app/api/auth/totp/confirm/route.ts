@@ -4,16 +4,18 @@
  * Called after the user scans the QR code and enters their first OTP.
  * On success:
  *   1. Persists totp_secret + totp_enabled=true to app_user_profiles
- *   2. Issues the full __tup_session cookie (8h)
+ *   2. Issues the full __tup_session cookie (12h)
  */
 
-import { NextResponse }    from "next/server"
-import { verify as totpVerify } from "otplib"
+import { NextResponse }   from "next/server"
+import { authenticator } from "otplib"
 import {
   verifyToken, signSession, sessionCookieOpts,
   normaliseRole, COOKIE_NAME,
 } from "@/lib/auth/session"
 import { supabaseConfig } from "@/lib/supabase/config"
+
+const TOTP = authenticator.clone({ window: 1 })
 
 function svcHeaders() {
   return {
@@ -47,8 +49,7 @@ export async function POST(req: Request) {
   // ── Verify OTP against the client-provided secret ─────────────────────────
   //    Even if the client sends an arbitrary secret, the OTP verification
   //    ensures they possess an authenticator bound to that exact secret.
-  const result  = await totpVerify({ token: body.otp, secret: body.secret })
-  const isValid = typeof result === "boolean" ? result : result.valid
+  const isValid = TOTP.verify({ token: body.otp, secret: body.secret })
   if (!isValid) {
     return NextResponse.json(
       { error: "Kode OTP tidak valid. Pastikan waktu perangkat Anda sudah benar." },
@@ -69,13 +70,14 @@ export async function POST(req: Request) {
   )
 
   // ── Issue full session cookie ──────────────────────────────────────────────
+  const role = normaliseRole(payload.role)
   const sessionToken = await signSession({
     email,
     name:  (payload.name as string) || email,
-    role:  normaliseRole(payload.role),
+    role,
   })
 
-  const res = NextResponse.json({ ok: true })
+  const res = NextResponse.json({ ok: true, role })
   res.cookies.set(COOKIE_NAME, sessionToken, sessionCookieOpts())
   return res
 }

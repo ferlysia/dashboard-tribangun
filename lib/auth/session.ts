@@ -29,7 +29,7 @@ export async function signSession(
   return new SignJWT(payload as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("8h")
+    .setExpirationTime("12h")
     .sign(jwtKey())
 }
 
@@ -49,7 +49,7 @@ export async function verifyToken(token: string): Promise<JWTPayload> {
 
 // ─── Cookie options ───────────────────────────────────────────────────────────
 
-export function sessionCookieOpts(maxAge = 8 * 3_600) {
+export function sessionCookieOpts(maxAge = 12 * 3_600) {
   return {
     httpOnly: true,
     secure:   process.env.NODE_ENV === "production",
