@@ -213,7 +213,7 @@ function TerminBlock({
             {index + 1}
           </div>
           <div>
-            <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{termin.nama}</p>
+            <p className="text-sm font-semibold text-foreground">{termin.nama}</p>
             <div className="flex items-center gap-3 mt-0.5 flex-wrap">
               <span className="text-[10px] text-neutral-400">
                 Trigger: progres ≥ <strong className="text-neutral-600">{termin.target_progres}%</strong>
@@ -248,7 +248,7 @@ function TerminBlock({
 
       {/* SIAP_TAGIH — invoice drafting form */}
       {status === "SIAP_TAGIH" && (
-        <div className="mt-3 p-3.5 rounded-xl border border-amber-200 bg-white dark:bg-neutral-900">
+        <div className="mt-3 p-3.5 rounded-xl border border-amber-200 bg-card">
           <div className="flex items-center gap-1.5 mb-3">
             <Send className="h-3.5 w-3.5 text-amber-600" />
             <p className="text-xs font-semibold text-amber-700">Draf Invoice Termin</p>
@@ -312,11 +312,11 @@ function TerminBlock({
 
       {/* PROSES_COLLECT — sent details + mark lunas */}
       {status === "PROSES_COLLECT" && invoice && (
-        <div className="mt-3 flex items-start justify-between gap-4 p-3.5 rounded-xl border border-blue-200 bg-white dark:bg-neutral-900">
+        <div className="mt-3 flex items-start justify-between gap-4 p-3.5 rounded-xl border border-blue-200 bg-card">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-blue-500 flex-shrink-0" />
-              <span className="text-sm font-bold tabular-nums text-neutral-800 dark:text-neutral-200">
+              <span className="text-sm font-bold tabular-nums text-foreground">
                 {invoice.amount_billed ? fIDR(Number(invoice.amount_billed)) : "—"}
               </span>
               <span className="text-[10px] text-blue-500 font-semibold">menunggu cair</span>
@@ -352,7 +352,7 @@ function TerminBlock({
 
       {/* LUNAS — cleared */}
       {status === "LUNAS" && invoice && (
-        <div className="mt-3 flex items-center gap-3 p-3.5 rounded-xl border border-emerald-200 bg-white dark:bg-neutral-900">
+        <div className="mt-3 flex items-center gap-3 p-3.5 rounded-xl border border-emerald-200 bg-card">
           <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-emerald-700 tabular-nums">
@@ -407,16 +407,16 @@ function ProjectExpanded({
     .reduce((s, i) => s + Number(i.amount_billed || 0), 0)
 
   return (
-    <div className="border-t border-neutral-100 dark:border-neutral-700/40 bg-white dark:bg-neutral-900">
+    <div className="border-t border-border bg-card">
       {/* Project financial summary bar */}
-      <div className="flex items-center gap-6 px-5 py-3 bg-neutral-50/70 dark:bg-neutral-800/70 border-b border-neutral-100 dark:border-neutral-700/40">
+      <div className="flex items-center gap-6 px-5 py-3 bg-muted/70 border-b border-border">
         <div className="flex-1">
           <p className="text-[10px] text-neutral-400 mb-1">Progres fisik (SOW Bridge)</p>
           <MiniProgress pct={project.physical_progress} />
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-[10px] text-neutral-400">Nilai Kontrak</p>
-          <p className="text-sm font-bold tabular-nums text-neutral-800 dark:text-neutral-200">
+          <p className="text-sm font-bold tabular-nums text-foreground">
             {contractVal > 0 ? fShort(contractVal) : "—"}
           </p>
         </div>
@@ -449,7 +449,7 @@ function ProjectExpanded({
         <div className="px-5 pb-4">
           <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
             <span className="text-[11px] text-neutral-500">Total tertagih (dikirim + lunas):</span>
-            <span className="text-sm font-bold tabular-nums text-neutral-800 dark:text-neutral-200">
+            <span className="text-sm font-bold tabular-nums text-foreground">
               {fShort(invoicedTotal)} / {fShort(contractVal)}
             </span>
           </div>
@@ -682,7 +682,7 @@ export default function FinancePage() {
           {/* Header */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 tracking-tight">Finance</h1>
+              <h1 className="text-lg font-bold text-foreground tracking-tight">Finance</h1>
               <p className="text-xs text-neutral-400 mt-0.5">
                 Milestone pembayaran kontrak (TOP) · SOW Bridge aktif
                 {lastAt && (
@@ -712,7 +712,7 @@ export default function FinancePage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Cari Berdasarkan Nomor PO Utama..."
-              className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 text-sm text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
+              className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-neutral-300 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all"
             />
             {search && (
               <button type="button" onClick={() => setSearch("")} title="Hapus pencarian" aria-label="Hapus pencarian"
@@ -757,7 +757,7 @@ export default function FinancePage() {
                 <span className="h-5 w-5 rounded-full bg-amber-500 flex items-center justify-center flex-shrink-0">
                   <span className="text-white text-[9px] font-black">⚡</span>
                 </span>
-                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Pipeline — Siap Ditagih</p>
+                <p className="text-sm font-bold text-foreground">Pipeline — Siap Ditagih</p>
                 <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                   {billingQueue.length} termin menunggu proses
                 </span>
@@ -765,7 +765,7 @@ export default function FinancePage() {
               <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "thin" }}>
                 {billingQueue.map(({ project: p, termin: t, invoice: inv, billingAmt }) => (
                   <div key={`${p.project_key}_${t.id}`}
-                    className="flex-shrink-0 w-72 rounded-2xl border bg-white dark:bg-neutral-900 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+                    className="flex-shrink-0 w-72 rounded-2xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
                     style={{ borderColor: inv?.status === "SIAP_TAGIH" ? "#fbbf24" : "#e5e7eb" }}>
                     {/* Card stripe */}
                     <div className="h-1 bg-gradient-to-r from-amber-400 to-orange-400" />
@@ -776,7 +776,7 @@ export default function FinancePage() {
                           <FolderOpen className="h-3.5 w-3.5 text-amber-600" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold text-neutral-900 dark:text-neutral-100 truncate">{p.display_name}</p>
+                          <p className="text-xs font-bold text-foreground truncate">{p.display_name}</p>
                           <p className="text-[10px] text-neutral-400 truncate">{p.customer_name}</p>
                         </div>
                         <span className={`flex-shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border ${
@@ -857,7 +857,7 @@ export default function FinancePage() {
                     color: "text-emerald-600",
                   },
                 ].map(k => (
-                  <div key={k.label} className="rounded-xl p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700/60">
+                  <div key={k.label} className="rounded-xl p-4 bg-card border border-border">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">{k.label}</p>
                     <p className={`text-2xl font-black tabular-nums leading-none ${k.color}`}>{k.val}</p>
                     <p className="text-[10px] text-neutral-400 mt-1.5">{k.sub}</p>
@@ -866,10 +866,10 @@ export default function FinancePage() {
               </div>
 
               {/* Notion-style relational table */}
-              <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900">
+              <div className="rounded-xl overflow-hidden border border-border bg-card">
 
                 {/* Table header */}
-                <div className="grid px-5 py-3 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700/60"
+                <div className="grid px-5 py-3 bg-muted border-b border-border"
                   style={{ gridTemplateColumns: COLS, columnGap: 16 }}>
                   {[
                     { label: "Nama Proyek / PO",  icon: <FolderOpen    className="h-3 w-3" /> },
@@ -931,7 +931,7 @@ export default function FinancePage() {
                                 : <ChevronRight className="h-4 w-4 text-neutral-300" />}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 truncate" title={row.display_name}>
+                              <p className="text-sm font-semibold text-foreground truncate" title={row.display_name}>
                                 {row.display_name}
                               </p>
                               {row.customer_name && (

@@ -267,11 +267,11 @@ function EditProjectModal({ project, onSave, onClose }: {
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative ml-auto h-full w-full max-w-xl bg-white dark:bg-neutral-900 shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative ml-auto h-full w-full max-w-xl bg-card shadow-2xl flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0"><Pencil className="h-3.5 w-3.5 text-white" /></div>
-            <div className="min-w-0"><p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Edit Proyek</p><p className="text-[10px] font-mono text-neutral-400 truncate">{project.project_key}</p></div>
+            <div className="min-w-0"><p className="text-sm font-bold text-foreground">Edit Proyek</p><p className="text-[10px] font-mono text-neutral-400 truncate">{project.project_key}</p></div>
           </div>
           <button type="button" onClick={onClose} className="p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 transition-colors"><X className="h-4 w-4" /></button>
         </div>
@@ -279,7 +279,7 @@ function EditProjectModal({ project, onSave, onClose }: {
         <form id="edit-proj-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="px-6 py-5 flex flex-col gap-5">
             {/* Identitas */}
-            <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
               <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Identitas Proyek</p>
               <FormField label="Nama Proyek" required><input className={INPUT_CLS} value={form.display_name} required onChange={e => sf("display_name", e.target.value)} /></FormField>
               <FormField label="Nama Klien"><input className={INPUT_CLS} value={form.customer_name} onChange={e => sf("customer_name", e.target.value)} placeholder="Nama perusahaan / klien" /></FormField>
@@ -287,7 +287,7 @@ function EditProjectModal({ project, onSave, onClose }: {
               <FormField label="Penanggung Jawab" icon="🧑‍💼"><input className={INPUT_CLS} value={form.pic_name} onChange={e => sf("pic_name", e.target.value)} placeholder="Nama PIC lapangan" /></FormField>
             </div>
             {/* Kontrak */}
-            <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
               <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Kontrak &amp; Keuangan</p>
               <FormField label="Nomor PO Utama" icon="📜" note={loadingPoCheck ? "Memeriksa…" : poLocked ? "🔒 PO terkunci — ada invoice aktif" : undefined}>
                 <div className="relative">
@@ -316,7 +316,7 @@ function EditProjectModal({ project, onSave, onClose }: {
               </FormField>
             </div>
             {/* Progres */}
-            <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
               <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Progres &amp; Status</p>
               <FormField label="Progres Lapangan (%)">
                 <ProgressInput
@@ -338,13 +338,13 @@ function EditProjectModal({ project, onSave, onClose }: {
               </FormField>
             </div>
             {/* Deskripsi */}
-            <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
+            <div className="rounded-xl border border-border bg-neutral-50/50 dark:bg-neutral-800/50 p-4 flex flex-col gap-4">
               <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Deskripsi &amp; Catatan</p>
               <FormField label="Deskripsi Pekerjaan"><textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 80 }} value={form.description} onChange={e => sf("description", e.target.value)} placeholder="Lingkup pekerjaan…" /></FormField>
               <FormField label="Catatan Internal"><textarea className={`${INPUT_CLS} resize-none`} style={{ minHeight: 60 }} value={form.notes} onChange={e => sf("notes", e.target.value)} placeholder="Catatan tim internal…" /></FormField>
             </div>
             {/* VO */}
-            <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 bg-neutral-50/50 dark:bg-neutral-800/50 p-4">
+            <div className="rounded-xl border border-border bg-neutral-50/50 dark:bg-neutral-800/50 p-4">
               <div className="flex items-center justify-between mb-3">
                 <div><p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Kerja Tambah / VO</p>{voEntries.length > 0 && <p className="text-[10px] text-neutral-500 mt-0.5">Total: <span className="font-bold text-indigo-600">{fmtRp(totalVo)}</span></p>}</div>
                 <button type="button" onClick={() => setVoEntries(p => [...p, { id: `vo_${Date.now()}`, po_number: "", description: "", nilai_po: 0 }])} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-[11px] font-bold hover:bg-indigo-100"><Plus className="h-3 w-3" /> Tambah VO</button>
@@ -480,11 +480,11 @@ function CreateCanvas({ onBack, onCreated }: {
       {/* Canvas sticky header */}
       <div className="sticky top-0 z-20 flex items-center justify-between bg-white/95 backdrop-blur-sm border-b border-neutral-200 px-6 py-3.5 flex-shrink-0">
         <button type="button" onClick={onBack}
-          className="flex items-center gap-1.5 text-sm font-semibold text-neutral-500 hover:text-neutral-800 dark:text-neutral-200 transition-colors">
+          className="flex items-center gap-1.5 text-sm font-semibold text-neutral-500 hover:text-foreground transition-colors">
           <ChevronLeft className="h-4 w-4" /> Batal
         </button>
         <div className="text-center">
-          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Proyek Baru</p>
+          <p className="text-sm font-bold text-foreground">Proyek Baru</p>
           <p className="text-[10px] text-neutral-400">Isi semua detail dalam satu sesi</p>
         </div>
         <button type="submit" form="create-proj-form" disabled={saving || !form.display_name.trim()}
@@ -504,7 +504,7 @@ function CreateCanvas({ onBack, onCreated }: {
                 <FolderOpen className="h-4 w-4 text-white" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Identitas &amp; Kontrak</h2>
+                <h2 className="text-sm font-bold text-foreground">Identitas &amp; Kontrak</h2>
                 <p className="text-[11px] text-neutral-400">Metadata inti proyek — semua field dapat diedit kembali setelah dibuat.</p>
               </div>
             </div>
@@ -601,7 +601,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <BarChart3 className="h-4 w-4 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Jadwal &amp; Rencana — {GANTT_YEAR}</h2>
+                  <h2 className="text-sm font-bold text-foreground">Jadwal &amp; Rencana — {GANTT_YEAR}</h2>
                   <p className="text-[11px] text-neutral-400">Tambah fase baseline sekarang (opsional) atau tambahkan setelah proyek dibuat.</p>
                 </div>
               </div>
@@ -678,7 +678,7 @@ function CreateCanvas({ onBack, onCreated }: {
                     <div key={ph.tempId} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-neutral-50/50 transition-colors">
                       <div className="flex-shrink-0 h-2.5 w-2.5 rounded-full" style={{ background: c.done }} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate">{ph.task_description}</p>
+                        <p className="text-xs font-semibold text-foreground truncate">{ph.task_description}</p>
                         <p className="text-[10px] text-neutral-400">{weekToLabel(ph.week_number)} → {weekToLabel(ph.end_week)}</p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0" style={{ background: c.bg, color: c.text }}>{ph.progress_weight}%</span>
@@ -701,7 +701,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <span className="text-white text-xs font-black">TOP</span>
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Terms of Payment (TOP)</h2>
+                  <h2 className="text-sm font-bold text-foreground">Terms of Payment (TOP)</h2>
                   <p className="text-[11px] text-neutral-400">Milestone tagihan fleksibel — setiap termin punya trigger progres sendiri.</p>
                 </div>
               </div>
@@ -773,7 +773,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <div key={t.tempId} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-neutral-50/50 transition-colors">
                     <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 flex-shrink-0">T{i + 1}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">{t.termin_name}</p>
+                      <p className="text-xs font-semibold text-foreground">{t.termin_name}</p>
                       <p className="text-[10px] text-neutral-400">Trigger: ≥{t.required_progress_trigger}% · Porsi: {t.billing_percentage}% kontrak</p>
                     </div>
                     <button type="button" aria-label="Hapus termin" title="Hapus termin"
@@ -795,7 +795,7 @@ function CreateCanvas({ onBack, onCreated }: {
                   <span className="text-white text-xs font-black">VO</span>
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Variation Order / Kerja Tambah</h2>
+                  <h2 className="text-sm font-bold text-foreground">Variation Order / Kerja Tambah</h2>
                   <p className="text-[11px] text-neutral-400">VO menambah nilai kontrak baseline untuk kalkulasi Finance.</p>
                 </div>
               </div>
@@ -853,7 +853,7 @@ function CreateCanvas({ onBack, onCreated }: {
                 <Camera className="h-4 w-4 text-neutral-400" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Log Mingguan Aktual</h2>
+                <h2 className="text-sm font-bold text-foreground">Log Mingguan Aktual</h2>
                 <p className="text-[11px] text-neutral-400">Tersedia setelah proyek dibuat dan fase pertama ditambahkan.</p>
               </div>
             </div>
@@ -901,18 +901,18 @@ function ProjectCard({ project, isActive, onFocus, onEdit }: {
 
   return (
     <div onClick={onFocus}
-      className={`group relative flex flex-col rounded-2xl bg-white dark:bg-neutral-900 border cursor-pointer transition-all duration-200 overflow-hidden ${
+      className={`group relative flex flex-col rounded-2xl bg-card border cursor-pointer transition-all duration-200 overflow-hidden ${
         isActive ? "border-indigo-400 shadow-lg shadow-indigo-100/60 ring-1 ring-indigo-400/20" : "border-neutral-200 hover:border-neutral-300 hover:shadow-md"
       }`}>
       {isActive && <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500" />}
 
       {/* Header: icon + name + client + status */}
-      <div className={`flex items-start gap-3 px-4 pt-4 pb-3.5 border-b ${isActive ? "bg-indigo-50/40 border-indigo-100" : "bg-white dark:bg-neutral-900 border-neutral-100 dark:border-neutral-700/40"}`}>
+      <div className={`flex items-start gap-3 px-4 pt-4 pb-3.5 border-b ${isActive ? "bg-indigo-50/40 border-indigo-100" : "bg-card border-border"}`}>
         <div className={`flex-shrink-0 h-9 w-9 rounded-xl flex items-center justify-center transition-colors ${isActive ? "bg-indigo-600" : "bg-neutral-100 group-hover:bg-neutral-200"}`}>
           <FolderOpen className={`h-4 w-4 transition-colors ${isActive ? "text-white" : "text-neutral-400"}`} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 leading-snug line-clamp-2">{project.display_name}</p>
+          <p className="text-sm font-bold text-foreground leading-snug line-clamp-2">{project.display_name}</p>
           <p className="text-[11px] text-neutral-400 truncate mt-0.5">{project.customer_name ?? <span className="italic">Klien belum diset</span>}</p>
         </div>
         <span className={`flex-shrink-0 text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide mt-0.5 ${
@@ -1295,7 +1295,7 @@ export default function DocConPage() {
           ) : (
             <>
               {/* Search + New Project button */}
-              <div className="sticky top-0 z-10 border-b border-neutral-200 dark:border-neutral-700/60 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm px-6 py-3.5 flex items-center gap-4">
+              <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur-sm px-6 py-3.5 flex items-center gap-4">
                 <div className="relative flex-1 max-w-xl">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400 pointer-events-none" />
                   <input type="search" value={poSearch} onChange={e => setPoSearch(e.target.value)}
@@ -1370,11 +1370,11 @@ export default function DocConPage() {
                     </div>
 
                     {/* Info bar with Edit button */}
-                    <div className="flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700/60 shadow-sm">
+                    <div className="flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl bg-card border border-border shadow-sm">
                       <div className="flex items-center gap-3.5 min-w-0">
                         <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0"><BarChart3 style={{ width: 18, height: 18 }} className="text-white" /></div>
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200 truncate">{activeProject?.display_name}</p>
+                          <p className="text-sm font-bold text-foreground truncate">{activeProject?.display_name}</p>
                           <p className="text-[11px] text-neutral-400 truncate">
                             {activeProject?.customer_name ?? "—"}
                             {activeProject?.po_number && <span className="ml-2 font-mono text-neutral-500">· {activeProject.po_number}</span>}
@@ -1414,11 +1414,11 @@ export default function DocConPage() {
                         (Array.isArray(activeProject?.vo_entries) ? (activeProject?.vo_entries ?? []).reduce((s: number, v: VOEntry) => s + (Number(v.nilai_po) || 0), 0) : (activeProject?.op_budget_vo ?? 0))
                       const effProgress = Math.max(currentProgress, activeProject?.physical_progress ?? 0)
                       return (
-                        <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 overflow-hidden shadow-sm">
-                          <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/60 dark:bg-neutral-800/60">
+                        <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+                          <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-100 bg-muted/60">
                             <div className="flex items-center gap-2">
                               <span className="h-6 w-10 rounded-md bg-amber-500 text-white text-[9px] font-black flex items-center justify-center">TOP</span>
-                              <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Terms of Payment</p>
+                              <p className="text-sm font-bold text-foreground">Terms of Payment</p>
                               <span className="text-[10px] text-neutral-400">{termins.length} termin · progres {effProgress}%</span>
                             </div>
                             <button type="button"
@@ -1457,7 +1457,7 @@ export default function DocConPage() {
                                       isEligible ? "bg-amber-400 text-white" : "bg-neutral-200 text-neutral-500"
                                     }`}>{i + 1}</div>
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t.nama}</p>
+                                      <p className="text-sm font-semibold text-foreground">{t.nama}</p>
                                       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                                         <span className="text-[10px] text-neutral-400">Trigger: ≥<strong className="text-neutral-600">{t.target_progres}%</strong></span>
                                         {t.persen_tagihan != null && <span className="text-[10px] text-neutral-400">Porsi: <strong className="text-neutral-600">{t.persen_tagihan}%</strong></span>}
@@ -1582,7 +1582,7 @@ export default function DocConPage() {
                         <div>
                           <div className="flex items-center justify-between mb-4">
                             <div>
-                              <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Jadwal &amp; Rencana — {GANTT_YEAR}</h2>
+                              <h2 className="text-sm font-bold text-foreground">Jadwal &amp; Rencana — {GANTT_YEAR}</h2>
                               <p className="text-[11px] text-neutral-400 mt-0.5">Timeline baseline sinkron ke kalender {GANTT_YEAR}.</p>
                             </div>
                             <button type="button" onClick={() => setShowAddPhase(v => !v)}
@@ -1639,10 +1639,10 @@ export default function DocConPage() {
                               <p className="text-xs text-neutral-300">Klik &ldquo;Tambah Fase&rdquo; untuk mulai membangun timeline {GANTT_YEAR}.</p>
                             </div>
                           ) : (
-                            <div className="rounded-xl overflow-hidden border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 shadow-sm">
+                            <div className="rounded-xl overflow-hidden border border-border bg-card shadow-sm">
                               <div className="flex">
                                 <div className="w-52 flex-shrink-0 border-r border-neutral-200">
-                                  <div className="px-4 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700/60" style={{ height: 58 }}>
+                                  <div className="px-4 bg-muted border-b border-border" style={{ height: 58 }}>
                                     <div className="flex items-center h-full"><span className="text-[9px] font-black text-neutral-400 uppercase tracking-widest">Fase Proyek</span></div>
                                   </div>
                                   {phases.map((ph, i) => {
@@ -1668,14 +1668,14 @@ export default function DocConPage() {
                                 </div>
                                 <div className="flex-1 overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
                                   <div style={{ minWidth: totalWeeks * COL_W }}>
-                                    <div className="flex border-b border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800">
+                                    <div className="flex border-b border-border bg-muted">
                                       {monthGrps.map((mg, mi) => (
                                         <div key={mi} className="flex-shrink-0 flex items-center justify-center border-r border-neutral-100 py-1.5" style={{ width: COL_W * mg.count }}>
                                           <span className="text-[9px] font-black text-neutral-500 tracking-widest uppercase">{mg.label}</span>
                                         </div>
                                       ))}
                                     </div>
-                                    <div className="flex border-b border-neutral-200 dark:border-neutral-700/60 bg-neutral-50 dark:bg-neutral-800">
+                                    <div className="flex border-b border-border bg-muted">
                                       {weekArr.map(w => (
                                         <div key={w} className="flex-shrink-0 flex items-center justify-center py-2 border-r border-neutral-100" style={{ width: COL_W }}>
                                           <span className="text-[9px] font-bold text-neutral-400">W{((w - 1) % 4) + 1}</span>
@@ -1715,7 +1715,7 @@ export default function DocConPage() {
                         {/* ═══ LOG MINGGUAN (MONTHLY AGGREGATION) ════════════ */}
                         <div>
                           <div className="mb-4">
-                            <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Log Mingguan Aktual</h2>
+                            <h2 className="text-sm font-bold text-foreground">Log Mingguan Aktual</h2>
                             <p className="text-[11px] text-neutral-400 mt-0.5">Dikelompokkan per bulan. Tambah entri secara manual saat ada pekerjaan yang perlu dicatat.</p>
                           </div>
 
@@ -1736,7 +1736,7 @@ export default function DocConPage() {
                                   <div key={ph.id}>
                                     <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-neutral-100">
                                       <div className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ background: c.done }} />
-                                      <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200">{ph.task_description}</span>
+                                      <span className="text-xs font-bold text-foreground">{ph.task_description}</span>
                                       <span className="text-[10px] text-neutral-400">{weekToLabel(ph.week_number)} → {weekToLabel(ph.end_week || ph.week_number)}</span>
                                       <span className={`ml-auto text-[9px] font-bold px-2 py-0.5 rounded-full ${ph.is_done ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-neutral-100 text-neutral-500 border border-neutral-200"}`}>{ph.is_done ? "✓ Selesai" : `${ph.progress_weight}% bobot`}</span>
                                       <button type="button" onClick={() => { setAddLogPhaseId(addLogPhaseId === ph.id ? null : ph.id); setAddLogWeek(ph.week_number); setAddLogDesc(""); setAddLogPhoto(null) }}
@@ -1783,7 +1783,7 @@ export default function DocConPage() {
                                         const moFilled = moLogs.filter(l => l.description.trim() || l.photo_url).length
                                         return (
                                           <div key={moIdx}>
-                                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700/40 mb-2">
+                                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border mb-2">
                                               <span className="text-xs font-bold text-neutral-700">{monthIdxToLabel(moIdx)}</span>
                                               <span className="text-[10px] text-neutral-400">{moFilled > 0 ? `${moFilled} entri terisi` : "Belum ada entri"}</span>
                                               <div className="ml-auto h-1 w-20 rounded-full bg-neutral-200 overflow-hidden">
@@ -1793,13 +1793,13 @@ export default function DocConPage() {
                                             {moLogs.length === 0 ? (
                                               <p className="text-xs text-neutral-300 italic pl-3 py-1.5">Belum ada log untuk {monthIdxToLabel(moIdx)} — klik &ldquo;Tambah Log&rdquo; di atas.</p>
                                             ) : (
-                                              <div className="rounded-xl border border-neutral-100 dark:border-neutral-700/40 overflow-hidden">
+                                              <div className="rounded-xl border border-border overflow-hidden">
                                                 {moLogs.map(log => {
                                                   const isFilled  = Boolean(log.description.trim() || log.photo_url)
                                                   const isEditing = editingLogId === log.id
                                                   return (
                                                     <div key={log.id}>
-                                                      <div className="group flex items-start gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-neutral-50/60 dark:bg-neutral-800/60 transition-colors">
+                                                      <div className="group flex items-start gap-3 px-4 py-3 border-b border-neutral-50 last:border-0 hover:bg-muted/60 transition-colors">
                                                         <span className="text-[9px] font-black px-2 py-1 rounded-md mt-0.5 whitespace-nowrap flex-shrink-0" style={{ background: c.bg, color: c.text }}>{weekToLabel(log.week_number)}</span>
                                                         <div className="flex-1 min-w-0">
                                                           {isFilled ? (

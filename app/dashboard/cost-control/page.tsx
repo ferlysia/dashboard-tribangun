@@ -168,7 +168,7 @@ function ROIOverviewPanel({
   const marginBarPct  = Math.min(100, Math.max(0, (netMargin / 30) * 100))
 
   return (
-    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 overflow-hidden shadow-sm">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
 
       {/* Safety banner */}
       <div className={`flex items-center gap-3 px-5 py-3.5 border-b ${safety.bg} ${safety.border}`}>
@@ -194,7 +194,7 @@ function ROIOverviewPanel({
       {/* KPI tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-neutral-100">
         {([
-          { label: "Nilai Kontrak + VO",      val: fShort(contractVal), sub: fIDR(contractVal),  color: "text-neutral-800 dark:text-neutral-200" },
+          { label: "Nilai Kontrak + VO",      val: fShort(contractVal), sub: fIDR(contractVal),  color: "text-foreground" },
           { label: "Grand Total Biaya Aktual", val: fShort(actualCosts), sub: fIDR(actualCosts),  color: utilPct > 100 ? "text-red-600" : "text-indigo-700" },
           { label: "Net Profit",               val: fShort(netProfit),   sub: fIDR(netProfit),    color: netProfit >= 0 ? "text-emerald-600" : "text-red-600" },
           { label: "Progres Fisik",            val: `${progress}%`,      sub: "selesai fisik",    color: "text-indigo-600" },
@@ -242,7 +242,7 @@ function CCProjectCard({ row, isActive, onFocus }: {
 
   return (
     <div onClick={onFocus}
-      className={`group relative flex flex-col rounded-2xl bg-white dark:bg-neutral-900 border cursor-pointer transition-all duration-200 overflow-hidden ${
+      className={`group relative flex flex-col rounded-2xl bg-card border cursor-pointer transition-all duration-200 overflow-hidden ${
         isActive
           ? "border-indigo-400 shadow-lg shadow-indigo-100/50 ring-1 ring-indigo-400/20"
           : "border-neutral-200 hover:border-neutral-300 hover:shadow-md"
@@ -250,12 +250,12 @@ function CCProjectCard({ row, isActive, onFocus }: {
       {isActive && <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 to-violet-500" />}
 
       {/* Header */}
-      <div className={`flex items-start gap-3 px-4 pt-4 pb-3 border-b ${isActive ? "bg-indigo-50/40 border-indigo-100" : "bg-white dark:bg-neutral-900 border-neutral-100 dark:border-neutral-700/40"}`}>
+      <div className={`flex items-start gap-3 px-4 pt-4 pb-3 border-b ${isActive ? "bg-indigo-50/40 border-indigo-100" : "bg-card border-border"}`}>
         <div className={`flex-shrink-0 h-9 w-9 rounded-xl flex items-center justify-center transition-colors ${isActive ? "bg-indigo-600" : "bg-neutral-100 group-hover:bg-neutral-200"}`}>
           <FolderOpen className={`h-4 w-4 transition-colors ${isActive ? "text-white" : "text-neutral-400"}`} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100 line-clamp-2 leading-snug">{row.display_name}</p>
+          <p className="text-sm font-bold text-foreground line-clamp-2 leading-snug">{row.display_name}</p>
           <p className="text-[11px] text-neutral-400 truncate mt-0.5">{row.customer_name || "—"}</p>
         </div>
         <span className={`flex-shrink-0 text-[9px] font-bold px-2 py-0.5 rounded uppercase mt-0.5 ${
@@ -270,7 +270,7 @@ function CCProjectCard({ row, isActive, onFocus }: {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">Kontrak</p>
-            <p className="text-xs font-bold text-neutral-800 dark:text-neutral-200 tabular-nums">{row.contractVal > 0 ? fShort(row.contractVal) : "—"}</p>
+            <p className="text-xs font-bold text-foreground tabular-nums">{row.contractVal > 0 ? fShort(row.contractVal) : "—"}</p>
           </div>
           <div>
             <p className="text-[9px] font-black text-neutral-400 uppercase tracking-widest mb-0.5">Biaya Aktual</p>
@@ -394,11 +394,11 @@ function BudgetPlafonSection({
   }
 
   return (
-    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 overflow-hidden shadow-sm">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/60 dark:bg-neutral-800/60">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-100 bg-muted/60">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-indigo-600" />
-          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Anggaran Operasional (Plafon)</p>
+          <p className="text-sm font-bold text-foreground">Anggaran Operasional (Plafon)</p>
           {totalBudget > 0 && (
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
               budgetOverage ? "bg-red-50 text-red-600 border-red-200" :
@@ -511,7 +511,7 @@ function BudgetPlafonSection({
           <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-neutral-50 border border-neutral-100 mb-4">
             <span className="text-[11px] text-neutral-500">Total plafon terdefinisi:</span>
             <div className="flex items-center gap-3">
-              <span className="text-sm font-bold tabular-nums text-neutral-800 dark:text-neutral-200">{fShort(totalBudget)}</span>
+              <span className="text-sm font-bold tabular-nums text-foreground">{fShort(totalBudget)}</span>
               <span className="text-[10px] text-neutral-400">dari kontrak {fShort(contractVal)}</span>
               <span className={`text-[10px] font-bold ${budgetOverage ? "text-red-500" : "text-neutral-400"}`}>
                 ({Math.round((totalBudget / contractVal) * 100)}%)
@@ -622,10 +622,10 @@ function BudgetActualMatrix({
   if (!anyBudgetSet && !anyActual) return null
 
   return (
-    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 overflow-hidden shadow-sm">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-neutral-100 bg-neutral-50/60 dark:bg-neutral-800/60">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-neutral-100 bg-muted/60">
         <BarChart3 className="h-4 w-4 text-violet-600" />
-        <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Matriks Budget vs Realisasi</p>
+        <p className="text-sm font-bold text-foreground">Matriks Budget vs Realisasi</p>
         {totals.sisa < 0 && (
           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-red-50 text-red-600 border-red-200">
             ⚠ Over Budget
@@ -697,7 +697,7 @@ function BudgetActualMatrix({
                       {r.budgetVO > 0 ? fShort(r.budgetVO) : <span className="text-neutral-200">—</span>}
                     </td>
                   )}
-                  <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-neutral-800 dark:text-neutral-200">
+                  <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-foreground">
                     {r.terpakai > 0 ? fShort(r.terpakai) : <span className="text-neutral-200">—</span>}
                   </td>
                   <td className={`px-4 py-2.5 text-right tabular-nums font-bold ${
@@ -728,7 +728,7 @@ function BudgetActualMatrix({
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-neutral-200 bg-neutral-50/80">
-              <td className="px-5 py-3 text-xs font-black text-neutral-800 dark:text-neutral-200 uppercase tracking-wide">Grand Total</td>
+              <td className="px-5 py-3 text-xs font-black text-foreground uppercase tracking-wide">Grand Total</td>
               <td className="px-4 py-3 text-right tabular-nums font-bold text-neutral-700">
                 {totals.budgetPM > 0 ? fShort(totals.budgetPM) : <span className="text-neutral-300">—</span>}
               </td>
@@ -737,7 +737,7 @@ function BudgetActualMatrix({
                   {totals.budgetVO > 0 ? fShort(totals.budgetVO) : <span className="text-neutral-300">—</span>}
                 </td>
               )}
-              <td className="px-4 py-3 text-right tabular-nums font-black text-neutral-900 dark:text-neutral-100 text-sm">
+              <td className="px-4 py-3 text-right tabular-nums font-black text-foreground text-sm">
                 {fShort(totals.terpakai)}
                 <span className="block text-[9px] font-normal text-neutral-400 mt-0.5">{fIDR(totals.terpakai)}</span>
               </td>
@@ -795,7 +795,7 @@ function CostItemView({ item, onEdit, onDelete, confirming, onConfirmDelete, onC
           {new Date(item.cost_date).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "2-digit" })}
         </span>
       )}
-      <span className="text-sm font-bold tabular-nums text-neutral-800 dark:text-neutral-200 flex-shrink-0 w-28 text-right">{fShort(Number(item.amount))}</span>
+      <span className="text-sm font-bold tabular-nums text-foreground flex-shrink-0 w-28 text-right">{fShort(Number(item.amount))}</span>
       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {confirming ? (
           <>
@@ -978,11 +978,11 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
   const voTotal   = costs.filter(c => c.cost_stream === "vo").reduce((s, c) => s + Number(c.amount), 0)
 
   return (
-    <div className="rounded-2xl border border-neutral-200 dark:border-neutral-700/60 bg-white dark:bg-neutral-900 overflow-hidden shadow-sm">
+    <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-neutral-50/60 dark:bg-neutral-800/60 border-b border-neutral-100">
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 bg-muted/60 border-b border-neutral-100">
         <div className="flex items-center gap-3 flex-wrap">
-          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">Realisasi Biaya</p>
+          <p className="text-sm font-bold text-foreground">Realisasi Biaya</p>
           {/* Inline rename for "Biaya Lainnya" category */}
           <div className="flex items-center gap-1 text-[10px] text-neutral-400">
             <Pencil className="h-2.5 w-2.5 flex-shrink-0" />
@@ -1013,7 +1013,7 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
               const count = f === "all" ? costs.length : costs.filter(c => c.cost_stream === f).length
               return (
                 <button key={f} type="button" onClick={() => setStreamTab(f)}
-                  className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-all ${streamTab === f ? "bg-white text-neutral-800 dark:text-neutral-200 shadow-sm" : "text-neutral-500 hover:text-neutral-700"}`}>
+                  className={`px-2.5 py-1 rounded text-[10px] font-semibold transition-all ${streamTab === f ? "bg-white text-foreground shadow-sm" : "text-neutral-500 hover:text-neutral-700"}`}>
                   {f === "all" ? `Semua (${count})` : f === "main" ? `PO (${count})` : `VO (${count})`}
                 </button>
               )
@@ -1261,7 +1261,7 @@ export default function CostControlPage() {
         <div className="flex flex-1 flex-col min-h-0">
 
           {/* Search + Refresh */}
-          <div className="sticky top-0 z-10 border-b border-neutral-200 dark:border-neutral-700/60 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-sm px-6 py-3.5 flex items-center gap-4">
+          <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur-sm px-6 py-3.5 flex items-center gap-4">
             <div className="relative flex-1 max-w-xl">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-300 pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)}
@@ -1302,12 +1302,12 @@ export default function CostControlPage() {
                     {/* KPI strip */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {[
-                        { label: "Total Nilai Kontrak", val: fShort(kpiContract), sub: fIDR(kpiContract), color: "text-neutral-800 dark:text-neutral-200" },
+                        { label: "Total Nilai Kontrak", val: fShort(kpiContract), sub: fIDR(kpiContract), color: "text-foreground" },
                         { label: "Total Pengeluaran",   val: fShort(kpiCosts),    sub: fIDR(kpiCosts),    color: "text-indigo-600" },
                         { label: "Net Profit Gabungan", val: fShort(kpiProfit),   sub: fIDR(kpiProfit),   color: kpiProfit >= 0 ? "text-emerald-600" : "text-red-500" },
                         { label: "Avg Margin",          val: `${kpiMargin.toFixed(1)}%`, sub: `${displayed.length} proyek`, color: kpiMargin >= 15 ? "text-emerald-600" : kpiMargin >= 0 ? "text-amber-500" : "text-red-500" },
                       ].map(k => (
-                        <div key={k.label} className="rounded-xl p-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700/60">
+                        <div key={k.label} className="rounded-xl p-4 bg-card border border-border">
                           <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">{k.label}</p>
                           <p className={`text-2xl font-black tabular-nums leading-none ${k.color}`}>{k.val}</p>
                           <p className="text-[10px] text-neutral-400 mt-1.5 truncate">{k.sub}</p>
