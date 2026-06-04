@@ -14,7 +14,7 @@ export async function GET() {
     const [assetsRes, contractsRes] = await Promise.all([
       fetch(
         `${supabaseConfig.url}/rest/v1/assets` +
-        `?select=*,contract_milestones(*),asset_documents(*)` +
+        `?select=*,contract_milestones!contract_milestones_asset_id_fkey(*),asset_documents!asset_documents_asset_id_fkey(*)` +
         `&order=site_name.asc,ne_id.asc`,
         { headers: headers() }
       ),

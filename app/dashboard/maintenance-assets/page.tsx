@@ -351,9 +351,11 @@ function SiteFilterChips({ active, onChange, counts }: {
 
 // ─── MilestoneTimeline ────────────────────────────────────────────────────────
 
-function MilestoneTimeline({ milestones, onUpload }: {
+function MilestoneTimeline({ milestones, onUpload, onMarkDone, markingId }: {
   milestones: Milestone[]
   onUpload:   (milestoneId: string) => void
+  onMarkDone: (milestoneId: string) => void
+  markingId:  string | null
 }) {
   if (milestones.length === 0) {
     return (
@@ -417,14 +419,25 @@ function MilestoneTimeline({ milestones, onUpload }: {
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onUpload(m.id)}
-                  className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-foreground/30 rounded-lg px-3 py-2 w-full transition-all group"
-                >
-                  <UploadCloud className="h-3.5 w-3.5 group-hover:scale-110 transition-transform shrink-0" />
-                  <span>Upload PM Report</span>
-                </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onUpload(m.id)}
+                    className="flex-1 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border hover:border-foreground/30 rounded-lg px-3 py-2 transition-all group min-w-0"
+                  >
+                    <UploadCloud className="h-3.5 w-3.5 group-hover:scale-110 transition-transform shrink-0" />
+                    <span className="truncate">Upload PM Report</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMarkDone(m.id)}
+                    disabled={markingId === m.id}
+                    className="shrink-0 flex items-center gap-1 text-xs px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/60 dark:bg-emerald-950/30 dark:text-emerald-400 dark:hover:bg-emerald-950/50 transition-colors disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="h-3 w-3 shrink-0" />
+                    {markingId === m.id ? "…" : "Mark Done"}
+                  </button>
+                </div>
               )}
 
               {m.notes && (
@@ -522,19 +535,44 @@ function DocumentVault({ documents, onUpload }: {
 
 // ─── AssetDrawer ──────────────────────────────────────────────────────────────
 
-function AssetDrawer({ asset, siteContract, open, onClose }: {
-  asset:        Asset | null
-  siteContract: SiteContract | null
-  open:         boolean
-  onClose:      () => void
+function AssetDrawer({ asset, siteContract, open, onClose, onAssetUpdate }: {
+  asset:          Asset | null
+  siteContract:   SiteContract | null
+  open:           boolean
+  onClose:        () => void
+  onAssetUpdate:  (updated: Asset) => void
 }) {
-  if (!asset) return null
+  const [markingId, setMarkingId] = React.useState<string | null>(null)
 
-  const overdue    = hasOverdue(asset)
-  const doneCount  = asset.milestones.filter(m => m.status === "DONE").length
-  const totalVisits = siteContract?.total_planned_visits ?? asset.milestones.length
-  const progress   = totalVisits > 0 ? Math.round((doneCount / totalVisits) * 100) : 0
-  const opCfg      = OP_STATUS_CFG[asset.operational_status]
+  const handleMarkDone = async (milestoneId: string) => {
+    if (!asset) return
+    setMarkingId(milestoneId)
+    try {
+      const res  = await fetch(`/api/maintenance-assets/milestones/${milestoneId}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ status: "DONE" }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      const today = new Date().toISOString().split("T")[0]
+      const updatedAsset: Asset = {
+        ...asset,
+        milestones: asset.milestones.map(m =>
+          m.id === milestoneId
+            ? { ...m, status: "DONE" as MilestoneStatus, execution_date: today }
+            : m
+        ),
+      }
+      onAssetUpdate(updatedAsset)
+      toast.success("Visit marked as done.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update milestone.")
+    } finally {
+      setMarkingId(null)
+    }
+  }
 
   const handleUploadMilestone = (_mId: string) => {
     toast.info("Connect to Supabase Storage — PATCH /api/maintenance-assets/milestones/:id")
@@ -542,6 +580,14 @@ function AssetDrawer({ asset, siteContract, open, onClose }: {
   const handleUploadDoc = () => {
     toast.info("Connect to Supabase Storage — POST /api/maintenance-assets/documents")
   }
+
+  if (!asset) return null
+
+  const overdue     = hasOverdue(asset)
+  const doneCount   = asset.milestones.filter(m => m.status === "DONE").length
+  const totalVisits = siteContract?.total_planned_visits ?? asset.milestones.length
+  const progress    = totalVisits > 0 ? Math.round((doneCount / totalVisits) * 100) : 0
+  const opCfg       = OP_STATUS_CFG[asset.operational_status]
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -679,7 +725,12 @@ function AssetDrawer({ asset, siteContract, open, onClose }: {
                   </p>
                 </div>
               )}
-              <MilestoneTimeline milestones={asset.milestones} onUpload={handleUploadMilestone} />
+              <MilestoneTimeline
+                milestones={asset.milestones}
+                onUpload={handleUploadMilestone}
+                onMarkDone={handleMarkDone}
+                markingId={markingId}
+              />
             </TabsContent>
 
             {/* ── DOCUMENT VAULT ── */}
@@ -700,17 +751,18 @@ const BLANK_FORM: ContractFormState = {
   contract_duration_years: 2, total_planned_visits: 4, notes: "",
 }
 
-function SiteContractSheet({ open, onClose, assets, siteContracts, setSiteContracts }: {
-  open:             boolean
-  onClose:          () => void
-  assets:           Asset[]
-  siteContracts:    SiteContract[]
-  setSiteContracts: React.Dispatch<React.SetStateAction<SiteContract[]>>
+function SiteContractSheet({ open, onClose, assets, siteContracts, onSaved }: {
+  open:          boolean
+  onClose:       () => void
+  assets:        Asset[]
+  siteContracts: SiteContract[]
+  onSaved:       () => void
 }) {
   const MANAGED_SITES = SITE_FILTERS.filter(s => s !== "ALL") as Exclude<SiteFilterKey, "ALL">[]
   const [selectedSite, setSelectedSite] = React.useState<string>("")
   const [form, setForm]                 = React.useState<ContractFormState>(BLANK_FORM)
   const [editingId, setEditingId]       = React.useState<string | null>(null)
+  const [saving, setSaving]             = React.useState(false)
 
   React.useEffect(() => {
     if (!selectedSite) return
@@ -734,31 +786,31 @@ function SiteContractSheet({ open, onClose, assets, siteContracts, setSiteContra
   const assetCount   = assets.filter(a => a.site_name === selectedSite).length
   const slotPreview  = assetCount * form.total_planned_visits
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.site_name || !form.po_number || !form.contract_start_date) {
       toast.error("Fill in Site, PO Number, and Start Date.")
       return
     }
-    if (editingId) {
-      setSiteContracts(prev =>
-        prev.map(sc => sc.id === editingId ? { ...sc, ...form, updated_at: new Date().toISOString() } : sc)
+    setSaving(true)
+    try {
+      const res  = await fetch("/api/maintenance-assets/site-contracts", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ ...form, editing_id: editingId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(
+        `Contract ${editingId ? "updated" : "created"} for ${form.site_name}. ` +
+        `${data.milestonesGenerated} milestone slots generated across ${assetCount} assets.`
       )
-      toast.success(`Contract updated for ${form.site_name}. Call fn_generate_site_milestones() to regenerate ${slotPreview} milestone slots.`)
-    } else {
-      const newContract: SiteContract = {
-        id:                      crypto.randomUUID(),
-        site_name:               form.site_name,
-        po_number:               form.po_number,
-        contract_start_date:     form.contract_start_date,
-        contract_duration_years: form.contract_duration_years,
-        total_planned_visits:    form.total_planned_visits,
-        status:                  "ACTIVE",
-        notes:                   form.notes || null,
-      }
-      setSiteContracts(prev => [...prev, newContract])
-      toast.success(`Contract created for ${form.site_name}. ${slotPreview} milestone slots will be generated for ${assetCount} assets.`)
+      onSaved()
+      onClose()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save contract.")
+    } finally {
+      setSaving(false)
     }
-    onClose()
   }
 
   return (
@@ -906,9 +958,9 @@ function SiteContractSheet({ open, onClose, assets, siteContracts, setSiteContra
                 </div>
               )}
 
-              <Button onClick={handleSave} className="w-full h-9 text-sm gap-2">
+              <Button onClick={handleSave} disabled={saving} className="w-full h-9 text-sm gap-2">
                 <Settings2 className="h-3.5 w-3.5" />
-                {editingId ? `Update Contract — ${selectedSite}` : `Create Contract & Generate Milestones`}
+                {saving ? "Saving…" : editingId ? `Update Contract — ${selectedSite}` : `Create Contract & Generate Milestones`}
               </Button>
             </>
           )}
@@ -1260,6 +1312,10 @@ export default function MaintenanceAssetsPage() {
           siteContract={selected ? getActiveSiteContract(selected.site_name) : null}
           open={drawerOpen}
           onClose={() => setDrawer(false)}
+          onAssetUpdate={(updated) => {
+            setAssets(prev => prev.map(a => a.id === updated.id ? updated : a))
+            setSelected(updated)
+          }}
         />
 
         <SiteContractSheet
@@ -1267,7 +1323,7 @@ export default function MaintenanceAssetsPage() {
           onClose={() => setContractSheet(false)}
           assets={assets}
           siteContracts={siteContracts}
-          setSiteContracts={setSiteContracts}
+          onSaved={loadAssets}
         />
 
         <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" title="Import Excel assets" className="hidden" onChange={handleImport} />
