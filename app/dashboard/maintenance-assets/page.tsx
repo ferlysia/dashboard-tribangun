@@ -924,15 +924,53 @@ export default function MaintenanceAssetsPage() {
   const { user } = useCurrentUser()
   const isAdmin  = user?.role === "ADMIN"
 
-  const [assets, setAssets]               = React.useState<Asset[]>(MOCK_ASSETS)
-  const [siteContracts, setSiteContracts] = React.useState<SiteContract[]>(MOCK_SITE_CONTRACTS)
-  const [loading]                         = React.useState(false)
+  const [assets, setAssets]               = React.useState<Asset[]>([])
+  const [siteContracts, setSiteContracts] = React.useState<SiteContract[]>([])
+  const [loading, setLoading]             = React.useState(true)
   const [searchQuery, setQ]               = React.useState("")
   const [searchMode, setMode]             = React.useState<"SN" | "NE_ID">("SN")
   const [activeSiteFilter, setSiteFilter] = React.useState<SiteFilterKey>("ALL")
   const [selected, setSelected]           = React.useState<Asset | null>(null)
   const [drawerOpen, setDrawer]           = React.useState(false)
   const [contractSheetOpen, setContractSheet] = React.useState(false)
+  const importRef = React.useRef<HTMLInputElement>(null)
+
+  // ── Live data fetch ───────────────────────────────────────────────────────
+  const loadAssets = React.useCallback(() => {
+    setLoading(true)
+    fetch("/api/maintenance-assets")
+      .then(r => r.json())
+      .then(({ assets, siteContracts }) => {
+        setAssets(assets ?? [])
+        setSiteContracts(siteContracts ?? [])
+      })
+      .catch(() => toast.error("Gagal memuat data aset dari Supabase."))
+      .finally(() => setLoading(false))
+  }, [])
+
+  React.useEffect(() => { loadAssets() }, [loadAssets])
+
+  // ── Excel import handler ──────────────────────────────────────────────────
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    const formData = new FormData()
+    formData.append("file", file)
+    const tid = toast.loading(`Mengimpor ${file.name}…`)
+    try {
+      const res  = await fetch("/api/maintenance-assets/import", { method: "POST", body: formData })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(
+        `${data.imported} aset berhasil diimpor${data.skipped > 0 ? `, ${data.skipped} baris dilewati` : ""}.`,
+        { id: tid }
+      )
+      loadAssets()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import gagal.", { id: tid })
+    }
+  }
 
   const getActiveSiteContract = React.useCallback((siteName: string) =>
     siteContracts.find(sc => sc.site_name === siteName && sc.status === "ACTIVE") ?? null,
@@ -1021,7 +1059,7 @@ export default function MaintenanceAssetsPage() {
                 </Button>
               )}
               {isAdmin && (
-                <Button size="sm" className="gap-1.5 h-8 text-xs">
+                <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => importRef.current?.click()}>
                   <Plus className="h-3.5 w-3.5" />
                   Import Assets
                 </Button>
@@ -1232,6 +1270,7 @@ export default function MaintenanceAssetsPage() {
           setSiteContracts={setSiteContracts}
         />
 
+        <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" title="Import Excel assets" className="hidden" onChange={handleImport} />
         <Toaster richColors />
       </SidebarInset>
     </SidebarProvider>
