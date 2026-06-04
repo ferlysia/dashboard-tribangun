@@ -22,12 +22,18 @@
 --       → PENDING rows past scheduled_date flip to OVERDUE
 -- ============================================================
 
--- ── Migration: remove v1 objects ─────────────────────────────
-DROP TABLE    IF EXISTS public.maintenance_contracts  CASCADE;
+-- ── Migration: full wipe of v1 objects ───────────────────────
+-- DROP TABLE CASCADE handles all FK-dependent child tables.
+DROP TABLE    IF EXISTS public.asset_documents       CASCADE;
+DROP TABLE    IF EXISTS public.contract_milestones   CASCADE;
+DROP TABLE    IF EXISTS public.site_contracts        CASCADE;
+DROP TABLE    IF EXISTS public.maintenance_contracts CASCADE;
+DROP TABLE    IF EXISTS public.assets                CASCADE;
 DROP VIEW     IF EXISTS public.assets_with_status;
 DROP FUNCTION IF EXISTS public.fn_milestone_upload_interlock CASCADE;
 DROP FUNCTION IF EXISTS public.fn_refresh_overdue_milestones CASCADE;
 DROP FUNCTION IF EXISTS public.fn_generate_site_milestones   CASCADE;
+DROP FUNCTION IF EXISTS public.set_updated_at                CASCADE;
 
 
 -- ── TABLE 1: assets ──────────────────────────────────────────
