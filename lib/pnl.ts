@@ -1,8 +1,10 @@
 export type PnlColumn = "komersial" | "koreksi" | "fiskal"
 
+export type BreakdownKind = "gaji" | "proyek" | "kantor"
+
 export type PnlRowDef =
   | { kind: "section"; label: string }
-  | { kind: "input"; key: string; label: string; indent?: boolean; bold?: boolean }
+  | { kind: "input"; key: string; label: string; indent?: boolean; bold?: boolean; breakdown?: BreakdownKind }
   | { kind: "calc"; key: string; label: string; indent?: boolean; bold?: boolean; formula: (v: Record<string, number>) => number }
 
 export const PNL_ROWS: PnlRowDef[] = [
@@ -11,9 +13,9 @@ export const PNL_ROWS: PnlRowDef[] = [
   { kind: "calc", key: "laba_kotor", label: "LABA KOTOR", bold: true, formula: (v) => v.penjualan - v.hpp },
 
   { kind: "section", label: "BEBAN ADMINISTRASI DAN UMUM" },
-  { kind: "input", key: "beban_gaji", label: "BEBAN GAJI", indent: true },
-  { kind: "input", key: "beban_keperluan_proyek", label: "BEBAN KEPERLUAN PROYEK", indent: true },
-  { kind: "input", key: "beban_keperluan_kantor", label: "BEBAN KEPERLUAN KANTOR", indent: true },
+  { kind: "input", key: "beban_gaji", label: "BEBAN GAJI", indent: true, breakdown: "gaji" },
+  { kind: "input", key: "beban_keperluan_proyek", label: "BEBAN KEPERLUAN PROYEK", indent: true, breakdown: "proyek" },
+  { kind: "input", key: "beban_keperluan_kantor", label: "BEBAN KEPERLUAN KANTOR", indent: true, breakdown: "kantor" },
   { kind: "input", key: "beban_pph", label: "BEBAN PPH", indent: true },
   { kind: "input", key: "beban_penyusutan", label: "BEBAN PENYUSUTAN", indent: true },
   { kind: "input", key: "beban_bunga", label: "BEBAN BUNGA", indent: true },
@@ -108,4 +110,85 @@ export function dbRecordToMatrix(record: Record<string, unknown> | null): PnlMat
     }
   }
   return matrix
+}
+
+// ─── Live thousands-separator formatting (Indonesian grouping, negative-aware) ─
+
+export function formatThousands(raw: string): string {
+  const negative = raw.trim().startsWith("-")
+  const digits = raw.replace(/[^0-9]/g, "")
+  if (!digits) return negative ? "-" : ""
+  const formatted = parseInt(digits, 10).toLocaleString("id-ID")
+  return negative ? `-${formatted}` : formatted
+}
+
+export function parseThousands(str: string): number {
+  const negative = str.trim().startsWith("-")
+  const digits = str.replace(/[^0-9]/g, "")
+  if (!digits) return 0
+  const n = parseInt(digits, 10)
+  return negative ? -n : n
+}
+
+// ─── Beban Gaji breakdown ───────────────────────────────────────────────────
+
+export type PnlGajiCalcMode = "multiply" | "add"
+
+export interface PnlGajiRow {
+  id: string
+  pnl_id: string
+  nama: string
+  nik: string
+  tahun: number | null
+  ptkp: string
+  upah: number
+  hari: number
+  calc_mode: PnlGajiCalcMode
+  jumlah: number
+}
+
+export function computeGajiJumlah(upah: number, hari: number, mode: PnlGajiCalcMode): number {
+  return mode === "add" ? upah + hari : upah * hari
+}
+
+// ─── Beban Keperluan Proyek / Kantor breakdown ──────────────────────────────
+// Both are flat "category + tanggal + deskripsi + jumlah" detail tables, so
+// they share the same row shape and drawer UI — only the category list and
+// backing table differ.
+
+export interface DetailCategoryConfig {
+  key: string
+  label: string
+  hasDate: boolean
+}
+
+export interface PnlDetailRow {
+  id: string
+  pnl_id: string
+  category: string
+  tanggal: string | null
+  deskripsi: string
+  jumlah: number
+}
+
+export type PnlProyekRow = PnlDetailRow
+export type PnlKantorRow = PnlDetailRow
+
+export const PNL_PROYEK_CATEGORIES: DetailCategoryConfig[] = [
+  { key: "operational", label: "Operational", hasDate: true },
+  { key: "transport", label: "Transport", hasDate: false },
+  { key: "material", label: "Material", hasDate: true },
+  { key: "pph_sewa", label: "PPH Sewa", hasDate: true },
+  { key: "aset", label: "Aset", hasDate: true },
+  { key: "jasa_instalasi", label: "Jasa Instalasi", hasDate: true },
+]
+
+export const PNL_KANTOR_CATEGORIES: DetailCategoryConfig[] = [
+  { key: "transport", label: "Transport", hasDate: true },
+  { key: "utilitas", label: "Utilitas", hasDate: true },
+  { key: "operational_kantor", label: "Operational Kantor", hasDate: true },
+]
+
+export function sumJumlah(rows: { jumlah: number }[]): number {
+  return rows.reduce((s, r) => s + Number(r.jumlah || 0), 0)
 }

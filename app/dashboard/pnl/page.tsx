@@ -6,7 +6,21 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { ChevronRight, Loader2, RefreshCw, Save } from "lucide-react"
-import { PNL_ROWS, emptyMatrix, recomputeMatrix, type PnlMatrixValues } from "@/lib/pnl"
+import { MoneyInput } from "@/components/pnl/money-input"
+import { GajiDrawer } from "@/components/pnl/gaji-drawer"
+import { CategoryBreakdownDrawer } from "@/components/pnl/category-breakdown-drawer"
+import {
+  PNL_ROWS,
+  PNL_PROYEK_CATEGORIES,
+  PNL_KANTOR_CATEGORIES,
+  emptyMatrix,
+  recomputeMatrix,
+  sumJumlah,
+  type BreakdownKind,
+  type PnlMatrixValues,
+  type PnlGajiRow,
+  type PnlDetailRow,
+} from "@/lib/pnl"
 
 const MONTHS = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -16,65 +30,19 @@ const MONTHS = [
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 7 }, (_, i) => CURRENT_YEAR - 4 + i)
 
-const fIDR = (n: number) =>
-  new Intl.NumberFormat("id-ID", { maximumFractionDigits: 0 }).format(n)
-
-function parseIDR(raw: string): number {
-  const cleaned = raw.replace(/[^0-9-]/g, "")
-  if (!cleaned || cleaned === "-") return 0
-  return Number(cleaned)
-}
-
-// ─── Matrix cell input ──────────────────────────────────────────────────────
-function MatrixInput({
-  value,
-  onCommit,
-  disabled,
-}: {
-  value: number
-  onCommit: (next: number) => void
-  disabled?: boolean
-}) {
-  const [focused, setFocused] = React.useState(false)
-  const [draft, setDraft] = React.useState(() => String(value))
-
-  React.useEffect(() => {
-    if (!focused) setDraft(value === 0 ? "" : fIDR(value))
-  }, [value, focused])
-
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      disabled={disabled}
-      value={focused ? draft : value === 0 ? "" : fIDR(value)}
-      placeholder="0"
-      onFocus={() => {
-        setFocused(true)
-        setDraft(value === 0 ? "" : String(value))
-      }}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        setFocused(false)
-        onCommit(parseIDR(draft))
-      }}
-      className={
-        "w-full bg-transparent text-right tabular-nums text-sm outline-none px-3 py-2 rounded-md border transition-colors " +
-        (disabled
-          ? "border-transparent bg-zinc-900/40 text-zinc-500 cursor-not-allowed"
-          : "border-zinc-800/60 text-zinc-100 placeholder:text-zinc-600 hover:border-zinc-700 focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400")
-      }
-    />
-  )
-}
-
 export default function PnlPage() {
   const [periodType, setPeriodType] = React.useState<"monthly" | "yearly">("monthly")
   const [periodMonth, setPeriodMonth] = React.useState(new Date().getMonth() + 1)
   const [periodYear, setPeriodYear] = React.useState(CURRENT_YEAR)
   const [matrix, setMatrix] = React.useState<PnlMatrixValues>(emptyMatrix())
+  const [pnlId, setPnlId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [openDrawer, setOpenDrawer] = React.useState<BreakdownKind | null>(null)
+
+  const [gajiRows, setGajiRows] = React.useState<PnlGajiRow[]>([])
+  const [proyekRows, setProyekRows] = React.useState<PnlDetailRow[]>([])
+  const [kantorRows, setKantorRows] = React.useState<PnlDetailRow[]>([])
 
   const loadPeriod = React.useCallback(async () => {
     setLoading(true)
@@ -88,6 +56,22 @@ export default function PnlPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Gagal memuat laporan")
       setMatrix(recomputeMatrix(data.matrix))
+      setPnlId(data.id ?? null)
+
+      if (data.id) {
+        const [g, p, k] = await Promise.all([
+          fetch(`/api/pnl/gaji?pnl_id=${data.id}`).then((r) => r.json()),
+          fetch(`/api/pnl/proyek?pnl_id=${data.id}`).then((r) => r.json()),
+          fetch(`/api/pnl/kantor?pnl_id=${data.id}`).then((r) => r.json()),
+        ])
+        setGajiRows(g.data ?? [])
+        setProyekRows(p.data ?? [])
+        setKantorRows(k.data ?? [])
+      } else {
+        setGajiRows([])
+        setProyekRows([])
+        setKantorRows([])
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal memuat laporan P&L")
     } finally {
@@ -98,6 +82,23 @@ export default function PnlPage() {
   React.useEffect(() => {
     loadPeriod()
   }, [loadPeriod])
+
+  // BEBAN GAJI / PROYEK / KANTOR Komersial values are no longer manual — they
+  // auto-sync from the sum of their breakdown drawer rows.
+  const gajiTotal = React.useMemo(() => sumJumlah(gajiRows), [gajiRows])
+  const proyekTotal = React.useMemo(() => sumJumlah(proyekRows), [proyekRows])
+  const kantorTotal = React.useMemo(() => sumJumlah(kantorRows), [kantorRows])
+
+  React.useEffect(() => {
+    setMatrix((prev) =>
+      recomputeMatrix({
+        ...prev,
+        beban_gaji: { ...prev.beban_gaji, komersial: gajiTotal },
+        beban_keperluan_proyek: { ...prev.beban_keperluan_proyek, komersial: proyekTotal },
+        beban_keperluan_kantor: { ...prev.beban_keperluan_kantor, komersial: kantorTotal },
+      })
+    )
+  }, [gajiTotal, proyekTotal, kantorTotal])
 
   function setCell(key: string, column: "komersial" | "koreksi", next: number) {
     setMatrix((prev) => {
@@ -125,6 +126,7 @@ export default function PnlPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Gagal menyimpan laporan")
       setMatrix(recomputeMatrix(data.matrix))
+      if (data.id) setPnlId(data.id)
       toast.success("Laporan P&L tersimpan")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal menyimpan laporan P&L")
@@ -247,7 +249,8 @@ export default function PnlPage() {
 
                       const values = matrix[row.key] ?? { komersial: 0, koreksi: 0, fiskal: 0 }
                       const isCalc = row.kind === "calc"
-                      const isDrillable = !isCalc && row.indent
+                      const breakdownKind = row.kind === "input" ? row.breakdown : undefined
+                      const isCosmeticDrilldown = !isCalc && !breakdownKind && row.indent
 
                       return (
                         <tr
@@ -259,36 +262,52 @@ export default function PnlPage() {
                         >
                           <td className={"py-3.5 px-4 " + (row.indent ? "pl-8" : "")}>
                             <div
+                              {...(breakdownKind
+                                ? {
+                                    role: "button" as const,
+                                    tabIndex: 0,
+                                    onClick: () => setOpenDrawer(breakdownKind),
+                                    onKeyDown: (e: React.KeyboardEvent) => {
+                                      if (e.key === "Enter" || e.key === " ") setOpenDrawer(breakdownKind)
+                                    },
+                                  }
+                                : {})}
                               className={
                                 "flex items-center gap-1.5 text-sm " +
                                 (row.bold ? "font-semibold text-zinc-100" : "text-zinc-300") +
-                                (isDrillable ? " cursor-pointer" : "")
+                                (breakdownKind ? " cursor-pointer hover:text-zinc-100" : isCosmeticDrilldown ? " cursor-pointer" : "")
                               }
-                              title={isDrillable ? "Buka rincian breakdown (segera hadir)" : undefined}
+                              title={
+                                breakdownKind
+                                  ? "Buka rincian breakdown"
+                                  : isCosmeticDrilldown
+                                    ? "Buka rincian breakdown (segera hadir)"
+                                    : undefined
+                              }
                             >
                               {row.indent && !row.bold ? "–" : ""}
                               <span>{row.label}</span>
-                              {isDrillable && (
+                              {(breakdownKind || isCosmeticDrilldown) && (
                                 <ChevronRight className="h-3.5 w-3.5 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                               )}
                             </div>
                           </td>
                           <td className="py-2 px-2 text-right">
-                            <MatrixInput
+                            <MoneyInput
                               value={values.komersial}
-                              disabled={isCalc}
-                              onCommit={(next) => setCell(row.key, "komersial", next)}
+                              disabled={isCalc || !!breakdownKind}
+                              onChange={(next) => setCell(row.key, "komersial", next)}
                             />
                           </td>
                           <td className="py-2 px-2 text-right">
-                            <MatrixInput
+                            <MoneyInput
                               value={values.koreksi}
                               disabled={isCalc}
-                              onCommit={(next) => setCell(row.key, "koreksi", next)}
+                              onChange={(next) => setCell(row.key, "koreksi", next)}
                             />
                           </td>
                           <td className="py-2 px-2 text-right">
-                            <MatrixInput value={values.fiskal} disabled onCommit={() => {}} />
+                            <MoneyInput value={values.fiskal} disabled onChange={() => {}} />
                           </td>
                         </tr>
                       )
@@ -299,6 +318,38 @@ export default function PnlPage() {
             </div>
           </div>
         </div>
+
+        <GajiDrawer
+          open={openDrawer === "gaji"}
+          onOpenChange={(open) => setOpenDrawer(open ? "gaji" : null)}
+          pnlId={pnlId}
+          rows={gajiRows}
+          onRowsChange={setGajiRows}
+        />
+
+        <CategoryBreakdownDrawer
+          open={openDrawer === "proyek"}
+          onOpenChange={(open) => setOpenDrawer(open ? "proyek" : null)}
+          title="Rincian Beban Keperluan Proyek"
+          description="Total gabungan 6 kategori ini otomatis menjadi nilai Komersial pada baris BEBAN KEPERLUAN PROYEK."
+          categories={PNL_PROYEK_CATEGORIES}
+          apiBase="/api/pnl/proyek"
+          pnlId={pnlId}
+          rows={proyekRows}
+          onRowsChange={setProyekRows}
+        />
+
+        <CategoryBreakdownDrawer
+          open={openDrawer === "kantor"}
+          onOpenChange={(open) => setOpenDrawer(open ? "kantor" : null)}
+          title="Rincian Beban Keperluan Kantor"
+          description="Total gabungan 3 kategori ini otomatis menjadi nilai Komersial pada baris BEBAN KEPERLUAN KANTOR."
+          categories={PNL_KANTOR_CATEGORIES}
+          apiBase="/api/pnl/kantor"
+          pnlId={pnlId}
+          rows={kantorRows}
+          onRowsChange={setKantorRows}
+        />
       </SidebarInset>
     </SidebarProvider>
   )

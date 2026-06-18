@@ -34,9 +34,21 @@ export async function GET(request: Request) {
     if (!res.ok) throw new Error(await res.text())
 
     const rows = await res.json()
-    const matrix = dbRecordToMatrix(rows[0] ?? null)
+    let record = rows[0] ?? null
 
-    return NextResponse.json({ matrix, periodType, periodYear, periodMonth })
+    // Always have a stable pnl_reconciliations.id for this period so the
+    // detail breakdown tables (gaji/proyek/kantor) have a parent to attach to.
+    if (!record) {
+      const insertRes = await fetch(`${supabaseConfig.url}/rest/v1/pnl_reconciliations`, {
+        method: "POST",
+        headers: { ...headers(), Prefer: "return=representation" },
+        body: JSON.stringify({ period_type: periodType, period_year: periodYear, period_month: periodMonth }),
+      })
+      if (!insertRes.ok) throw new Error(await insertRes.text())
+      record = (await insertRes.json())[0]
+    }
+
+    return NextResponse.json({ matrix: dbRecordToMatrix(record), id: record.id, periodType, periodYear, periodMonth })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load P&L report" },
@@ -78,7 +90,7 @@ export async function POST(request: Request) {
     if (!res.ok) throw new Error(await res.text())
 
     const rows = await res.json()
-    return NextResponse.json({ matrix: dbRecordToMatrix(rows[0] ?? null) })
+    return NextResponse.json({ matrix: dbRecordToMatrix(rows[0] ?? null), id: rows[0]?.id ?? null })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to save P&L report" },
