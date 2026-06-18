@@ -192,3 +192,11 @@ export const PNL_KANTOR_CATEGORIES: DetailCategoryConfig[] = [
 export function sumJumlah(rows: { jumlah: number }[]): number {
   return rows.reduce((s, r) => s + Number(r.jumlah || 0), 0)
 }
+
+// ─── Perusahaan / NPWP / Project Name package identity ─────────────────────
+
+export interface PnlPackage {
+  perusahaan: string
+  npwp: string
+  project_name: string
+}

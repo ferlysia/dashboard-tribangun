@@ -3,7 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MoneyInput } from "@/components/pnl/money-input"
 import { computeGajiJumlah, formatThousands, type PnlGajiCalcMode, type PnlGajiRow } from "@/lib/pnl"
 
@@ -20,7 +20,24 @@ type Draft = {
 const EMPTY_DRAFT: Draft = { nama: "", nik: "", tahun: "", ptkp: "", upah: 0, hari: 0, calc_mode: "multiply" }
 
 function fieldClass() {
-  return "w-full bg-transparent text-sm text-zinc-100 outline-none border border-zinc-700 rounded-md px-2 py-1.5 placeholder:text-zinc-600 focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400"
+  return "w-full bg-transparent text-sm text-zinc-100 outline-none border border-zinc-700 rounded-md px-2.5 py-2 placeholder:text-zinc-600 focus:ring-1 focus:ring-zinc-400 focus:border-zinc-400"
+}
+
+function ColGroup() {
+  return (
+    <colgroup>
+      <col className="w-[4%]" />
+      <col className="w-[17%]" />
+      <col className="w-[14%]" />
+      <col className="w-[7%]" />
+      <col className="w-[8%]" />
+      <col className="w-[13%]" />
+      <col className="w-[6%]" />
+      <col className="w-[12%]" />
+      <col className="w-[13%]" />
+      <col className="w-[6%]" />
+    </colgroup>
+  )
 }
 
 function GajiRowForm({
@@ -44,7 +61,7 @@ function GajiRowForm({
         <input
           value={draft.nama}
           onChange={(e) => setDraft((d) => ({ ...d, nama: e.target.value }))}
-          placeholder="Nama"
+          placeholder="Nama lengkap"
           autoFocus
           className={fieldClass()}
         />
@@ -52,8 +69,9 @@ function GajiRowForm({
       <td className="px-2 py-2">
         <input
           value={draft.nik}
-          onChange={(e) => setDraft((d) => ({ ...d, nik: e.target.value }))}
-          placeholder="NIK"
+          onChange={(e) => setDraft((d) => ({ ...d, nik: e.target.value.replace(/\D/g, "") }))}
+          placeholder="16 digit NIK"
+          inputMode="numeric"
           className={fieldClass()}
         />
       </td>
@@ -63,7 +81,7 @@ function GajiRowForm({
           onChange={(e) => setDraft((d) => ({ ...d, tahun: e.target.value.replace(/\D/g, "") }))}
           placeholder="Tahun"
           inputMode="numeric"
-          className={fieldClass() + " w-20"}
+          className={fieldClass()}
         />
       </td>
       <td className="px-2 py-2">
@@ -71,24 +89,24 @@ function GajiRowForm({
           value={draft.ptkp}
           onChange={(e) => setDraft((d) => ({ ...d, ptkp: e.target.value }))}
           placeholder="PTKP"
-          className={fieldClass() + " w-20"}
+          className={fieldClass()}
         />
       </td>
       <td className="px-2 py-2">
         <MoneyInput value={draft.upah} onChange={(v) => setDraft((d) => ({ ...d, upah: v }))} />
       </td>
+      <td className="px-2 py-2 text-center">
+        <button
+          type="button"
+          onClick={() => setDraft((d) => ({ ...d, calc_mode: d.calc_mode === "multiply" ? "add" : "multiply" }))}
+          title="Ganti rumus: Upah x Hari atau Upah + Hari"
+          className="h-9 w-9 flex items-center justify-center rounded-md border border-zinc-700 text-zinc-300 hover:border-zinc-500 text-sm font-semibold"
+        >
+          {draft.calc_mode === "multiply" ? "×" : "+"}
+        </button>
+      </td>
       <td className="px-2 py-2">
-        <div className="flex items-center gap-1">
-          <MoneyInput value={draft.hari} onChange={(v) => setDraft((d) => ({ ...d, hari: v }))} />
-          <button
-            type="button"
-            onClick={() => setDraft((d) => ({ ...d, calc_mode: d.calc_mode === "multiply" ? "add" : "multiply" }))}
-            title="Ganti rumus: Upah x Hari atau Upah + Hari"
-            className="h-8 w-8 flex-shrink-0 flex items-center justify-center rounded-md border border-zinc-700 text-zinc-300 hover:border-zinc-500 text-sm font-semibold"
-          >
-            {draft.calc_mode === "multiply" ? "×" : "+"}
-          </button>
-        </div>
+        <MoneyInput value={draft.hari} onChange={(v) => setDraft((d) => ({ ...d, hari: v }))} />
       </td>
       <td className="px-2 py-2 text-right text-sm text-zinc-100 tabular-nums">{formatThousands(String(jumlah)) || "0"}</td>
       <td className="px-2 py-2">
@@ -97,16 +115,16 @@ function GajiRowForm({
             type="button"
             disabled={saving}
             onClick={() => onSubmit(draft)}
-            className="h-8 w-8 flex items-center justify-center rounded-md bg-zinc-100 text-zinc-900 hover:bg-white disabled:opacity-50"
+            className="h-9 w-9 flex items-center justify-center rounded-md bg-zinc-100 text-zinc-900 hover:bg-white disabled:opacity-50"
           >
-            {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="h-8 w-8 flex items-center justify-center rounded-md border border-zinc-700 text-zinc-400 hover:text-zinc-200"
+            className="h-9 w-9 flex items-center justify-center rounded-md border border-zinc-700 text-zinc-400 hover:text-zinc-200"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       </td>
@@ -114,7 +132,7 @@ function GajiRowForm({
   )
 }
 
-export function GajiDrawer({
+export function GajiModal({
   open,
   onOpenChange,
   pnlId,
@@ -196,38 +214,37 @@ export function GajiDrawer({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-none md:w-[920px] bg-zinc-950 border-zinc-800 text-zinc-100 p-0 flex flex-col gap-0"
-      >
-        <SheetHeader className="border-b border-zinc-800/60 px-6 py-4">
-          <SheetTitle className="text-zinc-100">Rincian Beban Gaji</SheetTitle>
-          <SheetDescription className="text-zinc-500">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] max-w-[1400px] max-h-[88vh] bg-zinc-950 border-zinc-800 text-zinc-100 p-0 flex flex-col gap-0">
+        <DialogHeader className="border-b border-zinc-800/60 px-6 py-4">
+          <DialogTitle className="text-zinc-100">Rincian Beban Gaji</DialogTitle>
+          <DialogDescription className="text-zinc-500">
             Total baris ini otomatis menjadi nilai Komersial pada baris BEBAN GAJI di laporan utama.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <div className="rounded-xl border border-zinc-800/60 overflow-hidden">
-            <table className="w-full border-collapse">
+            <table className="w-full table-fixed border-collapse">
+              <ColGroup />
               <thead>
                 <tr className="border-b border-zinc-800/60 bg-zinc-900/60">
-                  <th className="text-left py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 w-10">No</th>
-                  <th className="text-left py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Nama</th>
-                  <th className="text-left py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">NIK</th>
-                  <th className="text-left py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Tahun</th>
-                  <th className="text-left py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">PTKP</th>
-                  <th className="text-right py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Upah</th>
-                  <th className="text-right py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Hari</th>
-                  <th className="text-right py-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Jumlah</th>
-                  <th className="w-20" />
+                  <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">No</th>
+                  <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Nama</th>
+                  <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">NIK</th>
+                  <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Tahun</th>
+                  <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">PTKP</th>
+                  <th className="text-right py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Upah</th>
+                  <th className="text-center py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Rumus</th>
+                  <th className="text-right py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Hari</th>
+                  <th className="text-right py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Jumlah</th>
+                  <th className="py-3 px-2" />
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && !adding && (
                   <tr>
-                    <td colSpan={9} className="px-2 py-4 text-center text-xs text-zinc-600">Belum ada data</td>
+                    <td colSpan={10} className="px-2 py-6 text-center text-xs text-zinc-600">Belum ada data</td>
                   </tr>
                 )}
 
@@ -250,18 +267,16 @@ export function GajiDrawer({
                     />
                   ) : (
                     <tr key={row.id} className="border-b border-zinc-800/40 last:border-0 group hover:bg-zinc-800/30 transition-colors">
-                      <td className="px-2 py-2.5 text-xs text-zinc-500">{idx + 1}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-200">{row.nama}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-400">{row.nik || "-"}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-400">{row.tahun ?? "-"}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-400">{row.ptkp || "-"}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-300 text-right tabular-nums">{formatThousands(String(row.upah))}</td>
-                      <td className="px-2 py-2.5 text-sm text-zinc-300 text-right tabular-nums">
-                        {formatThousands(String(row.hari))}{" "}
-                        <span className="text-zinc-600">{row.calc_mode === "multiply" ? "×" : "+"}</span>
-                      </td>
-                      <td className="px-2 py-2.5 text-sm font-semibold text-zinc-100 text-right tabular-nums">{formatThousands(String(row.jumlah))}</td>
-                      <td className="px-2 py-2.5">
+                      <td className="px-2 py-3 text-xs text-zinc-500">{idx + 1}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-200 truncate">{row.nama}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-400 tabular-nums truncate">{row.nik || "-"}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-400">{row.tahun ?? "-"}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-400 truncate">{row.ptkp || "-"}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-300 text-right tabular-nums">{formatThousands(String(row.upah))}</td>
+                      <td className="px-2 py-3 text-center text-sm text-zinc-500">{row.calc_mode === "multiply" ? "×" : "+"}</td>
+                      <td className="px-2 py-3 text-sm text-zinc-300 text-right tabular-nums">{formatThousands(String(row.hari))}</td>
+                      <td className="px-2 py-3 text-sm font-semibold text-zinc-100 text-right tabular-nums">{formatThousands(String(row.jumlah))}</td>
+                      <td className="px-2 py-3">
                         {confirmDeleteId === row.id ? (
                           <div className="flex items-center gap-1 justify-end">
                             <button type="button" onClick={() => handleDelete(row.id)} className="px-2 py-1 rounded text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20">Hapus?</button>
@@ -283,7 +298,7 @@ export function GajiDrawer({
                 )}
 
                 <tr className="bg-zinc-900/60">
-                  <td colSpan={7} className="px-2 py-3 text-right text-xs font-semibold uppercase tracking-wider text-zinc-400">Total</td>
+                  <td colSpan={8} className="px-2 py-3 text-right text-xs font-semibold uppercase tracking-wider text-zinc-400">Total</td>
                   <td className="px-2 py-3 text-right text-sm font-bold text-zinc-100 tabular-nums">{formatThousands(String(total))}</td>
                   <td />
                 </tr>
@@ -302,7 +317,7 @@ export function GajiDrawer({
             </button>
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
