@@ -26,6 +26,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/reports": "Reports",
   "/activity-history": "Activity History",
   "/input-invoice": "New Invoice",
+  "/dashboard/pnl": "Laporan Laba Rugi (P&L)",
 }
 
 export function SiteHeader() {

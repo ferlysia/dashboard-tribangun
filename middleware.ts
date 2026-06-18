@@ -29,6 +29,7 @@ const ROLE_GUARDS: ReadonlyArray<{ pattern: RegExp; allowed: ReadonlyArray<strin
   { pattern: /^\/dashboard\/doc-con(\/|$)/,      allowed: ["ADMIN", "DOC_CON"]       },
   { pattern: /^\/dashboard\/cost-control(\/|$)/, allowed: ["ADMIN", "COST_CONTROL"]  },
   { pattern: /^\/dashboard\/finance(\/|$)/,      allowed: ["ADMIN", "FINANCE"]       },
+  { pattern: /^\/dashboard\/pnl(\/|$)/,          allowed: ["ADMIN", "FINANCE"]       },
   { pattern: /^\/input-invoice(\/|$)/,           allowed: ["ADMIN", "FINANCE"]       },
 ]
 
