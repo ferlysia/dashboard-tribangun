@@ -102,11 +102,12 @@ export default function PnlPage() {
         setLoading(false)
       }
     },
-    // perusahaan/projectName are read inside via override-or-state on purpose —
-    // this only auto-reruns on period changes; company changes are committed
-    // explicitly (package selection or field blur) via direct calls below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [periodType, periodMonth, periodYear]
+    // perusahaan/projectName must stay in the deps so bare loadPeriod() calls
+    // (Refresh button, blur-commit from PackageSelector) read the latest
+    // values instead of a closure frozen at mount with empty strings — that
+    // staleness used to wipe the loaded matrix/pnlId back to empty right
+    // after selecting an existing package.
+    [periodType, periodMonth, periodYear, perusahaan, projectName]
   )
 
   React.useEffect(() => {

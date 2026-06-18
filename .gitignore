@@ -36,8 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
-# vscode mcp config (contains plaintext db credentials)
+# mcp config (contains plaintext db credentials)
 .vscode/mcp.json
+/mcp.json
+/.mcp.json
 
 # typescript
 *.tsbuildinfo

@@ -34,6 +34,8 @@ export function PackageSelector({
   const containerRef = React.useRef<HTMLDivElement>(null)
   const openRef = React.useRef(open)
   openRef.current = open
+  const onCommitRef = React.useRef(onCommit)
+  onCommitRef.current = onCommit
 
   React.useEffect(() => {
     if (!open) return
@@ -57,13 +59,12 @@ export function PackageSelector({
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         if (openRef.current) {
           setOpen(false)
-          onCommit()
+          onCommitRef.current()
         }
       }
     }
     document.addEventListener("mousedown", onClickOutside)
     return () => document.removeEventListener("mousedown", onClickOutside)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onCommit reads latest state via closure each render, intentionally not re-subscribing
   }, [])
 
   function handleSelect(pkg: PnlPackage) {
