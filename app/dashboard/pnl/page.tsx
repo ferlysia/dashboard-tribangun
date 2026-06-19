@@ -10,10 +10,12 @@ import { MoneyInput } from "@/components/pnl/money-input"
 import { GajiModal } from "@/components/pnl/gaji-modal"
 import { CategoryBreakdownModal } from "@/components/pnl/category-breakdown-modal"
 import { PackageSelector } from "@/components/pnl/package-selector"
+import { HistoryTable } from "@/components/pnl/history-table"
 import {
   PNL_ROWS,
   PNL_PROYEK_CATEGORIES,
   PNL_KANTOR_CATEGORIES,
+  MONTHS,
   emptyMatrix,
   recomputeMatrix,
   sumJumlah,
@@ -22,12 +24,8 @@ import {
   type PnlGajiRow,
   type PnlDetailRow,
   type PnlPackage,
+  type PnlHistoryRecord,
 } from "@/lib/pnl"
-
-const MONTHS = [
-  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
-]
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: 7 }, (_, i) => CURRENT_YEAR - 4 + i)
@@ -51,12 +49,42 @@ export default function PnlPage() {
   const [proyekRows, setProyekRows] = React.useState<PnlDetailRow[]>([])
   const [kantorRows, setKantorRows] = React.useState<PnlDetailRow[]>([])
 
+  const [historyRows, setHistoryRows] = React.useState<PnlHistoryRecord[]>([])
+  const [historyLoading, setHistoryLoading] = React.useState(false)
+
   const hasPackage = perusahaan.trim().length > 0 && projectName.trim().length > 0
 
+  const loadHistory = React.useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch("/api/pnl/history")
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Gagal memuat riwayat laporan")
+      setHistoryRows(data.data ?? [])
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal memuat riwayat laporan")
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    loadHistory()
+  }, [loadHistory])
+
   const loadPeriod = React.useCallback(
-    async (override?: { perusahaan: string; projectName: string }) => {
+    async (override?: {
+      perusahaan: string
+      projectName: string
+      periodType?: "monthly" | "yearly"
+      periodYear?: number
+      periodMonth?: number
+    }) => {
       const activePerusahaan = (override?.perusahaan ?? perusahaan).trim()
       const activeProjectName = (override?.projectName ?? projectName).trim()
+      const activePeriodType = override?.periodType ?? periodType
+      const activePeriodYear = override?.periodYear ?? periodYear
+      const activePeriodMonth = override?.periodMonth ?? periodMonth
 
       if (!activePerusahaan || !activeProjectName) {
         setMatrix(emptyMatrix())
@@ -70,11 +98,11 @@ export default function PnlPage() {
       setLoading(true)
       try {
         const params = new URLSearchParams({
-          period_type: periodType,
-          period_year: String(periodYear),
+          period_type: activePeriodType,
+          period_year: String(activePeriodYear),
           perusahaan: activePerusahaan,
           project_name: activeProjectName,
-          ...(periodType === "monthly" ? { period_month: String(periodMonth) } : {}),
+          ...(activePeriodType === "monthly" ? { period_month: String(activePeriodMonth) } : {}),
         })
         const res = await fetch(`/api/pnl?${params}`)
         const data = await res.json()
@@ -117,6 +145,22 @@ export default function PnlPage() {
 
   function handleSelectPackage(pkg: PnlPackage) {
     loadPeriod({ perusahaan: pkg.perusahaan, projectName: pkg.project_name })
+  }
+
+  function handleSelectHistoryRow(record: PnlHistoryRecord) {
+    setPerusahaan(record.perusahaan)
+    setNpwp(record.npwp)
+    setProjectName(record.project_name)
+    setPeriodType(record.period_type)
+    setPeriodYear(record.period_year)
+    if (record.period_type === "monthly") setPeriodMonth(record.period_month)
+    loadPeriod({
+      perusahaan: record.perusahaan,
+      projectName: record.project_name,
+      periodType: record.period_type,
+      periodYear: record.period_year,
+      periodMonth: record.period_month,
+    })
   }
 
   // BEBAN GAJI / PROYEK / KANTOR Komersial values are no longer manual — they
@@ -179,6 +223,7 @@ export default function PnlPage() {
       setMatrix(recomputeMatrix(data.matrix))
       if (data.id) setPnlId(data.id)
       toast.success("Laporan P&L tersimpan")
+      loadHistory()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal menyimpan laporan P&L")
     } finally {
@@ -214,6 +259,9 @@ export default function PnlPage() {
                 onSelectPackage={handleSelectPackage}
               />
             </div>
+
+            {/* Riwayat laporan tersimpan — klik baris untuk merevisi */}
+            <HistoryTable rows={historyRows} loading={historyLoading} onSelectRow={handleSelectHistoryRow} />
 
             {/* Period selector + actions */}
             <div className="flex items-center justify-between gap-4 flex-wrap">

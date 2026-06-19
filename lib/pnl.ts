@@ -200,3 +200,26 @@ export interface PnlPackage {
   npwp: string
   project_name: string
 }
+
+// ─── Saved report history (summary list + click-to-edit) ───────────────────
+
+export const MONTHS = [
+  "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+  "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+]
+
+export interface PnlHistoryRecord {
+  id: string
+  perusahaan: string
+  npwp: string
+  project_name: string
+  period_type: "monthly" | "yearly"
+  period_year: number
+  period_month: number
+  laba_bersih_fiskal: number
+}
+
+export function formatPeriodLabel(periodType: "monthly" | "yearly", periodYear: number, periodMonth: number): string {
+  if (periodType === "yearly") return `Tahunan ${periodYear}`
+  return `${MONTHS[periodMonth - 1] ?? periodMonth} ${periodYear}`
+}
