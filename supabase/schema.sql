@@ -159,18 +159,31 @@ for each row execute function public.set_updated_at();
 
 -- ─── project_costs ───────────────────────────────────────────────────────────
 create table if not exists public.project_costs (
-  id           uuid          primary key default gen_random_uuid(),
-  project_key  text          not null,
-  category     text          not null default 'lainnya',
-  description  text          not null default '',
-  amount       numeric(18,2) not null default 0,
-  cost_date    date,
-  input_by     text          not null default '',
-  created_at   timestamptz   not null default now(),
-  updated_at   timestamptz   not null default now()
+  id                uuid          primary key default gen_random_uuid(),
+  project_key       text          not null,
+  category          text          not null default 'lainnya',
+  description       text          not null default '',
+  amount            numeric(18,2) not null default 0,
+  cost_date         date,
+  input_by          text          not null default '',
+  cost_stream       text          not null default 'main',
+  -- Excel import (Realisasi Material/Jasa Instalasi) — no_po+description
+  -- adalah composite key idempotent dipakai saat upsert dari upload Excel.
+  no_po             text,
+  supplier          text,
+  qty               numeric,
+  harga_satuan      numeric,
+  harga_satuan_pph  numeric,
+  total_pph         numeric,
+  created_at        timestamptz   not null default now(),
+  updated_at        timestamptz   not null default now()
 );
 
 create index if not exists project_costs_key_idx on public.project_costs (project_key);
+
+-- NULL no_po (input manual) tidak saling konflik satu sama lain.
+create unique index if not exists project_costs_po_desc_unique
+  on public.project_costs (project_key, no_po, description);
 
 drop trigger if exists trg_project_costs_updated_at on public.project_costs;
 create trigger trg_project_costs_updated_at

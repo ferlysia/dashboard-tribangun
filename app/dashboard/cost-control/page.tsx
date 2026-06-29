@@ -8,7 +8,7 @@ import {
   RefreshCw, Search, Plus, Trash2, Pencil, Check, X,
   TrendingUp, TrendingDown, FolderOpen,
   AlertTriangle, ChevronLeft, Save, Bell, CheckCircle2,
-  BarChart3,
+  BarChart3, UploadCloud,
 } from "lucide-react"
 import type { ExecProjectRow } from "@/app/api/executive-summary/route"
 import {
@@ -24,6 +24,9 @@ type CostItem = {
   id: string; project_key: string; category: string; description: string
   amount: number; cost_date?: string | null; input_by?: string
   cost_stream: "main" | "vo"; created_at: string
+  // Excel import (Realisasi Material/Jasa Instalasi) — optional, only set for rows synced via upload
+  no_po?: string | null; supplier?: string | null; qty?: number | null
+  harga_satuan?: number | null; harga_satuan_pph?: number | null; total_pph?: number | null
 }
 
 type CCProjectDetail = {
@@ -54,9 +57,23 @@ const STREAMS: Array<{
   { key: "lainnya",     label: "Biaya Lainnya",         detailField: "op_lainnya",     voField: "op_vo_lainnya",     catColor: "bg-neutral-100 text-neutral-500 border-neutral-200"},
 ]
 
-const CATS = STREAMS.map(s => s.key)
-const CAT_LABELS: Record<string, string> = Object.fromEntries(STREAMS.map(s => [s.key, s.label]))
-const CAT_COLORS: Record<string, string> = Object.fromEntries(STREAMS.map(s => [s.key, s.catColor]))
+// Extra categories that exist outside the budgeted STREAMS (no plafon/detailField of
+// their own) — currently only "Jasa Instalasi", introduced by the Excel import feature.
+// Kept separate from STREAMS so BudgetActualMatrix/BudgetPlafonSection (which iterate
+// STREAMS only) are unaffected; these costs still count toward total actual/net profit.
+const EXTRA_CATEGORIES: Array<{ key: string; label: string; catColor: string }> = [
+  { key: "jasa_instalasi", label: "Jasa Instalasi", catColor: "bg-cyan-50 text-cyan-700 border-cyan-200" },
+]
+
+const CATS = [...STREAMS.map(s => s.key), ...EXTRA_CATEGORIES.map(c => c.key)]
+const CAT_LABELS: Record<string, string> = {
+  ...Object.fromEntries(STREAMS.map(s => [s.key, s.label])),
+  ...Object.fromEntries(EXTRA_CATEGORIES.map(c => [c.key, c.label])),
+}
+const CAT_COLORS: Record<string, string> = {
+  ...Object.fromEntries(STREAMS.map(s => [s.key, s.catColor])),
+  ...Object.fromEntries(EXTRA_CATEGORIES.map(c => [c.key, c.catColor])),
+}
 
 const EMPTY_DETAIL: CCProjectDetail = {
   op_gaji: 0, op_material: 0, op_transport: 0,
@@ -111,9 +128,7 @@ function parseRpInput(str: string): number {
 // Provides live cat labels (including any custom "lainnya" override) to all
 // sub-components without prop drilling.
 
-const CatLabelsContext = React.createContext<Record<string, string>>(
-  Object.fromEntries(STREAMS.map(s => [s.key, s.label]))
-)
+const CatLabelsContext = React.createContext<Record<string, string>>(CAT_LABELS)
 
 function useCatLabels() {
   return React.useContext(CatLabelsContext)
@@ -929,13 +944,131 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
   )
 }
 
+// ─── Excel Import Panel (Realisasi Material / Jasa Instalasi) ────────────────
+// Lets users upload their existing Excel tracker instead of re-typing it. Parsing
+// + categorization (Material vs Jasa Instalasi) happens server-side in
+// /api/project-costs/import, which upserts on (project_key, no_po, description) —
+// re-uploading the same/revised file overwrites matching rows instead of duplicating.
+
+type ImportSummary = {
+  material: { count: number; total: number }
+  jasa_instalasi: { count: number; total: number }
+}
+
+function ExcelImportPanel({ projectKey, onSynced, onCancel }: {
+  projectKey: string
+  onSynced: (items: CostItem[], summary: ImportSummary, errors: string[]) => void
+  onCancel: () => void
+}) {
+  const [file,   setFile]   = React.useState<File | null>(null)
+  const [stream, setStream] = React.useState<"main" | "vo">("main")
+  const [busy,   setBusy]   = React.useState(false)
+  const [err,    setErr]    = React.useState<string | null>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
+  const handleSync = async () => {
+    if (!file) { setErr("Pilih file Excel/CSV terlebih dahulu."); return }
+    setBusy(true); setErr(null)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      fd.append("project_key", projectKey)
+      fd.append("cost_stream", stream)
+      const res = await fetch("/api/project-costs/import", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "Gagal sinkronisasi")
+      onSynced(json.data as CostItem[], json.summary as ImportSummary, (json.errors ?? []) as string[])
+      setFile(null)
+      if (inputRef.current) inputRef.current.value = ""
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5 px-4 py-3.5 bg-indigo-50/50 border-t border-indigo-100">
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={stream} onChange={e => setStream(e.target.value as "main" | "vo")}
+          title="Stream biaya" aria-label="Stream biaya untuk file diupload"
+          className="text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white outline-none focus:border-indigo-400 flex-shrink-0">
+          <option value="main">PO Utama</option>
+          <option value="vo">Kerja Tambah</option>
+        </select>
+        <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv"
+          onChange={e => setFile(e.target.files?.[0] ?? null)}
+          title="Pilih file Excel/CSV Realisasi" aria-label="Pilih file Excel/CSV Realisasi"
+          className="flex-1 min-w-0 text-xs text-neutral-500 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-indigo-600 file:text-white file:text-[11px] file:font-semibold file:cursor-pointer hover:file:bg-indigo-700" />
+        <button type="button" onClick={handleSync} disabled={busy || !file}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-semibold hover:bg-indigo-700 disabled:opacity-50 flex-shrink-0">
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <UploadCloud className="h-3 w-3" />}
+          {busy ? "Memproses…" : "Sinkronkan"}
+        </button>
+        <button type="button" onClick={onCancel} title="Tutup panel upload" aria-label="Tutup panel upload"
+          className="p-1.5 rounded text-neutral-400 hover:bg-neutral-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
+      </div>
+      <p className="text-[10px] text-neutral-400 leading-relaxed">
+        Kolom wajib: <strong>Tanggal, No.PO, Supplier, Description, QTY</strong>, dan salah satu pasangan{" "}
+        <strong>Harga Sat/Total Harga</strong> (→ Material) atau <strong>Unit Price/Total Price</strong> (→ Jasa Instalasi).
+        Baris dengan No.PO + Description yang sama akan menimpa data lama, bukan menduplikasi.
+      </p>
+      {err && <p className="text-[11px] text-red-600 font-semibold">{err}</p>}
+    </div>
+  )
+}
+
+// ─── Material / Jasa Instalasi Split View ─────────────────────────────────────
+// Side-by-side breakdown so users can sanity-check what landed in each bucket
+// right after a sync, without touching Budget Matrix / ROI calculations.
+
+function MaterialJasaSplitView({ costs }: { costs: CostItem[] }) {
+  const material = costs.filter(c => c.category === "material")
+  const jasa      = costs.filter(c => c.category === "jasa_instalasi")
+  if (material.length === 0 && jasa.length === 0) return null
+
+  const renderCol = (label: string, color: string, items: CostItem[]) => {
+    const total = items.reduce((s, c) => s + Number(c.amount), 0)
+    return (
+      <div className="flex-1 min-w-0 rounded-xl border border-neutral-100 bg-neutral-50/40 overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-neutral-100">
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${color}`}>{label}</span>
+          <span className="text-[10px] text-neutral-400">{items.length} item</span>
+        </div>
+        {items.length === 0 ? (
+          <p className="text-[11px] text-neutral-300 px-3.5 py-3 text-center">Belum ada data.</p>
+        ) : (
+          <div className="divide-y divide-neutral-50 max-h-52 overflow-y-auto">
+            {items.map(it => (
+              <div key={it.id} className="flex items-center gap-2 px-3.5 py-1.5 text-[11px]">
+                <span className="flex-1 min-w-0 truncate text-neutral-600">{it.description}</span>
+                {it.no_po && <span className="text-[9px] text-neutral-300 flex-shrink-0 font-mono">{it.no_po}</span>}
+                <span className="font-bold tabular-nums text-neutral-700 flex-shrink-0 w-20 text-right">{fShort(Number(it.amount))}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between px-3.5 py-2 bg-white border-t border-neutral-100">
+          <span className="text-[10px] text-neutral-400">Subtotal</span>
+          <span className="text-xs font-bold tabular-nums text-neutral-700">{fShort(total)}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row gap-3 px-4 py-3.5 bg-white border-t border-neutral-100">
+      {renderCol("Material / Bahan", "bg-teal-50 text-teal-700 border-teal-200", material)}
+      {renderCol("Jasa Instalasi",    "bg-cyan-50 text-cyan-700 border-cyan-200", jasa)}
+    </div>
+  )
+}
+
 // ─── Realisasi Biaya Section ──────────────────────────────────────────────────
 
-function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItemSaved, onItemDeleted, lainnyaLabel, onLainnyaLabelChange }: {
+function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItemSaved, onItemDeleted, onBulkSynced, lainnyaLabel, onLainnyaLabelChange }: {
   projectKey: string; costs: CostItem[] | undefined; loading: boolean
   onItemAdded: (item: CostItem) => void
   onItemSaved: (id: string, patch: Partial<CostItem>) => void
   onItemDeleted: (id: string) => void
+  onBulkSynced: (items: CostItem[]) => void
   lainnyaLabel: string
   onLainnyaLabelChange: (label: string) => void
 }) {
@@ -944,6 +1077,8 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
   const [confirmId,    setConfirmId]    = React.useState<string | null>(null)
   const [deletingId,   setDeletingId]   = React.useState<string | null>(null)
   const [showAdd,      setShowAdd]      = React.useState(false)
+  const [showUpload,   setShowUpload]   = React.useState(false)
+  const [syncMsg,       setSyncMsg]      = React.useState<{ text: string; errors: string[] } | null>(null)
   const [streamTab,    setStreamTab]    = React.useState<"all" | "main" | "vo">("all")
   const [lainnyaDraft, setLainnyaDraft] = React.useState(lainnyaLabel)
 
@@ -1026,12 +1161,49 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
             </span>
           )}
         </div>
-        <button type="button" onClick={() => setShowAdd(v => !v)}
-          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${showAdd ? "bg-neutral-200 text-neutral-600" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
-          {showAdd ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-          {showAdd ? "Batal" : "Tambah Pengeluaran"}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button type="button" onClick={() => { setShowUpload(v => !v); setShowAdd(false) }}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${showUpload ? "bg-neutral-200 text-neutral-600" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
+            {showUpload ? <X className="h-3 w-3" /> : <UploadCloud className="h-3 w-3" />}
+            {showUpload ? "Batal" : "Upload Excel"}
+          </button>
+          <button type="button" onClick={() => { setShowAdd(v => !v); setShowUpload(false) }}
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${showAdd ? "bg-neutral-200 text-neutral-600" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}>
+            {showAdd ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+            {showAdd ? "Batal" : "Tambah Pengeluaran"}
+          </button>
+        </div>
       </div>
+
+      {showUpload && (
+        <ExcelImportPanel
+          projectKey={projectKey}
+          onSynced={(items, summary, errors) => {
+            onBulkSynced(items)
+            setSyncMsg({
+              text: `Tersinkron: ${summary.material.count} Material (${fShort(summary.material.total)}) · ${summary.jasa_instalasi.count} Jasa Instalasi (${fShort(summary.jasa_instalasi.total)})`,
+              errors,
+            })
+            setShowUpload(false)
+            setTimeout(() => setSyncMsg(null), 8000)
+          }}
+          onCancel={() => setShowUpload(false)}
+        />
+      )}
+
+      {syncMsg && (
+        <div className="flex flex-col gap-1 px-4 py-2.5 bg-emerald-50 border-t border-emerald-100">
+          <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />{syncMsg.text}
+          </p>
+          {syncMsg.errors.length > 0 && (
+            <ul className="text-[10px] text-amber-600 pl-5 list-disc">
+              {syncMsg.errors.slice(0, 5).map((e, i) => <li key={i}>{e}</li>)}
+              {syncMsg.errors.length > 5 && <li>+{syncMsg.errors.length - 5} baris lain dilewati</li>}
+            </ul>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <AddCostForm
@@ -1040,6 +1212,8 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
           onCancel={() => setShowAdd(false)}
         />
       )}
+
+      <MaterialJasaSplitView costs={costs} />
 
       {shown.length === 0 ? (
         <div className="py-10 text-center">
@@ -1430,6 +1604,12 @@ export default function CostControlPage() {
                       onItemAdded={item => setCostsCache(p => ({ ...p, [activeKey]: [...(p[activeKey] ?? []), item] }))}
                       onItemSaved={(id, patch) => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).map(c => c.id === id ? { ...c, ...patch } : c) }))}
                       onItemDeleted={id => setCostsCache(p => ({ ...p, [activeKey]: (p[activeKey] ?? []).filter(c => c.id !== id) }))}
+                      onBulkSynced={items => setCostsCache(p => {
+                        const existing = p[activeKey] ?? []
+                        const byId = new Map(existing.map(c => [c.id, c]))
+                        for (const it of items) byId.set(it.id, it) // upsert: same id replaces (price revision), new id appends
+                        return { ...p, [activeKey]: Array.from(byId.values()) }
+                      })}
                       lainnyaLabel={activeLainnyaLabel}
                       onLainnyaLabelChange={label => setDetailCache(p => ({
                         ...p,

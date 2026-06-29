@@ -250,3 +250,22 @@ DROP TRIGGER IF EXISTS trg_schedule_bump_project ON project_schedule_items;
 CREATE TRIGGER trg_schedule_bump_project
   AFTER INSERT OR UPDATE OR DELETE ON project_schedule_items
   FOR EACH ROW EXECUTE FUNCTION public.bump_project_updated_at();
+
+-- ── 22. Kolom Excel import Realisasi Biaya (Material/Jasa Instalasi) ────────
+--  no_po + description membentuk composite key idempotent untuk upload Excel
+--  (anti-double input): re-upload file yang sama / revisi harga akan menimpa
+--  (upsert) baris lama, bukan menambah duplikat.
+--  harga_satuan_pph / total_pph hanya data referensi (info PPh 2%) — TIDAK
+--  dipakai di Budget Matrix / Sisa Budget / Net Profit, yang tetap memakai
+--  kolom amount (Total sebelum PPh) seperti kalkulasi manual yang sudah ada.
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS no_po             TEXT;
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS supplier          TEXT;
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS qty               NUMERIC;
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS harga_satuan      NUMERIC;
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS harga_satuan_pph  NUMERIC;
+ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS total_pph         NUMERIC;
+
+-- NULL no_po (semua baris lama / input manual) tidak saling konflik —
+-- Postgres unique index memperlakukan setiap NULL sebagai nilai berbeda.
+CREATE UNIQUE INDEX IF NOT EXISTS project_costs_po_desc_unique
+  ON project_costs (project_key, no_po, description);

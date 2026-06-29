@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     if (!key) return NextResponse.json({ error: "key required" }, { status: 400 })
 
     // Explicit columns — never select=* to protect egress on Supabase Free Tier
-    const url = `${supabaseConfig.url}/rest/v1/project_costs?project_key=eq.${encodeURIComponent(key)}&order=created_at.asc&select=id,project_key,category,description,amount,cost_date,cost_stream,created_at,input_by`
+    const url = `${supabaseConfig.url}/rest/v1/project_costs?project_key=eq.${encodeURIComponent(key)}&order=created_at.asc&select=id,project_key,category,description,amount,cost_date,cost_stream,created_at,input_by,no_po,supplier,qty,harga_satuan,harga_satuan_pph,total_pph`
     const res = await fetch(url, { headers: getHeaders() })
     if (!res.ok) throw new Error(await res.text())
     return NextResponse.json({ data: await res.json() })
