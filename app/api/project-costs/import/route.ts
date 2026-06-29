@@ -42,6 +42,7 @@ const COLUMN_MAP: Record<string, string> = {
 const REQUIRED_CORE_FIELDS = ["description"]
 const PRICE_FIELDS         = ["harga_sat", "total_harga", "unit_price", "total_price", "total_sat", "total"]
 const MAX_HEADER_SCAN_ROWS = 60 // generous cap on how deep to look for the real table — covers any realistic metadata block
+const DEFAULT_DESCRIPTION_FALLBACK = "Biaya Lapangan (Tanpa Deskripsi)"
 
 function normalizeHeader(h: unknown): string {
   return String(h ?? "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\./g, "").replace(/\s+/g, " ").trim()
@@ -225,13 +226,8 @@ export async function POST(request: Request) {
       if (row.every(c => String(c ?? "").trim() === "")) return // fully blank spacer/footer row
 
       const noPo        = String(get(row, "no_po") || "").trim()
-      const description = String(get(row, "description") || "").trim()
+      let   description = String(get(row, "description") || "").trim()
       const supplier     = String(get(row, "supplier") || "").trim()
-
-      if (!description) {
-        errors.push(`Baris ${rowNum}: Description wajib diisi — dilewati`)
-        return
-      }
 
       const qty        = toQty(get(row, "qty"))
       const hargaSat    = toAmount(get(row, "harga_sat"))
@@ -246,9 +242,18 @@ export async function POST(request: Request) {
       const hasMaterial = hargaSat > 0 || totalHarga > 0
       const hasJasa     = unitPrice > 0 || totalPrice > 0
 
+      // A row is only truly empty (skip-worthy) if it has NO cost value at all.
+      // Missing No.PO/Description alone must never drop real money — both are
+      // legitimately blank on first entry (PO issued later, or no text typed in
+      // a hurry), so fall back to a placeholder instead of discarding the row.
       if (!hasMaterial && !hasJasa) {
-        errors.push(`Baris ${rowNum} (${description}): Harga Sat/Total Harga atau Unit Price/Total Price wajib diisi — dilewati`)
+        errors.push(`Baris ${rowNum}${description ? ` (${description})` : ""}: tidak ada nilai biaya (Harga Sat/Total Harga atau Unit Price/Total Price) — dilewati`)
         return
+      }
+
+      if (!description) {
+        description = DEFAULT_DESCRIPTION_FALLBACK
+        errors.push(`Baris ${rowNum}: Description kosong, baris tetap disimpan dengan label default "${DEFAULT_DESCRIPTION_FALLBACK}"`)
       }
 
       const common = {

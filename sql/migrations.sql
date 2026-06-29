@@ -278,3 +278,11 @@ ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS total_pph         NUMERIC;
 --  No.PO kosong sebelumnya), lalu upsert tunggal keyed by primary key `id` —
 --  yang secara struktural tidak bisa collide dua kali dalam satu batch.
 DROP INDEX IF EXISTS project_costs_po_desc_unique;
+
+-- ── 24. Kolom budget plafon "Jasa Instalasi" di project_details ─────────────
+--  Promosikan Jasa Instalasi dari sekadar label tampilan menjadi bucket budget
+--  penuh (sejajar dengan Material), supaya muncul sebagai baris tersendiri di
+--  Budget Matrix, Anggaran Plafon, dan ikut terhitung di Grand Total / Sisa
+--  Budget — sama seperti kategori STREAMS lain (gaji, material, dst).
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_jasa_instalasi    NUMERIC DEFAULT 0;
+ALTER TABLE project_details ADD COLUMN IF NOT EXISTS op_vo_jasa_instalasi NUMERIC DEFAULT 0;

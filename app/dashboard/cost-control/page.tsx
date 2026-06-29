@@ -30,10 +30,10 @@ type CostItem = {
 }
 
 type CCProjectDetail = {
-  op_gaji: number; op_material: number; op_transport: number
+  op_gaji: number; op_material: number; op_jasa_instalasi: number; op_transport: number
   op_operasional: number; op_sewa: number; op_lainnya: number
   op_budget_vo: number
-  op_vo_gaji: number; op_vo_material: number; op_vo_transport: number
+  op_vo_gaji: number; op_vo_material: number; op_vo_jasa_instalasi: number; op_vo_transport: number
   op_vo_operasional: number; op_vo_sewa: number; op_vo_lainnya: number
   op_lainnya_label?: string
 }
@@ -49,36 +49,23 @@ const STREAMS: Array<{
   key: string; label: string; detailField: keyof CCProjectDetail
   voField: keyof CCProjectDetail; catColor: string
 }> = [
-  { key: "gaji",        label: "Gaji & Tunjangan",     detailField: "op_gaji",        voField: "op_vo_gaji",        catColor: "bg-slate-100 text-slate-700 border-slate-200"  },
-  { key: "material",    label: "Material / Bahan",      detailField: "op_material",    voField: "op_vo_material",    catColor: "bg-teal-50 text-teal-700 border-teal-200"      },
-  { key: "transport",   label: "Transport & Logistik",  detailField: "op_transport",   voField: "op_vo_transport",   catColor: "bg-orange-50 text-orange-700 border-orange-200"},
-  { key: "operasional", label: "Biaya Operasional",     detailField: "op_operasional", voField: "op_vo_operasional", catColor: "bg-violet-50 text-violet-700 border-violet-200"},
-  { key: "sewa",        label: "Sewa & Utilitas",       detailField: "op_sewa",        voField: "op_vo_sewa",        catColor: "bg-pink-50 text-pink-700 border-pink-200"      },
-  { key: "lainnya",     label: "Biaya Lainnya",         detailField: "op_lainnya",     voField: "op_vo_lainnya",     catColor: "bg-neutral-100 text-neutral-500 border-neutral-200"},
+  { key: "gaji",            label: "Gaji & Tunjangan",     detailField: "op_gaji",            voField: "op_vo_gaji",            catColor: "bg-slate-100 text-slate-700 border-slate-200"  },
+  { key: "material",        label: "Material / Bahan",      detailField: "op_material",        voField: "op_vo_material",        catColor: "bg-teal-50 text-teal-700 border-teal-200"      },
+  { key: "jasa_instalasi",  label: "Jasa Instalasi",        detailField: "op_jasa_instalasi",  voField: "op_vo_jasa_instalasi",  catColor: "bg-cyan-50 text-cyan-700 border-cyan-200"      },
+  { key: "transport",       label: "Transport & Logistik",  detailField: "op_transport",       voField: "op_vo_transport",       catColor: "bg-orange-50 text-orange-700 border-orange-200"},
+  { key: "operasional",     label: "Biaya Operasional",     detailField: "op_operasional",     voField: "op_vo_operasional",     catColor: "bg-violet-50 text-violet-700 border-violet-200"},
+  { key: "sewa",            label: "Sewa & Utilitas",       detailField: "op_sewa",            voField: "op_vo_sewa",            catColor: "bg-pink-50 text-pink-700 border-pink-200"      },
+  { key: "lainnya",         label: "Biaya Lainnya",         detailField: "op_lainnya",         voField: "op_vo_lainnya",         catColor: "bg-neutral-100 text-neutral-500 border-neutral-200"},
 ]
 
-// Extra categories that exist outside the budgeted STREAMS (no plafon/detailField of
-// their own) — currently only "Jasa Instalasi", introduced by the Excel import feature.
-// Kept separate from STREAMS so BudgetActualMatrix/BudgetPlafonSection (which iterate
-// STREAMS only) are unaffected; these costs still count toward total actual/net profit.
-const EXTRA_CATEGORIES: Array<{ key: string; label: string; catColor: string }> = [
-  { key: "jasa_instalasi", label: "Jasa Instalasi", catColor: "bg-cyan-50 text-cyan-700 border-cyan-200" },
-]
-
-const CATS = [...STREAMS.map(s => s.key), ...EXTRA_CATEGORIES.map(c => c.key)]
-const CAT_LABELS: Record<string, string> = {
-  ...Object.fromEntries(STREAMS.map(s => [s.key, s.label])),
-  ...Object.fromEntries(EXTRA_CATEGORIES.map(c => [c.key, c.label])),
-}
-const CAT_COLORS: Record<string, string> = {
-  ...Object.fromEntries(STREAMS.map(s => [s.key, s.catColor])),
-  ...Object.fromEntries(EXTRA_CATEGORIES.map(c => [c.key, c.catColor])),
-}
+const CATS = STREAMS.map(s => s.key)
+const CAT_LABELS: Record<string, string> = Object.fromEntries(STREAMS.map(s => [s.key, s.label]))
+const CAT_COLORS: Record<string, string> = Object.fromEntries(STREAMS.map(s => [s.key, s.catColor]))
 
 const EMPTY_DETAIL: CCProjectDetail = {
-  op_gaji: 0, op_material: 0, op_transport: 0,
+  op_gaji: 0, op_material: 0, op_jasa_instalasi: 0, op_transport: 0,
   op_operasional: 0, op_sewa: 0, op_lainnya: 0, op_budget_vo: 0,
-  op_vo_gaji: 0, op_vo_material: 0, op_vo_transport: 0,
+  op_vo_gaji: 0, op_vo_material: 0, op_vo_jasa_instalasi: 0, op_vo_transport: 0,
   op_vo_operasional: 0, op_vo_sewa: 0, op_vo_lainnya: 0,
 }
 
@@ -1343,19 +1330,21 @@ export default function CostControlPage() {
           .then(d => {
             const row = d.data ?? {}
             setDetailCache(p => ({ ...p, [key]: {
-              op_gaji:           Number(row.op_gaji        || 0),
-              op_material:       Number(row.op_material    || 0),
-              op_transport:      Number(row.op_transport   || 0),
-              op_operasional:    Number(row.op_operasional || 0),
-              op_sewa:           Number(row.op_sewa        || 0),
-              op_lainnya:        Number(row.op_lainnya     || 0),
-              op_budget_vo:      Number(row.op_budget_vo   || 0),
-              op_vo_gaji:        Number(row.op_vo_gaji        || 0),
-              op_vo_material:    Number(row.op_vo_material    || 0),
-              op_vo_transport:   Number(row.op_vo_transport   || 0),
-              op_vo_operasional: Number(row.op_vo_operasional || 0),
-              op_vo_sewa:        Number(row.op_vo_sewa        || 0),
-              op_vo_lainnya:     Number(row.op_vo_lainnya     || 0),
+              op_gaji:              Number(row.op_gaji             || 0),
+              op_material:          Number(row.op_material         || 0),
+              op_jasa_instalasi:    Number(row.op_jasa_instalasi    || 0),
+              op_transport:         Number(row.op_transport        || 0),
+              op_operasional:       Number(row.op_operasional      || 0),
+              op_sewa:              Number(row.op_sewa             || 0),
+              op_lainnya:           Number(row.op_lainnya          || 0),
+              op_budget_vo:         Number(row.op_budget_vo        || 0),
+              op_vo_gaji:           Number(row.op_vo_gaji          || 0),
+              op_vo_material:       Number(row.op_vo_material      || 0),
+              op_vo_jasa_instalasi: Number(row.op_vo_jasa_instalasi|| 0),
+              op_vo_transport:      Number(row.op_vo_transport     || 0),
+              op_vo_operasional:    Number(row.op_vo_operasional   || 0),
+              op_vo_sewa:           Number(row.op_vo_sewa          || 0),
+              op_vo_lainnya:        Number(row.op_vo_lainnya       || 0),
               op_lainnya_label:  row.op_lainnya_label || undefined,
             }}))
           })

@@ -131,14 +131,16 @@ create table if not exists public.project_details (
   description       text          not null default '',
   po_value_manual   numeric(18,2) not null default 0,
   -- Cost Control (Finance) - biaya operasional bulanan rata-rata
-  op_gaji           numeric(18,2) not null default 0,
-  op_material       numeric(18,2) not null default 0,
-  op_transport      numeric(18,2) not null default 0,
-  op_operasional    numeric(18,2) not null default 0,
-  op_sewa           numeric(18,2) not null default 0,
-  op_lainnya        numeric(18,2) not null default 0,
-  created_at        timestamptz   not null default now(),
-  updated_at        timestamptz   not null default now()
+  op_gaji              numeric(18,2) not null default 0,
+  op_material          numeric(18,2) not null default 0,
+  op_jasa_instalasi    numeric(18,2) not null default 0,
+  op_transport         numeric(18,2) not null default 0,
+  op_operasional       numeric(18,2) not null default 0,
+  op_sewa              numeric(18,2) not null default 0,
+  op_lainnya           numeric(18,2) not null default 0,
+  op_vo_jasa_instalasi numeric(18,2) not null default 0,
+  created_at           timestamptz   not null default now(),
+  updated_at           timestamptz   not null default now()
 );
 
 -- Migration: run these on existing DB
