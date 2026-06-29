@@ -265,7 +265,16 @@ ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS harga_satuan      NUMERIC;
 ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS harga_satuan_pph  NUMERIC;
 ALTER TABLE project_costs ADD COLUMN IF NOT EXISTS total_pph         NUMERIC;
 
--- NULL no_po (semua baris lama / input manual) tidak saling konflik —
--- Postgres unique index memperlakukan setiap NULL sebagai nilai berbeda.
-CREATE UNIQUE INDEX IF NOT EXISTS project_costs_po_desc_unique
-  ON project_costs (project_key, no_po, description);
+-- ── 23. Drop kolom unique index project_costs_po_desc_unique ────────────────
+--  Constraint ini ternyata terlalu kaku untuk siklus realisasi yang iteratif:
+--  No.PO sering masih kosong saat entri pertama (masih proses/dibayar langsung)
+--  baru diisi belakangan di upload minggu berikutnya pada baris yang sama, dan
+--  dua baris dalam satu file yang kebetulan share (no_po, description) yang
+--  sama bikin satu statement INSERT...ON CONFLICT gagal & rollback SELURUH
+--  batch (limitation Postgres: "ON CONFLICT DO UPDATE command cannot affect
+--  row a second time"). Idempotency sekarang ditangani di application layer
+--  (app/api/project-costs/import/route.ts) yang fetch data existing dahulu,
+--  mencocokkan baris secara eksplisit (exact match ATAU "promote" dari baris
+--  No.PO kosong sebelumnya), lalu upsert tunggal keyed by primary key `id` —
+--  yang secara struktural tidak bisa collide dua kali dalam satu batch.
+DROP INDEX IF EXISTS project_costs_po_desc_unique;

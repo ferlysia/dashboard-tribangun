@@ -181,9 +181,11 @@ create table if not exists public.project_costs (
 
 create index if not exists project_costs_key_idx on public.project_costs (project_key);
 
--- NULL no_po (input manual) tidak saling konflik satu sama lain.
-create unique index if not exists project_costs_po_desc_unique
-  on public.project_costs (project_key, no_po, description);
+-- Idempotency untuk Excel import TIDAK memakai unique constraint di DB (No.PO
+-- legitimately kosong pada entri pertama, dan dua baris yang share (no_po,
+-- description) dalam satu file bikin INSERT...ON CONFLICT rollback seluruh
+-- batch). Matching dilakukan di app/api/project-costs/import/route.ts dengan
+-- fetch+resolve manual, lalu upsert tunggal keyed by primary key `id`.
 
 drop trigger if exists trg_project_costs_updated_at on public.project_costs;
 create trigger trg_project_costs_updated_at

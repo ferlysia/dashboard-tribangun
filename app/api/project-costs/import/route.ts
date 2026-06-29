@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { randomUUID } from "node:crypto"
 import * as XLSX from "xlsx"
 import { supabaseConfig } from "@/lib/supabase/config"
 
@@ -36,7 +37,9 @@ const COLUMN_MAP: Record<string, string> = {
   "total + pph 2%":                "total_pph",
 }
 
-const REQUIRED_CORE_FIELDS = ["no_po", "description"]
+// Description is the only hard-required column for header detection — No.PO is
+// legitimately blank on first entry (see ROW MATCHING below), so it can't be required.
+const REQUIRED_CORE_FIELDS = ["description"]
 const PRICE_FIELDS         = ["harga_sat", "total_harga", "unit_price", "total_price", "total_sat", "total"]
 const MAX_HEADER_SCAN_ROWS = 60 // generous cap on how deep to look for the real table — covers any realistic metadata block
 
@@ -70,6 +73,13 @@ function toQty(val: unknown): number | null {
   const s = String(val).trim().replace(/\./g, "").replace(",", ".")
   const n = parseFloat(s)
   return isNaN(n) ? null : n
+}
+
+// total = explicit total column if given, else unitPrice × qty, else the bare unit price.
+function deriveAmount(explicitTotal: number, unitPrice: number, qty: number | null): number {
+  if (explicitTotal > 0) return explicitTotal
+  if (unitPrice > 0 && qty) return Math.round(unitPrice * qty)
+  return unitPrice
 }
 
 // ─── Adaptive header discovery ────────────────────────────────────────────────
@@ -132,6 +142,27 @@ function detectHeader(rawRows: unknown[][]): { fieldIndex: Record<string, number
   return { fieldIndex, dataStartRow: best.dataStartRow }
 }
 
+// ─── Parsed line item (one Excel row yields 1 line normally, 2 when it carries
+// both Material and Jasa Instalasi prices side-by-side) ───────────────────────
+
+type ParsedLine = {
+  no_po: string | null
+  description: string
+  supplier: string | null
+  qty: number | null
+  cost_date: string | null
+  category: "material" | "jasa_instalasi"
+  amount: number
+  harga_satuan: number | null
+  harga_satuan_pph: number | null
+  total_pph: number | null
+}
+
+type ExistingCost = {
+  id: string; no_po: string | null; description: string
+  category: string; cost_stream: string; created_at: string
+}
+
 function getHeaders() {
   return {
     apikey: supabaseConfig.serviceRoleKey,
@@ -168,7 +199,7 @@ export async function POST(request: Request) {
     const header = detectHeader(rawRows)
     if (!header)
       return NextResponse.json({
-        error: "Tidak dapat menemukan baris header tabel (kolom No.PO / Description / Harga Sat dst tidak ditemukan). Pastikan file masih memuat tabel realisasi yang valid — baris metadata proyek di atasnya akan dilewati otomatis.",
+        error: "Tidak dapat menemukan baris header tabel (kolom Description / Harga Sat dst tidak ditemukan). Pastikan file masih memuat tabel realisasi yang valid — baris metadata proyek di atasnya akan dilewati otomatis.",
       }, { status: 400 })
 
     const { fieldIndex, dataStartRow } = header
@@ -180,82 +211,169 @@ export async function POST(request: Request) {
     const get = (row: unknown[], field: string): unknown =>
       fieldIndex[field] !== undefined ? row[fieldIndex[field]] : ""
 
-    const errors:   string[] = []
-    const toUpsert: Record<string, unknown>[] = []
+    // ─── Pass 1: parse every row into 1–2 line items ──────────────────────────
+    // Material and Jasa Instalasi are no longer mutually exclusive — a row that
+    // fills both pairs (e.g. "supply + install" billed on one line) becomes two
+    // independently-tracked line items instead of an error.
+
+    const errors: string[] = []
+    const lines:  ParsedLine[] = []
 
     dataRows.forEach((row, i) => {
       const rowNum = dataStartRow + i + 1 // 1-indexed spreadsheet row, for user-facing messages
+
+      if (row.every(c => String(c ?? "").trim() === "")) return // fully blank spacer/footer row
+
       const noPo        = String(get(row, "no_po") || "").trim()
       const description = String(get(row, "description") || "").trim()
-      const supplier    = String(get(row, "supplier") || "").trim()
+      const supplier     = String(get(row, "supplier") || "").trim()
 
-      // Fully blank row (spacer before a footer/summary, trailing rows, etc.) — skip silently.
-      if (row.every(c => String(c ?? "").trim() === "")) return
+      if (!description) {
+        errors.push(`Baris ${rowNum}: Description wajib diisi — dilewati`)
+        return
+      }
 
-      const hargaSat   = toAmount(get(row, "harga_sat"))
-      const totalHarga = toAmount(get(row, "total_harga"))
-      const unitPrice  = toAmount(get(row, "unit_price"))
-      const totalPrice = toAmount(get(row, "total_price"))
-      const totalSat   = toAmount(get(row, "total_sat"))
-      const total      = toAmount(get(row, "total"))
+      const qty        = toQty(get(row, "qty"))
+      const hargaSat    = toAmount(get(row, "harga_sat"))
+      const totalHarga  = toAmount(get(row, "total_harga"))
+      const unitPrice   = toAmount(get(row, "unit_price"))
+      const totalPrice  = toAmount(get(row, "total_price"))
+      const totalSat    = toAmount(get(row, "total_sat"))
+      const total       = toAmount(get(row, "total"))
       const hargaSatPphRaw = get(row, "harga_sat_pph")
       const totalPphRaw    = get(row, "total_pph")
 
-      const isMaterial = hargaSat > 0 || totalHarga > 0
-      const isJasa     = unitPrice > 0 || totalPrice > 0
+      const hasMaterial = hargaSat > 0 || totalHarga > 0
+      const hasJasa     = unitPrice > 0 || totalPrice > 0
 
-      if (!noPo || !description) {
-        errors.push(`Baris ${rowNum}: No.PO dan Description wajib diisi — dilewati`)
-        return
-      }
-      if (isMaterial && isJasa) {
-        errors.push(`Baris ${rowNum} (${noPo}): kolom Material & Jasa Instalasi terisi bersamaan — dilewati`)
-        return
-      }
-      if (!isMaterial && !isJasa) {
-        errors.push(`Baris ${rowNum} (${noPo}): Harga Sat/Total Harga atau Unit Price/Total Price wajib diisi — dilewati`)
+      if (!hasMaterial && !hasJasa) {
+        errors.push(`Baris ${rowNum} (${description}): Harga Sat/Total Harga atau Unit Price/Total Price wajib diisi — dilewati`)
         return
       }
 
-      const amount = total || totalHarga || totalPrice
-      if (amount <= 0) {
-        errors.push(`Baris ${rowNum} (${noPo}): total biaya harus lebih dari 0 — dilewati`)
-        return
-      }
-
-      toUpsert.push({
-        project_key:      projectKey,
-        category:         isMaterial ? "material" : "jasa_instalasi",
+      const common = {
+        no_po:            noPo || null,
         description,
-        amount,
-        cost_date:        normalizeDate(get(row, "tanggal")),
-        input_by:         "excel_import",
-        cost_stream:      costStream,
-        no_po:            noPo,
         supplier:         supplier || null,
-        qty:              toQty(get(row, "qty")),
-        harga_satuan:     totalSat || hargaSat || unitPrice || null,
+        qty,
+        cost_date:        normalizeDate(get(row, "tanggal")),
         // Reference-only PPh 2% figures — never fed into amount, so Budget Matrix /
         // Sisa Budget / Net Profit calculations (which read `amount`) are unaffected.
         harga_satuan_pph: hargaSatPphRaw !== "" ? toAmount(hargaSatPphRaw) : null,
         total_pph:        totalPphRaw    !== "" ? toAmount(totalPphRaw)    : null,
-      })
+      }
+
+      const candidates: Array<{ category: "material" | "jasa_instalasi"; amount: number; harga_satuan: number | null }> = []
+
+      if (hasMaterial && hasJasa) {
+        // Dual-category row: `total` is the SUM of both sides, so it must never be
+        // used as either side's individual amount — rely strictly on the explicit
+        // per-category columns (with a unitPrice×qty fallback) to avoid double-counting.
+        candidates.push({ category: "material",       amount: deriveAmount(totalHarga, hargaSat, qty),  harga_satuan: hargaSat   || null })
+        candidates.push({ category: "jasa_instalasi",  amount: deriveAmount(totalPrice, unitPrice, qty), harga_satuan: unitPrice  || null })
+      } else if (hasMaterial) {
+        const amount = total > 0 ? total : deriveAmount(totalHarga, hargaSat, qty)
+        candidates.push({ category: "material", amount, harga_satuan: totalSat || hargaSat || null })
+      } else {
+        const amount = total > 0 ? total : deriveAmount(totalPrice, unitPrice, qty)
+        candidates.push({ category: "jasa_instalasi", amount, harga_satuan: totalSat || unitPrice || null })
+      }
+
+      for (const c of candidates) {
+        if (c.amount <= 0) {
+          errors.push(`Baris ${rowNum} (${description} — ${c.category}): total biaya harus lebih dari 0 — dilewati`)
+          continue
+        }
+        lines.push({ ...common, category: c.category, amount: c.amount, harga_satuan: c.harga_satuan })
+      }
     })
 
-    if (toUpsert.length === 0)
+    if (lines.length === 0)
       return NextResponse.json({ error: "Tidak ada baris valid untuk disinkronkan", errors }, { status: 400 })
 
-    // Upsert on (project_key, no_po, description): re-uploading the same file or a
-    // price revision for the same PO+description overwrites the existing row instead
-    // of inserting a duplicate (anti-double-input).
-    const res = await fetch(
-      `${supabaseConfig.url}/rest/v1/project_costs?on_conflict=project_key,no_po,description`,
-      {
-        method: "POST",
-        headers: { ...getHeaders(), Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(toUpsert),
-      }
+    // ─── Pass 2: resolve each line against existing records ───────────────────
+    // No.PO is often blank on first entry and filled in on a later upload of the
+    // same row. A plain DB unique constraint can't express "match on No.PO if
+    // present, else match on description" — and a single multi-row INSERT with two
+    // rows sharing one conflict target makes Postgres reject (and roll back) the
+    // *entire* batch. So matching happens here in app code against a primary-key
+    // (`id`) upsert instead, which structurally cannot collide twice in one batch.
+    //
+    //   • No.PO present  → exact match on (no_po, description, category, stream);
+    //                       falls back to "promoting" the oldest still-blank-PO
+    //                       record with the same description/category/stream.
+    //   • No.PO blank     → match the oldest still-blank-PO record with the same
+    //                       description/category/stream (refresh in place).
+    //   • No match either way → insert as a new record.
+    //
+    // Each existing id is consumed at most once per import, so repeated identical
+    // description+category rows distribute 1:1 against history instead of merging.
+
+    const existingRes = await fetch(
+      `${supabaseConfig.url}/rest/v1/project_costs?project_key=eq.${encodeURIComponent(projectKey)}&select=id,no_po,description,category,cost_stream,created_at&order=created_at.asc`,
+      { headers: getHeaders() }
     )
+    const existing: ExistingCost[] = existingRes.ok ? await existingRes.json() : []
+
+    const exactQueues:  Map<string, ExistingCost[]> = new Map()
+    const blankQueues:  Map<string, ExistingCost[]> = new Map()
+    const push = (map: Map<string, ExistingCost[]>, key: string, row: ExistingCost) => {
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(row)
+    }
+    for (const r of existing) {
+      if (r.no_po) push(exactQueues, `${r.no_po}|${r.description}|${r.category}|${r.cost_stream}`, r)
+      else         push(blankQueues, `${r.description}|${r.category}|${r.cost_stream}`, r)
+    }
+
+    const consumed = new Set<string>()
+    const takeUnconsumed = (queue: ExistingCost[] | undefined): ExistingCost | null => {
+      const hit = queue?.find(r => !consumed.has(r.id))
+      if (hit) consumed.add(hit.id)
+      return hit ?? null
+    }
+
+    let inserted = 0
+    let updated  = 0
+
+    const toUpsert = lines.map(line => {
+      const blankKey = `${line.description}|${line.category}|${costStream}`
+      let match: ExistingCost | null = null
+
+      if (line.no_po) {
+        const exactKey = `${line.no_po}|${line.description}|${line.category}|${costStream}`
+        match = takeUnconsumed(exactQueues.get(exactKey)) ?? takeUnconsumed(blankQueues.get(blankKey))
+      } else {
+        match = takeUnconsumed(blankQueues.get(blankKey))
+      }
+
+      if (match) updated++; else inserted++
+
+      return {
+        id:               match?.id ?? randomUUID(),
+        project_key:      projectKey,
+        category:         line.category,
+        description:      line.description,
+        amount:           line.amount,
+        cost_date:        line.cost_date,
+        input_by:         "excel_import",
+        cost_stream:      costStream,
+        no_po:            line.no_po,
+        supplier:         line.supplier,
+        qty:              line.qty,
+        harga_satuan:     line.harga_satuan,
+        harga_satuan_pph: line.harga_satuan_pph,
+        total_pph:        line.total_pph,
+      }
+    })
+
+    // Single bulk upsert keyed on the primary key — rows with a matched `id` update
+    // in place (price revision / PO finally assigned), rows with a fresh `id` insert.
+    const res = await fetch(`${supabaseConfig.url}/rest/v1/project_costs?on_conflict=id`, {
+      method: "POST",
+      headers: { ...getHeaders(), Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(toUpsert),
+    })
     if (!res.ok) throw new Error(await res.text())
     const data = await res.json() as Record<string, unknown>[]
 
@@ -268,6 +386,8 @@ export async function POST(request: Request) {
       summary: {
         material:       { count: materialRows.length, total: materialRows.reduce((s, r) => s + Number(r.amount), 0) },
         jasa_instalasi: { count: jasaRows.length,      total: jasaRows.reduce((s, r) => s + Number(r.amount), 0) },
+        inserted,
+        updated,
       },
     })
   } catch (err) {

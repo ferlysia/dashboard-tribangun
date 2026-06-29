@@ -947,12 +947,16 @@ function AddCostForm({ projectKey, onAdd, onCancel }: {
 // ─── Excel Import Panel (Realisasi Material / Jasa Instalasi) ────────────────
 // Lets users upload their existing Excel tracker instead of re-typing it. Parsing
 // + categorization (Material vs Jasa Instalasi) happens server-side in
-// /api/project-costs/import, which upserts on (project_key, no_po, description) —
-// re-uploading the same/revised file overwrites matching rows instead of duplicating.
+// /api/project-costs/import. No.PO may be blank on first entry and filled in on a
+// later upload of the same row — the backend matches by description/category when
+// No.PO is absent, then "promotes" that record once a PO number finally appears,
+// so re-uploads never create duplicate clutter.
 
 type ImportSummary = {
   material: { count: number; total: number }
   jasa_instalasi: { count: number; total: number }
+  inserted: number
+  updated: number
 }
 
 function ExcelImportPanel({ projectKey, onSynced, onCancel }: {
@@ -1006,9 +1010,11 @@ function ExcelImportPanel({ projectKey, onSynced, onCancel }: {
           className="p-1.5 rounded text-neutral-400 hover:bg-neutral-100 flex-shrink-0"><X className="h-3.5 w-3.5" /></button>
       </div>
       <p className="text-[10px] text-neutral-400 leading-relaxed">
-        Kolom wajib: <strong>Tanggal, No.PO, Supplier, Description, QTY</strong>, dan salah satu pasangan{" "}
-        <strong>Harga Sat/Total Harga</strong> (→ Material) atau <strong>Unit Price/Total Price</strong> (→ Jasa Instalasi).
-        Baris dengan No.PO + Description yang sama akan menimpa data lama, bukan menduplikasi.
+        Kolom wajib: <strong>Description</strong>, dan minimal salah satu dari{" "}
+        <strong>Harga Sat/Total Harga</strong> (→ Material) atau <strong>Unit Price/Total Price</strong> (→ Jasa Instalasi) —
+        boleh isi <strong>keduanya sekaligus</strong> untuk baris gabungan (tercatat sebagai 2 item terpisah).
+        <strong> No.PO boleh dikosongkan</strong> dulu; begitu diisi di upload berikutnya pada baris yang sama, sistem otomatis
+        mencocokkan &amp; memperbarui item lama (bukan duplikat).
       </p>
       {err && <p className="text-[11px] text-red-600 font-semibold">{err}</p>}
     </div>
@@ -1181,7 +1187,7 @@ function RealisasiBiayaSection({ projectKey, costs, loading, onItemAdded, onItem
           onSynced={(items, summary, errors) => {
             onBulkSynced(items)
             setSyncMsg({
-              text: `Tersinkron: ${summary.material.count} Material (${fShort(summary.material.total)}) · ${summary.jasa_instalasi.count} Jasa Instalasi (${fShort(summary.jasa_instalasi.total)})`,
+              text: `Tersinkron: ${summary.material.count} Material (${fShort(summary.material.total)}) · ${summary.jasa_instalasi.count} Jasa Instalasi (${fShort(summary.jasa_instalasi.total)}) — ${summary.inserted} baru, ${summary.updated} diperbarui`,
               errors,
             })
             setShowUpload(false)
