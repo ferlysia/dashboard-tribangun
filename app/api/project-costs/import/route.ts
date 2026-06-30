@@ -44,6 +44,14 @@ const PRICE_FIELDS         = ["harga_sat", "total_harga", "unit_price", "total_p
 const MAX_HEADER_SCAN_ROWS = 60 // generous cap on how deep to look for the real table — covers any realistic metadata block
 const DEFAULT_DESCRIPTION_FALLBACK = "Biaya Lapangan (Tanpa Deskripsi)"
 
+// Matches a "Grand Total" / "Sub Total" / "Jumlah" summary label, e.g. the manual
+// recap row trackers append below the real data — never a legitimate item description.
+const GRAND_TOTAL_LABEL_RE = /^(grand\s+)?(sub\s*)?total(\s+\S.*)?$|^jumlah(\s+\S.*)?$/i
+
+function isGrandTotalLabel(val: unknown): boolean {
+  return GRAND_TOTAL_LABEL_RE.test(String(val ?? "").trim())
+}
+
 function normalizeHeader(h: unknown): string {
   return String(h ?? "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\./g, "").replace(/\s+/g, " ").trim()
 }
@@ -212,6 +220,20 @@ export async function POST(request: Request) {
     const get = (row: unknown[], field: string): unknown =>
       fieldIndex[field] !== undefined ? row[fieldIndex[field]] : ""
 
+    // Spreadsheets commonly end with a manual "Grand Total"/"Jumlah" recap row summing
+    // every line above it. Treated as an ordinary row, its numeric value gets parsed as
+    // a new line item — silently doubling the project's realization total. Detect it by
+    // checking only the true last non-blank data row (a recap row only ever appears at
+    // the bottom) for a summary label in its leading text columns.
+    let lastDataIdx = dataRows.length - 1
+    while (lastDataIdx >= 0 && dataRows[lastDataIdx].every(c => String(c ?? "").trim() === "")) lastDataIdx--
+    const grandTotalRowIdx =
+      lastDataIdx >= 0 &&
+      [get(dataRows[lastDataIdx], "description"), get(dataRows[lastDataIdx], "no_po"), get(dataRows[lastDataIdx], "supplier"), dataRows[lastDataIdx][0], dataRows[lastDataIdx][1]]
+        .some(isGrandTotalLabel)
+        ? lastDataIdx
+        : -1
+
     // ─── Pass 1: parse every row into 1–2 line items ──────────────────────────
     // Material and Jasa Instalasi are no longer mutually exclusive — a row that
     // fills both pairs (e.g. "supply + install" billed on one line) becomes two
@@ -224,6 +246,11 @@ export async function POST(request: Request) {
       const rowNum = dataStartRow + i + 1 // 1-indexed spreadsheet row, for user-facing messages
 
       if (row.every(c => String(c ?? "").trim() === "")) return // fully blank spacer/footer row
+
+      if (i === grandTotalRowIdx) {
+        errors.push(`Baris ${rowNum}: terdeteksi sebagai baris Grand Total/Jumlah — dilewati agar tidak dihitung ganda`)
+        return
+      }
 
       const noPo        = String(get(row, "no_po") || "").trim()
       let   description = String(get(row, "description") || "").trim()
