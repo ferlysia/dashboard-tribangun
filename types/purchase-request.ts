@@ -9,6 +9,8 @@ export interface PurchaseRequestItem {
   qty:                  number
   satuan:               string
   nama_barang:          string
+  received:             boolean
+  received_at:          string | null
 }
 
 export interface PurchaseRequestRecord {

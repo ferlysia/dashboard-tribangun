@@ -33,7 +33,7 @@ const STATUS_CFG: Record<PRStatus, { label: string; badge: string }> = {
   WAITING_PAYMENT:      { label: "Menunggu Pembayaran",     badge: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" },
   PURCHASED:            { label: "Sudah Dibayar",           badge: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" },
   ARRIVED_AT_WAREHOUSE: { label: "Sampai di Gudang",        badge: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400" },
-  COMPLETED:            { label: "Selesai (Billing Ready)", badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
+  COMPLETED:            { label: "Selesai / Terkirim",      badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
   REJECTED:             { label: "Ditolak",                 badge: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400" },
 }
 
@@ -178,9 +178,14 @@ function StatusFilterChips({ active, onChange, counts }: {
   )
 }
 
-// ─── ItemsTable (read-only, used in detail drawer) ───────────────────────────
+// ─── ItemsTable (used in detail drawer — optionally a receiving checklist) ───
 
-function ItemsTable({ items }: { items: PurchaseRequestItem[] }) {
+function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: {
+  items:              PurchaseRequestItem[]
+  receivingEditable?: boolean
+  onToggleReceived?:  (item: PurchaseRequestItem) => void
+  togglingId?:        string | null
+}) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-xs">
@@ -190,15 +195,31 @@ function ItemsTable({ items }: { items: PurchaseRequestItem[] }) {
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-16">Qty</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Satuan</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Diterima</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {items.map(it => (
-            <tr key={it.id}>
+            <tr key={it.id} className={it.received ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
               <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
               <td className="px-3 py-2 text-foreground">{it.qty}</td>
               <td className="px-3 py-2 text-foreground">{it.satuan}</td>
               <td className="px-3 py-2 text-foreground">{it.nama_barang}</td>
+              <td className="px-3 py-2 text-center">
+                {receivingEditable ? (
+                  <input
+                    type="checkbox"
+                    title={`Tandai ${it.nama_barang} diterima`}
+                    checked={it.received}
+                    disabled={togglingId === it.id}
+                    onChange={() => onToggleReceived?.(it)}
+                  />
+                ) : it.received ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 inline" />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -474,15 +495,34 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
   onUpdated: (updated: PurchaseRequestRecord) => void
 }) {
   const { user } = useCurrentUser()
-  const [rejecting, setRejecting] = React.useState(false)
-  const [reason, setReason]       = React.useState("")
-  const [busy, setBusy]           = React.useState(false)
+  const [rejecting, setRejecting]       = React.useState(false)
+  const [reason, setReason]             = React.useState("")
+  const [busy, setBusy]                 = React.useState(false)
+  const [togglingItemId, setTogglingItemId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) { setRejecting(false); setReason("") }
   }, [open])
 
   if (!pr) return null
+
+  const toggleReceived = async (item: PurchaseRequestItem) => {
+    setTogglingItemId(item.id)
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ received: !item.received }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...pr, items: pr.items.map(i => i.id === item.id ? data.data : i) })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal memperbarui status item.")
+    } finally {
+      setTogglingItemId(null)
+    }
+  }
 
   const changeStatus = async (status: PRStatus, rejection_reason?: string) => {
     setBusy(true)
@@ -528,9 +568,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_CFG[pr.status].badge}`}>
               {STATUS_CFG[pr.status].label}
             </span>
-            {pr.sj_status && (
-              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${SJ_STATUS_CFG[pr.sj_status].badge}`}>
-                {SJ_STATUS_CFG[pr.sj_status].label}
+            {pr.sj_status === "PENDING_SIGNED_SJ" && (
+              <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${SJ_STATUS_CFG.PENDING_SIGNED_SJ.badge}`}>
+                {SJ_STATUS_CFG.PENDING_SIGNED_SJ.label}
               </span>
             )}
           </div>
@@ -578,8 +618,20 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
           <Separator />
 
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Daftar Barang</p>
-            <ItemsTable items={pr.items} />
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
+              {pr.status === "ARRIVED_AT_WAREHOUSE" && (
+                <span className="text-xs text-muted-foreground">
+                  {pr.items.filter(i => i.received).length}/{pr.items.length} diterima
+                </span>
+              )}
+            </div>
+            <ItemsTable
+              items={pr.items}
+              receivingEditable={pr.status === "ARRIVED_AT_WAREHOUSE"}
+              onToggleReceived={toggleReceived}
+              togglingId={togglingItemId}
+            />
           </div>
 
           {(transitions.length > 0 || canReject) && (
@@ -646,9 +698,10 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
 
 // ─── WarehouseTab ─────────────────────────────────────────────────────────────
 
-function WarehouseTab({ prs, onUploaded }: {
-  prs:        PurchaseRequestRecord[]
-  onUploaded: (updated: PurchaseRequestRecord) => void
+function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
+  prs:          PurchaseRequestRecord[]
+  onUploaded:   (updated: PurchaseRequestRecord) => void
+  onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
   const { user } = useCurrentUser()
   const pending = prs.filter(p => p.status === "ARRIVED_AT_WAREHOUSE" && p.sj_status === "PENDING_SIGNED_SJ")
@@ -699,32 +752,42 @@ function WarehouseTab({ prs, onUploaded }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["PR NO", "Site Maintenance", "Unit", "Tanggal Sampai di Gudang", ""].map((col, i) => (
+                  {["PR NO", "Site Maintenance", "Unit", "Tanggal Sampai di Gudang", "Checklist", ""].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {pending.map(pr => (
-                  <tr key={pr.id} className="hover:bg-muted/40 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
-                    <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.updated_at)}</td>
-                    <td className="px-4 py-3">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs gap-1.5"
-                        disabled={uploadingId === pr.id}
-                        onClick={() => triggerUpload(pr.id)}
-                      >
-                        <UploadCloud className="h-3.5 w-3.5" />
-                        {uploadingId === pr.id ? "Mengunggah…" : "Upload SJ"}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {pending.map(pr => {
+                  const receivedCount = pr.items.filter(i => i.received).length
+                  const allReceived   = pr.items.length > 0 && receivedCount === pr.items.length
+                  return (
+                    <tr key={pr.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
+                      <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
+                      <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.updated_at)}</td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        <span className={allReceived ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
+                          {receivedCount}/{pr.items.length} diterima
+                        </span>
+                      </td>
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1.5"
+                          disabled={uploadingId === pr.id || !allReceived}
+                          title={!allReceived ? "Selesaikan checklist penerimaan barang dulu" : undefined}
+                          onClick={() => triggerUpload(pr.id)}
+                        >
+                          <UploadCloud className="h-3.5 w-3.5" />
+                          {uploadingId === pr.id ? "Mengunggah…" : "Upload SJ"}
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -734,10 +797,13 @@ function WarehouseTab({ prs, onUploaded }: {
   )
 }
 
-// ─── BillingTab ───────────────────────────────────────────────────────────────
+// ─── DonePRTab ────────────────────────────────────────────────────────────────
+// Final repository: items fully delivered AND warehouse has uploaded the
+// signed Surat Jalan — i.e. status COMPLETED (the two flip together, see
+// fn_pr_lifecycle_interlock).
 
-function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
-  const ready = prs.filter(p => p.sj_status === "BILLING_READY")
+function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
+  const done = prs.filter(p => p.status === "COMPLETED")
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
 
   const toggle = (id: string) => setSelected(prev => {
@@ -747,11 +813,11 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
   })
 
   const toggleAll = () => {
-    setSelected(prev => prev.size === ready.length ? new Set() : new Set(ready.map(p => p.id)))
+    setSelected(prev => prev.size === done.length ? new Set() : new Set(done.map(p => p.id)))
   }
 
   const downloadSelected = () => {
-    const targets = ready.filter(p => selected.has(p.id) && p.sj_document_url)
+    const targets = done.filter(p => selected.has(p.id) && p.sj_document_url)
     if (targets.length === 0) {
       toast.error("Pilih minimal satu PR untuk diunduh.")
       return
@@ -762,17 +828,17 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-muted-foreground">{selected.size} dari {ready.length} dipilih</p>
+        <p className="text-xs text-muted-foreground">{selected.size} dari {done.length} dipilih</p>
         <Button size="sm" className="h-7 text-xs gap-1.5" onClick={downloadSelected} disabled={selected.size === 0}>
           <Download className="h-3.5 w-3.5" />
           Download Terpilih
         </Button>
       </div>
 
-      {ready.length === 0 ? (
+      {done.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <Receipt className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Belum ada PR yang siap billing.</p>
+          <p className="text-sm text-muted-foreground">Belum ada PR yang selesai.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -781,7 +847,7 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-4 py-3 w-10">
-                    <input type="checkbox" title="Pilih semua" checked={ready.length > 0 && selected.size === ready.length} onChange={toggleAll} />
+                    <input type="checkbox" title="Pilih semua" checked={done.length > 0 && selected.size === done.length} onChange={toggleAll} />
                   </th>
                   {["PR NO", "Site Maintenance", "Unit", "SJ Diunggah", "Dokumen"].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
@@ -789,7 +855,7 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {ready.map(pr => (
+                {done.map(pr => (
                   <tr key={pr.id} className="hover:bg-muted/40 transition-colors">
                     <td className="px-4 py-3">
                       <input type="checkbox" title={`Pilih ${pr.pr_no}`} checked={selected.has(pr.id)} onChange={() => toggle(pr.id)} />
@@ -820,16 +886,13 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
 
 function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
-  const shown     = items.slice(0, 2)
-  const remaining = items.length - shown.length
   return (
-    <div className="flex flex-col gap-0.5 max-w-[220px]">
-      {shown.map(it => (
-        <span key={it.id} className="text-xs text-foreground truncate" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
+    <div className="flex flex-col gap-0.5 min-w-[220px]">
+      {items.map(it => (
+        <span key={it.id} className="text-xs text-foreground" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
           {it.qty} {it.satuan} · {it.nama_barang}
         </span>
       ))}
-      {remaining > 0 && <span className="text-[10px] text-muted-foreground">+{remaining} lagi</span>}
     </div>
   )
 }
@@ -918,8 +981,8 @@ export default function PurchasingRequestPage() {
     () => prs.filter(p => p.status === "ARRIVED_AT_WAREHOUSE" && p.sj_status === "PENDING_SIGNED_SJ").length,
     [prs]
   )
-  const billingReadyCount = React.useMemo(
-    () => prs.filter(p => p.sj_status === "BILLING_READY").length,
+  const donePrCount = React.useMemo(
+    () => prs.filter(p => p.status === "COMPLETED").length,
     [prs]
   )
 
@@ -952,7 +1015,7 @@ export default function PurchasingRequestPage() {
             <StatCard icon={Clock} label="Menunggu Pembayaran" value={counts.WAITING_PAYMENT} sub="perlu diproses Purchasing" accent="bg-amber-50 dark:bg-amber-950/40" />
             <StatCard icon={Package} label="Dalam Pembelian" value={counts.PURCHASED} sub="sudah dibayar, dalam perjalanan" accent="bg-blue-50 dark:bg-blue-950/40" />
             <StatCard icon={Truck} label="Di Gudang" value={counts.ARRIVED_AT_WAREHOUSE} sub="menunggu Surat Jalan" accent="bg-purple-50 dark:bg-purple-950/40" />
-            <StatCard icon={CheckCircle2} label="Selesai" value={counts.COMPLETED} sub="siap billing" accent="bg-emerald-50 dark:bg-emerald-950/40" />
+            <StatCard icon={CheckCircle2} label="Selesai" value={counts.COMPLETED} sub="terkirim & SJ lengkap" accent="bg-emerald-50 dark:bg-emerald-950/40" />
           </div>
 
           <Tabs defaultValue="all" className="w-full">
@@ -962,9 +1025,9 @@ export default function PurchasingRequestPage() {
                 Warehouse (SJ)
                 {warehousePendingCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{warehousePendingCount}</span>}
               </TabsTrigger>
-              <TabsTrigger value="billing" className="text-xs">
-                Billing
-                {billingReadyCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{billingReadyCount}</span>}
+              <TabsTrigger value="done" className="text-xs">
+                Done PR
+                {donePrCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{donePrCount}</span>}
               </TabsTrigger>
             </TabsList>
 
@@ -1064,12 +1127,12 @@ export default function PurchasingRequestPage() {
 
             {/* ── Warehouse ── */}
             <TabsContent value="warehouse" className="mt-4">
-              <WarehouseTab prs={prs} onUploaded={applyUpdate} />
+              <WarehouseTab prs={prs} onUploaded={applyUpdate} onOpenDetail={openDetail} />
             </TabsContent>
 
-            {/* ── Billing ── */}
-            <TabsContent value="billing" className="mt-4">
-              <BillingTab prs={prs} />
+            {/* ── Done PR ── */}
+            <TabsContent value="done" className="mt-4">
+              <DonePRTab prs={prs} />
             </TabsContent>
           </Tabs>
         </div>

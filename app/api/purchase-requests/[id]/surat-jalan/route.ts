@@ -47,7 +47,7 @@ export async function POST(
     }
 
     const prRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,sj_status`,
+      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,sj_status,purchase_request_items(received)`,
       { headers: headers() }
     )
     if (!prRes.ok) throw new Error(await prRes.text())
@@ -56,6 +56,13 @@ export async function POST(
     if (pr.sj_status !== "PENDING_SIGNED_SJ") {
       return NextResponse.json(
         { error: "This PR is not waiting on a Surat Jalan upload" },
+        { status: 400 }
+      )
+    }
+    const items = (pr.purchase_request_items ?? []) as { received: boolean }[]
+    if (items.length === 0 || items.some(it => !it.received)) {
+      return NextResponse.json(
+        { error: "All items must be marked as received before uploading Surat Jalan" },
         { status: 400 }
       )
     }
