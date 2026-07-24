@@ -67,6 +67,9 @@ const ALL_STATUSES: PRStatus[] = [
 
 const MIN_ITEM_ROWS = 5
 
+// Matches the server-side limit in the surat-jalan upload route.
+const MAX_SJ_FILE_BYTES = 10 * 1024 * 1024
+
 // Removes the native number-input spinner arrows so QTY reads as a plain field.
 const PR_PAGE_STYLES = `
   input.pr-no-spinner::-webkit-outer-spin-button,
@@ -97,6 +100,20 @@ function quarterLabel(iso: string) {
 function fDate(iso: string | null) {
   if (!iso) return "—"
   return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
+}
+
+// Server errors (crashes, platform timeouts, oversized payloads) sometimes
+// come back as plain text/HTML instead of JSON — parsing that with res.json()
+// throws a confusing "Unexpected token" error. This always resolves to
+// something with a usable .error string.
+async function safeJson(res: Response) {
+  const text = await res.text()
+  if (!text) return { error: `Server error (${res.status})` }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { error: text.slice(0, 300) || `Server error (${res.status})` }
+  }
 }
 
 let tempIdCounter = 0
@@ -205,20 +222,26 @@ function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: 
               <td className="px-3 py-2 text-foreground">{it.qty}</td>
               <td className="px-3 py-2 text-foreground">{it.satuan}</td>
               <td className="px-3 py-2 text-foreground">{it.nama_barang}</td>
-              <td className="px-3 py-2 text-center">
-                {receivingEditable ? (
-                  <input
-                    type="checkbox"
-                    title={`Tandai ${it.nama_barang} diterima`}
-                    checked={it.received}
-                    disabled={togglingId === it.id}
-                    onChange={() => onToggleReceived?.(it)}
-                  />
-                ) : it.received ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 inline" />
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )}
+              <td className="px-3 py-2">
+                <div className="flex items-center justify-center gap-2">
+                  {receivingEditable && (
+                    <input
+                      type="checkbox"
+                      title={`Tandai ${it.nama_barang} diterima`}
+                      checked={it.received}
+                      disabled={togglingId === it.id}
+                      onChange={() => onToggleReceived?.(it)}
+                    />
+                  )}
+                  <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
+                    it.received
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                      : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                  }`}>
+                    {it.received && <CheckCircle2 className="h-2.5 w-2.5" />}
+                    {it.received ? "Diterima" : "Pending"}
+                  </span>
+                </div>
               </td>
             </tr>
           ))}
@@ -305,7 +328,7 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
             body:    JSON.stringify({ ...payload, requested_by: user.email || undefined }),
           })
 
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       toast.success(
         mode === "edit"
@@ -507,17 +530,29 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
   if (!pr) return null
 
   const toggleReceived = async (item: PurchaseRequestItem) => {
+    const nextReceived = !item.received
+
+    // Optimistic: flip the checkbox instantly instead of waiting on the
+    // round trip, so the checklist feels snappy. Reverts on failure.
+    onUpdated({
+      ...pr,
+      items: pr.items.map(i => i.id === item.id
+        ? { ...i, received: nextReceived, received_at: nextReceived ? new Date().toISOString() : null }
+        : i
+      ),
+    })
     setTogglingItemId(item.id)
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ received: !item.received }),
+        body:    JSON.stringify({ received: nextReceived }),
       })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, items: pr.items.map(i => i.id === item.id ? data.data : i) })
     } catch (err) {
+      onUpdated({ ...pr, items: pr.items.map(i => i.id === item.id ? item : i) })
       toast.error(err instanceof Error ? err.message : "Gagal memperbarui status item.")
     } finally {
       setTogglingItemId(null)
@@ -532,7 +567,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ status, rejection_reason, actor_email: user.email || undefined }),
       })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, ...data.data })
       toast.success(`Status PR diubah menjadi ${STATUS_CFG[status].label}.`)
@@ -720,6 +755,11 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
     e.target.value = ""
     if (!file || !prId) return
 
+    if (file.size > MAX_SJ_FILE_BYTES) {
+      toast.error(`File terlalu besar (maks ${Math.floor(MAX_SJ_FILE_BYTES / (1024 * 1024))}MB). Kompres dulu atau scan dengan resolusi lebih rendah.`)
+      return
+    }
+
     setUploadingId(prId)
     try {
       const formData = new FormData()
@@ -727,7 +767,7 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
       if (user.email) formData.append("uploaded_by", user.email)
 
       const res = await fetch(`/api/purchase-requests/${prId}/surat-jalan`, { method: "POST", body: formData })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       onUploaded(data.data)
       toast.success("Surat Jalan berhasil diunggah.")
@@ -946,7 +986,7 @@ export default function PurchasingRequestPage() {
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ actor_email: user.email || undefined }),
       })
-      const data = await res.json()
+      const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       toast.success(`PR ${pr.pr_no} dihapus.`)
       loadPrs()

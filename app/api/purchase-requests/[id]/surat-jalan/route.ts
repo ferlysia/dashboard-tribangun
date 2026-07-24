@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
 
 const BUCKET = "surat-jalan-docs"
+// Keeps uploads inside typical serverless function payload limits (Netlify's
+// synchronous function limit is a few MB) so oversized files fail fast with a
+// clean JSON error instead of crashing the function with a raw "Internal Error".
+const MAX_FILE_BYTES = 10 * 1024 * 1024
 
 function headers() {
   return {
@@ -45,6 +49,12 @@ export async function POST(
     if (!file) {
       return NextResponse.json({ error: "file is required" }, { status: 400 })
     }
+    if (file.size > MAX_FILE_BYTES) {
+      return NextResponse.json(
+        { error: `File terlalu besar (maks ${Math.floor(MAX_FILE_BYTES / (1024 * 1024))}MB)` },
+        { status: 413 }
+      )
+    }
 
     const prRes = await fetch(
       `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,sj_status,purchase_request_items(received)`,
@@ -68,19 +78,24 @@ export async function POST(
     }
 
     const path = `${id}/${Date.now()}-${file.name}`
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
 
+    // Stream the file straight through instead of materializing a second
+    // full copy via arrayBuffer() — halves peak memory for large PDFs and
+    // reduces the odds of the function crashing (which is what surfaced as
+    // "Internal Error" instead of a clean JSON response).
     const uploadRes = await fetch(`${supabaseConfig.url}/storage/v1/object/${BUCKET}/${path}`, {
       method: "POST",
       headers: {
-        apikey:        supabaseConfig.serviceRoleKey,
-        Authorization: `Bearer ${supabaseConfig.serviceRoleKey}`,
-        "Content-Type": file.type || "application/octet-stream",
-        "x-upsert":     "true",
+        apikey:          supabaseConfig.serviceRoleKey,
+        Authorization:   `Bearer ${supabaseConfig.serviceRoleKey}`,
+        "Content-Type":  file.type || "application/octet-stream",
+        "Content-Length": String(file.size),
+        "x-upsert":      "true",
       },
-      body: buffer,
-    })
+      body: file.stream(),
+      // Node's fetch requires this when streaming a request body.
+      duplex: "half",
+    } as RequestInit & { duplex: "half" })
     if (!uploadRes.ok) throw new Error(`Storage error: ${await uploadRes.text()}`)
 
     const sj_document_url = `${supabaseConfig.url}/storage/v1/object/public/${BUCKET}/${path}`
@@ -96,7 +111,7 @@ export async function POST(
     if (!patchRes.ok) throw new Error(await patchRes.text())
     const rows = await patchRes.json()
 
-    await logActivity({
+    logActivity({
       actorEmail: uploaded_by ?? undefined,
       action:     "SJ_UPLOADED",
       entityId:   id,

@@ -101,7 +101,7 @@ export async function PATCH(
       if (!res.ok) throw new Error(await res.text())
       const rows = await res.json()
 
-      await logActivity({
+      logActivity({
         actorEmail: actor_email,
         action:     "PR_STATUS_CHANGED",
         entityId:   id,
@@ -174,20 +174,19 @@ export async function PATCH(
       }))
       const itemsRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_items`, {
         method:  "POST",
-        headers: { ...headers(), Prefer: "return=representation" },
+        headers: { ...headers(), Prefer: "return=minimal" },
         body:    JSON.stringify(itemRows),
       })
       if (!itemsRes.ok) throw new Error(await itemsRes.text())
-      const insertedItems = await itemsRes.json()
 
-      await logActivity({
+      logActivity({
         actorEmail: actor_email,
         action:     "PR_UPDATED",
         entityId:   id,
         summary:    `PR ${headerRow.pr_no} diedit (${itemRows.length} item)`,
       })
 
-      return NextResponse.json({ data: { ...headerRow, items: insertedItems } })
+      return NextResponse.json({ data: { ...headerRow, items: itemRows } })
     }
 
     // ── Header field corrections ───────────────────────────────────────────
@@ -241,7 +240,7 @@ export async function DELETE(
     )
     if (!res.ok) throw new Error(await res.text())
 
-    await logActivity({
+    logActivity({
       actorEmail: body.actor_email,
       action:     "PR_DELETED",
       entityId:   id,

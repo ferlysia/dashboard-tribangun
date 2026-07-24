@@ -94,33 +94,23 @@ export async function POST(request: Request) {
       }
     }
 
-    // 1. Generate the sequential PR number
-    const rpcRes = await fetch(`${supabaseConfig.url}/rest/v1/rpc/fn_next_pr_no`, {
+    // 1. Generate the PR number and insert the header in a single round trip
+    const headerRes = await fetch(`${supabaseConfig.url}/rest/v1/rpc/fn_create_purchase_request`, {
       method:  "POST",
       headers: headers(),
-      body:    JSON.stringify({ p_date: permintaan_tanggal }),
-    })
-    if (!rpcRes.ok) throw new Error(await rpcRes.text())
-    const pr_no = await rpcRes.json()
-
-    // 2. Insert the header
-    const headerRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_requests`, {
-      method:  "POST",
-      headers: { ...headers(), Prefer: "return=representation" },
       body: JSON.stringify({
-        pr_no,
-        site_maintenance,
-        unit,
-        permintaan_tanggal,
-        status:       "DRAFT",
-        requested_by: requested_by || null,
-        notes:        notes || null,
+        p_site_maintenance:   site_maintenance,
+        p_unit:               unit,
+        p_permintaan_tanggal: permintaan_tanggal,
+        p_requested_by:       requested_by || null,
+        p_notes:              notes || null,
       }),
     })
     if (!headerRes.ok) throw new Error(await headerRes.text())
-    const [created] = await headerRes.json()
+    const created = await headerRes.json()
 
-    // 3. Bulk-insert items
+    // 2. Bulk-insert items — response body isn't used by any caller, so skip
+    // parsing it (return=minimal avoids Supabase building/transferring it).
     const itemRows = items.map((it, idx) => ({
       purchase_request_id: created.id,
       line_no:             idx + 1,
@@ -130,21 +120,21 @@ export async function POST(request: Request) {
     }))
     const itemsRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_items`, {
       method:  "POST",
-      headers: { ...headers(), Prefer: "return=representation" },
+      headers: { ...headers(), Prefer: "return=minimal" },
       body:    JSON.stringify(itemRows),
     })
     if (!itemsRes.ok) throw new Error(await itemsRes.text())
-    const insertedItems = await itemsRes.json()
 
-    await logActivity({
+    // Best-effort — the response doesn't wait on this.
+    logActivity({
       actorEmail: requested_by,
       action:     "PR_CREATED",
       entityId:   created.id,
-      summary:    `PR ${pr_no} dibuat untuk ${site_maintenance} (${unit})`,
-      payload:    { pr_no, item_count: itemRows.length },
+      summary:    `PR ${created.pr_no} dibuat untuk ${site_maintenance} (${unit})`,
+      payload:    { pr_no: created.pr_no, item_count: itemRows.length },
     })
 
-    return NextResponse.json({ data: { ...created, items: insertedItems } })
+    return NextResponse.json({ data: { ...created, items: itemRows } })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create purchase request" },
