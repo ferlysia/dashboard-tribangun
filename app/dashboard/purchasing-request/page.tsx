@@ -951,7 +951,7 @@ function WarehouseTab({ prs, onOpenDetail }: {
                       <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
                       <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 w-full">
                         <ItemNamesPreview items={pr.items} />
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.updated_at)}</td>
@@ -1062,9 +1062,9 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
 function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
   return (
-    <div className="flex flex-col gap-1 w-full min-w-[280px] max-w-[420px]">
+    <div className="flex flex-col gap-1 w-full min-w-[200px]">
       {items.map(it => (
-        <div key={it.id} className="flex items-center justify-between gap-3">
+        <div key={it.id} className="flex items-center justify-between gap-3 w-full">
           <span className="text-xs text-foreground truncate flex-1 min-w-0" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
             {it.qty} {it.satuan} · {it.nama_barang}
           </span>
