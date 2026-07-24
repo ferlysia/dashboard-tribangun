@@ -1,4 +1,4 @@
-export type PRStatus = "DRAFT" | "WAITING_PAYMENT" | "PURCHASED" | "COMPLETED" | "REJECTED"
+export type PRStatus = "DRAFT" | "WAITING_PAYMENT" | "PURCHASED" | "ARRIVED_AT_WAREHOUSE" | "COMPLETED" | "REJECTED"
 
 export type SJStatus = "PENDING_SIGNED_SJ" | "BILLING_READY" | null
 

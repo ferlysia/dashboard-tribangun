@@ -10,17 +10,18 @@ import { useCurrentUser } from "@/components/providers/current-user-provider"
 import { Button }      from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Separator }   from "@/components/ui/separator"
 import {
   Search, Plus, FileText, CheckCircle2,
-  Clock, RefreshCw, ChevronRight, X, ShoppingCart, Package,
-  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download,
+  Clock, RefreshCw, X, ShoppingCart, Package,
+  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil,
 } from "lucide-react"
 import type { PRStatus, SJStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const SATUAN_OPTIONS = ["Pcs", "Set", "Mtr", "Pack", "Roll"]
+const SATUAN_OPTIONS = ["Pcs", "Set", "Meter", "Pack", "Roll"]
 
 const MONTH_NAMES_ID = [
   "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -28,11 +29,12 @@ const MONTH_NAMES_ID = [
 ]
 
 const STATUS_CFG: Record<PRStatus, { label: string; badge: string }> = {
-  DRAFT:           { label: "Draft",                  badge: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300" },
-  WAITING_PAYMENT: { label: "Menunggu Pembayaran",     badge: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" },
-  PURCHASED:       { label: "Sudah Dibayar",           badge: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" },
-  COMPLETED:       { label: "Selesai / Terkirim",      badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
-  REJECTED:        { label: "Ditolak",                 badge: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400" },
+  DRAFT:                { label: "Draft",                  badge: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300" },
+  WAITING_PAYMENT:      { label: "Menunggu Pembayaran",     badge: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" },
+  PURCHASED:            { label: "Sudah Dibayar",           badge: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" },
+  ARRIVED_AT_WAREHOUSE: { label: "Sampai di Gudang",        badge: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400" },
+  COMPLETED:            { label: "Selesai (Billing Ready)", badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
+  REJECTED:             { label: "Ditolak",                 badge: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400" },
 }
 
 const SJ_STATUS_CFG: Record<Exclude<SJStatus, null>, { label: string; badge: string }> = {
@@ -40,15 +42,42 @@ const SJ_STATUS_CFG: Record<Exclude<SJStatus, null>, { label: string; badge: str
   BILLING_READY:     { label: "Siap Billing",         badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
 }
 
+// ARRIVED_AT_WAREHOUSE -> COMPLETED is not listed here — it happens
+// automatically once a signed Surat Jalan is uploaded (Warehouse tab).
 const LEGAL_TRANSITIONS: Record<PRStatus, { to: PRStatus; label: string }[]> = {
-  DRAFT:           [{ to: "WAITING_PAYMENT", label: "Setujui → Menunggu Pembayaran" }],
-  WAITING_PAYMENT: [{ to: "PURCHASED",       label: "Tandai Sudah Dibayar" }],
-  PURCHASED:       [{ to: "COMPLETED",       label: "Tandai Selesai / Terkirim" }],
-  COMPLETED:       [],
-  REJECTED:        [],
+  DRAFT:                [{ to: "WAITING_PAYMENT",       label: "Setujui → Menunggu Pembayaran" }],
+  WAITING_PAYMENT:      [{ to: "PURCHASED",             label: "Tandai Sudah Dibayar" }],
+  PURCHASED:            [{ to: "ARRIVED_AT_WAREHOUSE",  label: "Tandai Sampai di Gudang" }],
+  ARRIVED_AT_WAREHOUSE: [],
+  COMPLETED:            [],
+  REJECTED:             [],
 }
 
-const STATUS_FILTERS: (PRStatus | "ALL")[] = ["ALL", "DRAFT", "WAITING_PAYMENT", "PURCHASED", "COMPLETED", "REJECTED"]
+const REJECTABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE"]
+const EDITABLE_STATUSES:   PRStatus[] = ["DRAFT", "WAITING_PAYMENT"]
+const DELETABLE_STATUSES:  PRStatus[] = ["DRAFT", "REJECTED"]
+
+const STATUS_FILTERS: (PRStatus | "ALL")[] = [
+  "ALL", "DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
+]
+
+const ALL_STATUSES: PRStatus[] = [
+  "DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
+]
+
+const MIN_ITEM_ROWS = 5
+
+// Removes the native number-input spinner arrows so QTY reads as a plain field.
+const PR_PAGE_STYLES = `
+  input.pr-no-spinner::-webkit-outer-spin-button,
+  input.pr-no-spinner::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input.pr-no-spinner[type=number] {
+    -moz-appearance: textfield;
+  }
+`
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -84,7 +113,21 @@ interface ItemDraft {
 }
 
 function blankItem(): ItemDraft {
-  return { tempId: nextTempId(), qty: "1", satuan: "Pcs", nama_barang: "" }
+  return { tempId: nextTempId(), qty: "", satuan: "", nama_barang: "" }
+}
+
+function padToMin(rows: ItemDraft[]): ItemDraft[] {
+  const next = [...rows]
+  while (next.length < MIN_ITEM_ROWS) next.push(blankItem())
+  return next
+}
+
+function itemsFromRecord(pr: PurchaseRequestRecord): ItemDraft[] {
+  const rows = pr.items
+    .slice()
+    .sort((a, b) => a.line_no - b.line_no)
+    .map(it => ({ tempId: nextTempId(), qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang }))
+  return padToMin(rows)
 }
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
@@ -164,12 +207,14 @@ function ItemsTable({ items }: { items: PurchaseRequestItem[] }) {
   )
 }
 
-// ─── CreatePRSheet ────────────────────────────────────────────────────────────
+// ─── PRFormDialog (create + edit, wide centered modal) ───────────────────────
 
-function CreatePRSheet({ open, onClose, onCreated }: {
-  open:      boolean
-  onClose:   () => void
-  onCreated: () => void
+function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
+  open:    boolean
+  mode:    "create" | "edit"
+  pr:      PurchaseRequestRecord | null
+  onClose: () => void
+  onSaved: () => void
 }) {
   const { user } = useCurrentUser()
   const today = new Date().toISOString().split("T")[0]
@@ -178,24 +223,35 @@ function CreatePRSheet({ open, onClose, onCreated }: {
   const [unit, setUnit]                       = React.useState("")
   const [tanggal, setTanggal]                 = React.useState(today)
   const [notes, setNotes]                     = React.useState("")
-  const [items, setItems]                     = React.useState<ItemDraft[]>([blankItem()])
+  const [items, setItems]                     = React.useState<ItemDraft[]>(() => padToMin([]))
   const [saving, setSaving]                   = React.useState(false)
 
-  const reset = React.useCallback(() => {
-    setSiteMaintenance("")
-    setUnit("")
-    setTanggal(today)
-    setNotes("")
-    setItems([blankItem()])
-  }, [today])
+  React.useEffect(() => {
+    if (!open) return
+    if (mode === "edit" && pr) {
+      setSiteMaintenance(pr.site_maintenance)
+      setUnit(pr.unit)
+      setTanggal(pr.permintaan_tanggal.split("T")[0])
+      setNotes(pr.notes ?? "")
+      setItems(itemsFromRecord(pr))
+    } else {
+      setSiteMaintenance("")
+      setUnit("")
+      setTanggal(today)
+      setNotes("")
+      setItems(padToMin([]))
+    }
+    // today/mode/pr are read once when the dialog opens — not on every keystroke
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, pr?.id])
 
   const addItem    = () => setItems(prev => [...prev, blankItem()])
-  const removeItem = (tempId: string) => setItems(prev => prev.filter(i => i.tempId !== tempId))
+  const removeItem = (tempId: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
   const updateItem = (tempId: string, patch: Partial<ItemDraft>) =>
     setItems(prev => prev.map(i => i.tempId === tempId ? { ...i, ...patch } : i))
 
   const validItems = items.filter(i => Number(i.qty) > 0 && i.satuan.trim() && i.nama_barang.trim())
-  const canSubmit = siteMaintenance.trim() && unit.trim() && tanggal && validItems.length > 0 && !saving
+  const canSubmit = Boolean(siteMaintenance.trim() && unit.trim() && tanggal && validItems.length > 0 && !saving)
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -204,56 +260,62 @@ function CreatePRSheet({ open, onClose, onCreated }: {
     }
     setSaving(true)
     try {
-      const res = await fetch("/api/purchase-requests", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_maintenance:   siteMaintenance.trim(),
-          unit:                unit.trim(),
-          permintaan_tanggal:  tanggal,
-          notes:               notes.trim() || undefined,
-          requested_by:        user.email || undefined,
-          items: validItems.map(i => ({
-            qty:         Number(i.qty),
-            satuan:      i.satuan.trim(),
-            nama_barang: i.nama_barang.trim(),
-          })),
-        }),
-      })
+      const payload = {
+        site_maintenance:  siteMaintenance.trim(),
+        unit:               unit.trim(),
+        permintaan_tanggal: tanggal,
+        notes:              notes.trim() || undefined,
+        items: validItems.map(i => ({
+          qty:         Number(i.qty),
+          satuan:      i.satuan.trim(),
+          nama_barang: i.nama_barang.trim(),
+        })),
+      }
+
+      const res = mode === "edit" && pr
+        ? await fetch(`/api/purchase-requests/${pr.id}`, {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ ...payload, actor_email: user.email || undefined }),
+          })
+        : await fetch("/api/purchase-requests", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ ...payload, requested_by: user.email || undefined }),
+          })
+
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-      toast.success(`PR ${data.data.pr_no} berhasil dibuat.`)
-      reset()
-      onCreated()
+      toast.success(
+        mode === "edit"
+          ? `PR ${data.data.pr_no} berhasil diperbarui.`
+          : `PR ${data.data.pr_no} berhasil dibuat.`
+      )
+      onSaved()
       onClose()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal membuat PR.")
+      toast.error(err instanceof Error ? err.message : "Gagal menyimpan PR.")
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Sheet open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <SheetContent className="w-full sm:max-w-xl p-0 flex flex-col overflow-y-auto">
-        <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Buat Purchasing Request</p>
-              <p className="text-xs text-muted-foreground mt-0.5">PR NO dibuat otomatis saat disimpan</p>
-            </div>
-            <button type="button" aria-label="Close panel" onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="w-[92vw] max-w-[960px] max-h-[88vh] p-0 flex flex-col gap-0">
+        <DialogHeader className="border-b border-border px-6 py-4">
+          <DialogTitle>{mode === "edit" ? "Edit Purchasing Request" : "Buat Purchasing Request"}</DialogTitle>
+          <DialogDescription>
+            {mode === "edit" ? `PR NO ${pr?.pr_no} — perubahan hanya berlaku sebelum status Sudah Dibayar` : "PR NO dibuat otomatis saat disimpan"}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="flex-1 px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
           {/* Auto-derived preview */}
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">PR NO</p>
-              <p className="text-xs text-muted-foreground italic mt-0.5">otomatis</p>
+              <p className="text-xs text-muted-foreground italic mt-0.5">{mode === "edit" ? pr?.pr_no : "otomatis"}</p>
             </div>
             <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Periode</p>
@@ -266,7 +328,7 @@ function CreatePRSheet({ open, onClose, onCreated }: {
           </div>
 
           {/* Manual header fields */}
-          <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium text-foreground">Site Maintenance</label>
               <input
@@ -277,45 +339,42 @@ function CreatePRSheet({ open, onClose, onCreated }: {
                 className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all placeholder:text-muted-foreground"
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-foreground">Unit</label>
-                <input
-                  type="text"
-                  value={unit}
-                  onChange={e => setUnit(e.target.value)}
-                  placeholder="e.g. JKS016/L10/CLM/060/084"
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all placeholder:text-muted-foreground font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-foreground">Permintaan Tanggal</label>
-                <input
-                  type="date"
-                  title="Permintaan Tanggal"
-                  value={tanggal}
-                  onChange={e => setTanggal(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
-                />
-              </div>
-            </div>
-
             <div>
-              <label className="text-xs font-medium text-foreground">Catatan (opsional)</label>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                rows={2}
-                placeholder="Catatan internal..."
-                className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all resize-none placeholder:text-muted-foreground"
+              <label className="text-xs font-medium text-foreground">Unit</label>
+              <input
+                type="text"
+                value={unit}
+                onChange={e => setUnit(e.target.value)}
+                placeholder="e.g. JKS016/L10/CLM/060/084"
+                className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all placeholder:text-muted-foreground font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-foreground">Permintaan Tanggal</label>
+              <input
+                type="date"
+                title="Permintaan Tanggal"
+                value={tanggal}
+                onChange={e => setTanggal(e.target.value)}
+                className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
               />
             </div>
           </div>
 
+          <div>
+            <label className="text-xs font-medium text-foreground">Catatan (opsional)</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Catatan internal..."
+              className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all resize-none placeholder:text-muted-foreground"
+            />
+          </div>
+
           <Separator />
 
-          {/* Dynamic items */}
+          {/* Dynamic items grid */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
@@ -328,58 +387,81 @@ function CreatePRSheet({ open, onClose, onCreated }: {
               {SATUAN_OPTIONS.map(s => <option key={s} value={s} />)}
             </datalist>
 
-            <div className="space-y-2">
-              {items.map((item, idx) => (
-                <div key={item.tempId} className="flex items-start gap-2 rounded-lg border border-border bg-card p-2.5">
-                  <span className="text-xs text-muted-foreground w-5 mt-2 shrink-0">{idx + 1}</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={item.qty}
-                    onChange={e => updateItem(item.tempId, { qty: e.target.value })}
-                    placeholder="Qty"
-                    title="Qty"
-                    className="w-16 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                  />
-                  <input
-                    type="text"
-                    list="satuan-options"
-                    value={item.satuan}
-                    onChange={e => updateItem(item.tempId, { satuan: e.target.value })}
-                    placeholder="Satuan"
-                    title="Satuan"
-                    className="w-24 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                  />
-                  <input
-                    type="text"
-                    value={item.nama_barang}
-                    onChange={e => updateItem(item.tempId, { nama_barang: e.target.value })}
-                    placeholder="Nama Barang"
-                    title="Nama Barang"
-                    className="flex-1 min-w-0 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Remove item"
-                    onClick={() => removeItem(item.tempId)}
-                    disabled={items.length === 1}
-                    className="text-muted-foreground hover:text-red-500 transition-colors mt-1.5 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">QTY</th>
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-36">Satuan</th>
+                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+                    <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Row Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {items.map((item, idx) => (
+                    <tr key={item.tempId}>
+                      <td className="px-3 py-2 text-muted-foreground align-middle">{idx + 1}</td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={item.qty}
+                          onChange={e => updateItem(item.tempId, { qty: e.target.value })}
+                          placeholder="0"
+                          title="QTY"
+                          className="pr-no-spinner w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="text"
+                          list="satuan-options"
+                          value={item.satuan}
+                          onChange={e => updateItem(item.tempId, { satuan: e.target.value })}
+                          placeholder="Pilih / ketik satuan"
+                          title="Satuan"
+                          className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="text"
+                          value={item.nama_barang}
+                          onChange={e => updateItem(item.tempId, { nama_barang: e.target.value })}
+                          placeholder="Nama Barang"
+                          title="Nama Barang"
+                          className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          aria-label="Hapus baris"
+                          onClick={() => removeItem(item.tempId)}
+                          disabled={items.length === 1}
+                          className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
+        </div>
 
+        <div className="shrink-0 border-t border-border px-6 py-4">
           <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full h-9 text-sm gap-2">
             <ShoppingCart className="h-3.5 w-3.5" />
-            {saving ? "Menyimpan…" : "Buat PR"}
+            {saving ? "Menyimpan…" : mode === "edit" ? "Simpan Perubahan" : "Buat PR"}
           </Button>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -424,7 +506,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
   }
 
   const transitions = LEGAL_TRANSITIONS[pr.status]
-  const canReject    = pr.status === "DRAFT" || pr.status === "WAITING_PAYMENT" || pr.status === "PURCHASED"
+  const canReject    = REJECTABLE_STATUSES.includes(pr.status)
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose() }}>
@@ -569,7 +651,7 @@ function WarehouseTab({ prs, onUploaded }: {
   onUploaded: (updated: PurchaseRequestRecord) => void
 }) {
   const { user } = useCurrentUser()
-  const pending = prs.filter(p => p.status === "COMPLETED" && p.sj_status === "PENDING_SIGNED_SJ")
+  const pending = prs.filter(p => p.status === "ARRIVED_AT_WAREHOUSE" && p.sj_status === "PENDING_SIGNED_SJ")
   const uploadTargetRef = React.useRef<string | null>(null)
   const fileInputRef    = React.useRef<HTMLInputElement>(null)
   const [uploadingId, setUploadingId] = React.useState<string | null>(null)
@@ -617,7 +699,7 @@ function WarehouseTab({ prs, onUploaded }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["PR NO", "Site Maintenance", "Unit", "Tanggal Selesai", ""].map((col, i) => (
+                  {["PR NO", "Site Maintenance", "Unit", "Tanggal Sampai di Gudang", ""].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
@@ -734,14 +816,35 @@ function BillingTab({ prs }: { prs: PurchaseRequestRecord[] }) {
   )
 }
 
+// ─── ItemNamesPreview (inline item names in the main table) ──────────────────
+
+function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
+  if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
+  const shown     = items.slice(0, 2)
+  const remaining = items.length - shown.length
+  return (
+    <div className="flex flex-col gap-0.5 max-w-[220px]">
+      {shown.map(it => (
+        <span key={it.id} className="text-xs text-foreground truncate" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
+          {it.qty} {it.satuan} · {it.nama_barang}
+        </span>
+      ))}
+      {remaining > 0 && <span className="text-[10px] text-muted-foreground">+{remaining} lagi</span>}
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PurchasingRequestPage() {
+  const { user } = useCurrentUser()
   const [prs, setPrs]                 = React.useState<PurchaseRequestRecord[]>([])
   const [loading, setLoading]         = React.useState(true)
   const [searchQuery, setQ]           = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<PRStatus | "ALL">("ALL")
-  const [createOpen, setCreateOpen]   = React.useState(false)
+  const [formOpen, setFormOpen]       = React.useState(false)
+  const [formMode, setFormMode]       = React.useState<"create" | "edit">("create")
+  const [editingPr, setEditingPr]     = React.useState<PurchaseRequestRecord | null>(null)
   const [selected, setSelected]       = React.useState<PurchaseRequestRecord | null>(null)
   const [detailOpen, setDetailOpen]   = React.useState(false)
 
@@ -763,9 +866,35 @@ export default function PurchasingRequestPage() {
 
   const openDetail = (pr: PurchaseRequestRecord) => { setSelected(pr); setDetailOpen(true) }
 
+  const openCreate = () => { setFormMode("create"); setEditingPr(null); setFormOpen(true) }
+  const openEdit = (pr: PurchaseRequestRecord, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setFormMode("edit")
+    setEditingPr(pr)
+    setFormOpen(true)
+  }
+
+  const handleDelete = async (pr: PurchaseRequestRecord, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm(`Hapus PR ${pr.pr_no}? Tindakan ini tidak bisa dibatalkan.`)) return
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}`, {
+        method:  "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ actor_email: user.email || undefined }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast.success(`PR ${pr.pr_no} dihapus.`)
+      loadPrs()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menghapus PR.")
+    }
+  }
+
   const counts = React.useMemo(() => {
     const c = { ALL: prs.length } as Record<PRStatus | "ALL", number>
-    ;(["DRAFT", "WAITING_PAYMENT", "PURCHASED", "COMPLETED", "REJECTED"] as PRStatus[]).forEach(s => {
+    ALL_STATUSES.forEach(s => {
       c[s] = prs.filter(p => p.status === s).length
     })
     return c
@@ -786,7 +915,7 @@ export default function PurchasingRequestPage() {
   }, [prs, statusFilter, searchQuery])
 
   const warehousePendingCount = React.useMemo(
-    () => prs.filter(p => p.status === "COMPLETED" && p.sj_status === "PENDING_SIGNED_SJ").length,
+    () => prs.filter(p => p.status === "ARRIVED_AT_WAREHOUSE" && p.sj_status === "PENDING_SIGNED_SJ").length,
     [prs]
   )
   const billingReadyCount = React.useMemo(
@@ -796,6 +925,7 @@ export default function PurchasingRequestPage() {
 
   return (
     <SidebarProvider>
+      <style dangerouslySetInnerHTML={{ __html: PR_PAGE_STYLES }} />
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
@@ -810,18 +940,19 @@ export default function PurchasingRequestPage() {
                 Pengajuan dan pelacakan status permintaan barang maintenance
               </p>
             </div>
-            <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={openCreate}>
               <Plus className="h-3.5 w-3.5" />
               Buat PR Baru
             </Button>
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <StatCard icon={ShoppingCart} label="Total PR" value={prs.length} sub="semua permintaan" />
             <StatCard icon={Clock} label="Menunggu Pembayaran" value={counts.WAITING_PAYMENT} sub="perlu diproses Purchasing" accent="bg-amber-50 dark:bg-amber-950/40" />
             <StatCard icon={Package} label="Dalam Pembelian" value={counts.PURCHASED} sub="sudah dibayar, dalam perjalanan" accent="bg-blue-50 dark:bg-blue-950/40" />
-            <StatCard icon={CheckCircle2} label="Selesai" value={counts.COMPLETED} sub="sudah sampai di tujuan" accent="bg-emerald-50 dark:bg-emerald-950/40" />
+            <StatCard icon={Truck} label="Di Gudang" value={counts.ARRIVED_AT_WAREHOUSE} sub="menunggu Surat Jalan" accent="bg-purple-50 dark:bg-purple-950/40" />
+            <StatCard icon={CheckCircle2} label="Selesai" value={counts.COMPLETED} sub="siap billing" accent="bg-emerald-50 dark:bg-emerald-950/40" />
           </div>
 
           <Tabs defaultValue="all" className="w-full">
@@ -866,7 +997,7 @@ export default function PurchasingRequestPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
-                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Items", "Status", ""].map((col, i) => (
+                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status", "Aksi"].map((col, i) => (
                           <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
@@ -880,21 +1011,47 @@ export default function PurchasingRequestPage() {
                         </tr>
                       ) : (
                         filtered.map(pr => (
-                          <tr key={pr.id} onClick={() => openDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer group">
+                          <tr key={pr.id} onClick={() => openDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
                             <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{monthNameId(pr.permintaan_tanggal)}</td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{quarterLabel(pr.permintaan_tanggal)}</td>
                             <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
                             <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{pr.items.length}</td>
+                            <td className="px-4 py-3">
+                              <ItemNamesPreview items={pr.items} />
+                            </td>
                             <td className="px-4 py-3">
                               <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
                                 {STATUS_CFG[pr.status].label}
                               </span>
                             </td>
                             <td className="px-4 py-3">
-                              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                              <div className="flex items-center gap-2.5">
+                                {EDITABLE_STATUSES.includes(pr.status) && (
+                                  <button
+                                    type="button"
+                                    aria-label={`Edit ${pr.pr_no}`}
+                                    onClick={e => openEdit(pr, e)}
+                                    className="text-muted-foreground hover:text-foreground transition-colors"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {DELETABLE_STATUSES.includes(pr.status) && (
+                                  <button
+                                    type="button"
+                                    aria-label={`Hapus ${pr.pr_no}`}
+                                    onClick={e => handleDelete(pr, e)}
+                                    className="text-muted-foreground hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {!EDITABLE_STATUSES.includes(pr.status) && !DELETABLE_STATUSES.includes(pr.status) && (
+                                  <span className="text-[10px] text-muted-foreground">—</span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -917,7 +1074,13 @@ export default function PurchasingRequestPage() {
           </Tabs>
         </div>
 
-        <CreatePRSheet open={createOpen} onClose={() => setCreateOpen(false)} onCreated={loadPrs} />
+        <PRFormDialog
+          open={formOpen}
+          mode={formMode}
+          pr={editingPr}
+          onClose={() => setFormOpen(false)}
+          onSaved={loadPrs}
+        />
         <PRDetailSheet pr={selected} open={detailOpen} onClose={() => setDetailOpen(false)} onUpdated={applyUpdate} />
 
         <Toaster richColors />
