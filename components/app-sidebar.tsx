@@ -25,6 +25,7 @@ import {
   Wallet,
   Wrench,
   ScrollText,
+  ShoppingCart,
 } from "lucide-react"
 import {
   Sidebar,
@@ -56,6 +57,7 @@ const NAV_MAIN = [
   { title: "Projects",                url: "/projects",              icon: FolderKanban    },
   { title: "New Project",             url: "/dashboard/new-project", icon: Plus            },
   { title: "Maintenance Assets",        url: "/dashboard/maintenance-assets", icon: Wrench      },
+  { title: "Purchasing Request",       url: "/dashboard/purchasing-request", icon: ShoppingCart },
   { title: "Doc Con",                  url: "/dashboard/doc-con",        icon: ClipboardList   },
   { title: "Cost Control",             url: "/dashboard/cost-control",   icon: Receipt         },
   { title: "Finance",                  url: "/dashboard/finance",        icon: Wallet          },
@@ -421,6 +423,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Clients",                url: "/clients",               icon: Users,           desc: "Client list and payment history" },
     { title: "Lifecycle",   url: "/lifecycle",             icon: Clock,           desc: "Aging, follow-up, and outstanding risk" },
     { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
+    { title: "Purchasing Request",     url: "/dashboard/purchasing-request", icon: ShoppingCart, desc: "Pengajuan & pelacakan status permintaan barang maintenance" },
     { title: "Cost Control",          url: "/dashboard/cost-control",  icon: Receipt,       desc: "Kelola pengeluaran lapangan per proyek — CRUD inline" },
     { title: "Finance",               url: "/dashboard/finance",       icon: Wallet,        desc: "Milestone pembayaran kontrak & SOW Bridge invoice lifecycle" },
     { title: "P&L",                   url: "/dashboard/pnl",           icon: ScrollText,    desc: "Rekonsiliasi laba rugi komersial, koreksi, fiskal" },
