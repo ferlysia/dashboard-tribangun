@@ -172,12 +172,16 @@ export async function PATCH(
         satuan:               it.satuan,
         nama_barang:          it.nama_barang,
       }))
+      // The edit drawer applies this response directly to live UI state (no
+      // follow-up reload), so — unlike the create flow — it needs the real
+      // rows back (id, received, etc.), not just an echo of what was sent.
       const itemsRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_items`, {
         method:  "POST",
-        headers: { ...headers(), Prefer: "return=minimal" },
+        headers: { ...headers(), Prefer: "return=representation" },
         body:    JSON.stringify(itemRows),
       })
       if (!itemsRes.ok) throw new Error(await itemsRes.text())
+      const insertedItems = await itemsRes.json()
 
       logActivity({
         actorEmail: actor_email,
@@ -186,7 +190,7 @@ export async function PATCH(
         summary:    `PR ${headerRow.pr_no} diedit (${itemRows.length} item)`,
       })
 
-      return NextResponse.json({ data: { ...headerRow, items: itemRows } })
+      return NextResponse.json({ data: { ...headerRow, items: insertedItems } })
     }
 
     // ── Header field corrections ───────────────────────────────────────────

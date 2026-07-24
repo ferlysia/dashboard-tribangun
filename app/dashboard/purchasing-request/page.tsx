@@ -251,12 +251,100 @@ function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: 
   )
 }
 
-// ─── PRFormDialog (create + edit, wide centered modal) ───────────────────────
+// ─── ItemEditGrid (shared add/remove/edit item rows — create dialog + drawer) ─
 
-function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
+function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
+  items:      ItemDraft[]
+  onAdd:      () => void
+  onRemove:   (tempId: string) => void
+  onUpdate:   (tempId: string, patch: Partial<ItemDraft>) => void
+  datalistId: string
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} className="h-7 text-xs gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Tambah Item
+        </Button>
+      </div>
+
+      <datalist id={datalistId}>
+        {SATUAN_OPTIONS.map(s => <option key={s} value={s} />)}
+      </datalist>
+
+      <div className="rounded-lg border border-border overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">QTY</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-36">Satuan</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+              <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Row Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {items.map((item, idx) => (
+              <tr key={item.tempId}>
+                <td className="px-3 py-2 text-muted-foreground align-middle">{idx + 1}</td>
+                <td className="px-2 py-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={item.qty}
+                    onChange={e => onUpdate(item.tempId, { qty: e.target.value })}
+                    placeholder="0"
+                    title="QTY"
+                    className="pr-no-spinner w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </td>
+                <td className="px-2 py-2">
+                  <input
+                    type="text"
+                    list={datalistId}
+                    value={item.satuan}
+                    onChange={e => onUpdate(item.tempId, { satuan: e.target.value })}
+                    placeholder="Pilih / ketik satuan"
+                    title="Satuan"
+                    className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </td>
+                <td className="px-2 py-2">
+                  <input
+                    type="text"
+                    value={item.nama_barang}
+                    onChange={e => onUpdate(item.tempId, { nama_barang: e.target.value })}
+                    placeholder="Nama Barang"
+                    title="Nama Barang"
+                    className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </td>
+                <td className="px-2 py-2 text-center">
+                  <button
+                    type="button"
+                    aria-label="Hapus baris"
+                    onClick={() => onRemove(item.tempId)}
+                    disabled={items.length === 1}
+                    className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 inline" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── PRFormDialog (create — wide centered modal) ──────────────────────────────
+
+function PRFormDialog({ open, onClose, onSaved }: {
   open:    boolean
-  mode:    "create" | "edit"
-  pr:      PurchaseRequestRecord | null
   onClose: () => void
   onSaved: () => void
 }) {
@@ -272,22 +360,14 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
 
   React.useEffect(() => {
     if (!open) return
-    if (mode === "edit" && pr) {
-      setSiteMaintenance(pr.site_maintenance)
-      setUnit(pr.unit)
-      setTanggal(pr.permintaan_tanggal.split("T")[0])
-      setNotes(pr.notes ?? "")
-      setItems(itemsFromRecord(pr))
-    } else {
-      setSiteMaintenance("")
-      setUnit("")
-      setTanggal(today)
-      setNotes("")
-      setItems(padToMin([]))
-    }
-    // today/mode/pr are read once when the dialog opens — not on every keystroke
+    setSiteMaintenance("")
+    setUnit("")
+    setTanggal(today)
+    setNotes("")
+    setItems(padToMin([]))
+    // today is read once when the dialog opens — not on every keystroke
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mode, pr?.id])
+  }, [open])
 
   const addItem    = () => setItems(prev => [...prev, blankItem()])
   const removeItem = (tempId: string) => setItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
@@ -304,41 +384,29 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
     }
     setSaving(true)
     try {
-      const payload = {
-        site_maintenance:  siteMaintenance.trim(),
-        unit:               unit.trim(),
-        permintaan_tanggal: tanggal,
-        notes:              notes.trim() || undefined,
-        items: validItems.map(i => ({
-          qty:         Number(i.qty),
-          satuan:      i.satuan.trim(),
-          nama_barang: i.nama_barang.trim(),
-        })),
-      }
-
-      const res = mode === "edit" && pr
-        ? await fetch(`/api/purchase-requests/${pr.id}`, {
-            method:  "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ ...payload, actor_email: user.email || undefined }),
-          })
-        : await fetch("/api/purchase-requests", {
-            method:  "POST",
-            headers: { "Content-Type": "application/json" },
-            body:    JSON.stringify({ ...payload, requested_by: user.email || undefined }),
-          })
-
+      const res = await fetch("/api/purchase-requests", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_maintenance:   siteMaintenance.trim(),
+          unit:                unit.trim(),
+          permintaan_tanggal:  tanggal,
+          notes:               notes.trim() || undefined,
+          requested_by:        user.email || undefined,
+          items: validItems.map(i => ({
+            qty:         Number(i.qty),
+            satuan:      i.satuan.trim(),
+            nama_barang: i.nama_barang.trim(),
+          })),
+        }),
+      })
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
-      toast.success(
-        mode === "edit"
-          ? `PR ${data.data.pr_no} berhasil diperbarui.`
-          : `PR ${data.data.pr_no} berhasil dibuat.`
-      )
+      toast.success(`PR ${data.data.pr_no} berhasil dibuat.`)
       onSaved()
       onClose()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal menyimpan PR.")
+      toast.error(err instanceof Error ? err.message : "Gagal membuat PR.")
     } finally {
       setSaving(false)
     }
@@ -348,10 +416,8 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="w-[92vw] max-w-[960px] max-h-[88vh] p-0 flex flex-col gap-0">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>{mode === "edit" ? "Edit Purchasing Request" : "Buat Purchasing Request"}</DialogTitle>
-          <DialogDescription>
-            {mode === "edit" ? `PR NO ${pr?.pr_no} — perubahan hanya berlaku sebelum status Sudah Dibayar` : "PR NO dibuat otomatis saat disimpan"}
-          </DialogDescription>
+          <DialogTitle>Buat Purchasing Request</DialogTitle>
+          <DialogDescription>PR NO dibuat otomatis saat disimpan</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
@@ -359,7 +425,7 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">PR NO</p>
-              <p className="text-xs text-muted-foreground italic mt-0.5">{mode === "edit" ? pr?.pr_no : "otomatis"}</p>
+              <p className="text-xs text-muted-foreground italic mt-0.5">otomatis</p>
             </div>
             <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Periode</p>
@@ -418,90 +484,13 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
 
           <Separator />
 
-          {/* Dynamic items grid */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
-              <Button type="button" variant="outline" size="sm" onClick={addItem} className="h-7 text-xs gap-1.5">
-                <Plus className="h-3.5 w-3.5" /> Tambah Item
-              </Button>
-            </div>
-
-            <datalist id="satuan-options">
-              {SATUAN_OPTIONS.map(s => <option key={s} value={s} />)}
-            </datalist>
-
-            <div className="rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">QTY</th>
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-36">Satuan</th>
-                    <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
-                    <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Row Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {items.map((item, idx) => (
-                    <tr key={item.tempId}>
-                      <td className="px-3 py-2 text-muted-foreground align-middle">{idx + 1}</td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step="any"
-                          value={item.qty}
-                          onChange={e => updateItem(item.tempId, { qty: e.target.value })}
-                          placeholder="0"
-                          title="QTY"
-                          className="pr-no-spinner w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="text"
-                          list="satuan-options"
-                          value={item.satuan}
-                          onChange={e => updateItem(item.tempId, { satuan: e.target.value })}
-                          placeholder="Pilih / ketik satuan"
-                          title="Satuan"
-                          className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="text"
-                          value={item.nama_barang}
-                          onChange={e => updateItem(item.tempId, { nama_barang: e.target.value })}
-                          placeholder="Nama Barang"
-                          title="Nama Barang"
-                          className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                        />
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <button
-                          type="button"
-                          aria-label="Hapus baris"
-                          onClick={() => removeItem(item.tempId)}
-                          disabled={items.length === 1}
-                          className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 inline" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <ItemEditGrid items={items} onAdd={addItem} onRemove={removeItem} onUpdate={updateItem} datalistId="satuan-options-create" />
         </div>
 
         <div className="shrink-0 border-t border-border px-6 py-4">
           <Button onClick={handleSubmit} disabled={!canSubmit} className="w-full h-9 text-sm gap-2">
             <ShoppingCart className="h-3.5 w-3.5" />
-            {saving ? "Menyimpan…" : mode === "edit" ? "Simpan Perubahan" : "Buat PR"}
+            {saving ? "Menyimpan…" : "Buat PR"}
           </Button>
         </div>
       </DialogContent>
@@ -511,11 +500,12 @@ function PRFormDialog({ open, mode, pr, onClose, onSaved }: {
 
 // ─── PRDetailSheet ────────────────────────────────────────────────────────────
 
-function PRDetailSheet({ pr, open, onClose, onUpdated }: {
+function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   pr:        PurchaseRequestRecord | null
   open:      boolean
   onClose:   () => void
   onUpdated: (updated: PurchaseRequestRecord) => void
+  onDelete:  (pr: PurchaseRequestRecord) => void
 }) {
   const { user } = useCurrentUser()
   const [rejecting, setRejecting]       = React.useState(false)
@@ -523,11 +513,109 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
   const [busy, setBusy]                 = React.useState(false)
   const [togglingItemId, setTogglingItemId] = React.useState<string | null>(null)
 
+  // ── Full-edit state (header + items) — only relevant while EDITABLE_STATUSES ──
+  const [editSiteMaintenance, setEditSiteMaintenance] = React.useState("")
+  const [editUnit, setEditUnit]                       = React.useState("")
+  const [editTanggal, setEditTanggal]                 = React.useState("")
+  const [editNotes, setEditNotes]                     = React.useState("")
+  const [editItems, setEditItems]                     = React.useState<ItemDraft[]>([])
+  const [savingEdit, setSavingEdit]                   = React.useState(false)
+
+  // ── Surat Jalan upload (moved in from the Warehouse tab so every action
+  // lives in one place) ──
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [uploadingSj, setUploadingSj] = React.useState(false)
+
   React.useEffect(() => {
     if (!open) { setRejecting(false); setReason("") }
   }, [open])
 
+  React.useEffect(() => {
+    if (!open || !pr) return
+    setEditSiteMaintenance(pr.site_maintenance)
+    setEditUnit(pr.unit)
+    setEditTanggal(pr.permintaan_tanggal.split("T")[0])
+    setEditNotes(pr.notes ?? "")
+    setEditItems(itemsFromRecord(pr))
+    // Reset from the record only when the drawer opens for a (possibly new) PR.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pr?.id])
+
   if (!pr) return null
+
+  const isEditable   = EDITABLE_STATUSES.includes(pr.status)
+  const isReceiving  = pr.status === "ARRIVED_AT_WAREHOUSE"
+  const showUploadSj = isReceiving && pr.sj_status === "PENDING_SIGNED_SJ"
+  const showDelete   = DELETABLE_STATUSES.includes(pr.status)
+  const allItemsReceived = pr.items.length > 0 && pr.items.every(i => i.received)
+
+  const addEditItem    = () => setEditItems(prev => [...prev, blankItem()])
+  const removeEditItem = (tempId: string) => setEditItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
+  const updateEditItem = (tempId: string, patch: Partial<ItemDraft>) =>
+    setEditItems(prev => prev.map(i => i.tempId === tempId ? { ...i, ...patch } : i))
+
+  const validEditItems = editItems.filter(i => Number(i.qty) > 0 && i.satuan.trim() && i.nama_barang.trim())
+  const canSaveEdit = Boolean(editSiteMaintenance.trim() && editUnit.trim() && editTanggal && validEditItems.length > 0 && !savingEdit)
+
+  const handleSaveEdit = async () => {
+    if (!canSaveEdit) {
+      toast.error("Lengkapi Site Maintenance, Unit, Tanggal, dan minimal satu item.")
+      return
+    }
+    setSavingEdit(true)
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          site_maintenance:   editSiteMaintenance.trim(),
+          unit:                editUnit.trim(),
+          permintaan_tanggal:  editTanggal,
+          notes:               editNotes.trim() || undefined,
+          actor_email:         user.email || undefined,
+          items: validEditItems.map(i => ({
+            qty:         Number(i.qty),
+            satuan:      i.satuan.trim(),
+            nama_barang: i.nama_barang.trim(),
+          })),
+        }),
+      })
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...pr, ...data.data })
+      toast.success(`PR ${pr.pr_no} berhasil diperbarui.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menyimpan perubahan.")
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const handleSjFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    if (file.size > MAX_SJ_FILE_BYTES) {
+      toast.error(`File terlalu besar (maks ${Math.floor(MAX_SJ_FILE_BYTES / (1024 * 1024))}MB). Kompres dulu atau scan dengan resolusi lebih rendah.`)
+      return
+    }
+    setUploadingSj(true)
+    try {
+      const formData = new FormData()
+      formData.append("file", file)
+      if (user.email) formData.append("uploaded_by", user.email)
+
+      const res = await fetch(`/api/purchase-requests/${pr.id}/surat-jalan`, { method: "POST", body: formData })
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...pr, ...data.data })
+      toast.success("Surat Jalan berhasil diunggah.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mengunggah Surat Jalan.")
+    } finally {
+      setUploadingSj(false)
+    }
+  }
 
   const toggleReceived = async (item: PurchaseRequestItem) => {
     const nextReceived = !item.received
@@ -580,12 +668,13 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
     }
   }
 
-  const transitions = LEGAL_TRANSITIONS[pr.status]
-  const canReject    = REJECTABLE_STATUSES.includes(pr.status)
+  const transitions  = LEGAL_TRANSITIONS[pr.status]
+  const canReject     = REJECTABLE_STATUSES.includes(pr.status)
+  const hasActions    = transitions.length > 0 || canReject || isEditable || showUploadSj || showDelete
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-2xl p-0 flex flex-col overflow-y-auto">
         <div className="sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur px-6 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -608,6 +697,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
                 {SJ_STATUS_CFG.PENDING_SIGNED_SJ.label}
               </span>
             )}
+            {isEditable && (
+              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground">
+                Dapat diedit
+              </span>
+            )}
           </div>
 
           {pr.status === "REJECTED" && pr.rejection_reason && (
@@ -617,21 +711,70 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: "Unit",               value: pr.unit },
-              { label: "Permintaan Tanggal", value: fDate(pr.permintaan_tanggal) },
-              { label: "Periode",            value: monthNameId(pr.permintaan_tanggal) },
-              { label: "KET",                value: quarterLabel(pr.permintaan_tanggal) },
-            ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
-                <p className="text-sm text-foreground font-medium truncate mt-0.5">{value}</p>
+          {isEditable ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-foreground">Site Maintenance</label>
+                <input
+                  type="text"
+                  value={editSiteMaintenance}
+                  onChange={e => setEditSiteMaintenance(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
+                />
               </div>
-            ))}
-          </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">Unit</label>
+                <input
+                  type="text"
+                  value={editUnit}
+                  onChange={e => setEditUnit(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">Permintaan Tanggal</label>
+                <input
+                  type="date"
+                  title="Permintaan Tanggal"
+                  value={editTanggal}
+                  onChange={e => setEditTanggal(e.target.value)}
+                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground">Periode / KET</label>
+                <div className="mt-1.5 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground truncate">
+                  {monthNameId(editTanggal)} · {quarterLabel(editTanggal)}
+                </div>
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-foreground">Catatan (opsional)</label>
+                <textarea
+                  value={editNotes}
+                  onChange={e => setEditNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Catatan internal..."
+                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all resize-none placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: "Unit",               value: pr.unit },
+                { label: "Permintaan Tanggal", value: fDate(pr.permintaan_tanggal) },
+                { label: "Periode",            value: monthNameId(pr.permintaan_tanggal) },
+                { label: "KET",                value: quarterLabel(pr.permintaan_tanggal) },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
+                  <p className="text-sm text-foreground font-medium truncate mt-0.5">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {pr.notes && (
+          {!isEditable && pr.notes && (
             <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
               <p className="text-xs text-amber-800 dark:text-amber-300">📌 {pr.notes}</p>
             </div>
@@ -653,23 +796,29 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
           <Separator />
 
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
-              {pr.status === "ARRIVED_AT_WAREHOUSE" && (
-                <span className="text-xs text-muted-foreground">
-                  {pr.items.filter(i => i.received).length}/{pr.items.length} diterima
-                </span>
-              )}
-            </div>
-            <ItemsTable
-              items={pr.items}
-              receivingEditable={pr.status === "ARRIVED_AT_WAREHOUSE"}
-              onToggleReceived={toggleReceived}
-              togglingId={togglingItemId}
-            />
+            {!isEditable && (
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
+                {isReceiving && (
+                  <span className="text-xs text-muted-foreground">
+                    {pr.items.filter(i => i.received).length}/{pr.items.length} diterima
+                  </span>
+                )}
+              </div>
+            )}
+            {isEditable ? (
+              <ItemEditGrid items={editItems} onAdd={addEditItem} onRemove={removeEditItem} onUpdate={updateEditItem} datalistId="satuan-options-edit" />
+            ) : (
+              <ItemsTable
+                items={pr.items}
+                receivingEditable={isReceiving}
+                onToggleReceived={toggleReceived}
+                togglingId={togglingItemId}
+              />
+            )}
           </div>
 
-          {(transitions.length > 0 || canReject) && (
+          {hasActions && (
             <>
               <Separator />
               <div className="space-y-2">
@@ -684,6 +833,29 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
                     {t.label}
                   </Button>
                 ))}
+
+                {showUploadSj && (
+                  <>
+                    <input ref={fileInputRef} type="file" accept="image/*,.pdf" title="Upload Surat Jalan" className="hidden" onChange={handleSjFileChange} />
+                    <Button
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingSj || !allItemsReceived}
+                      title={!allItemsReceived ? "Selesaikan checklist penerimaan barang dulu" : undefined}
+                      className="w-full h-9 text-sm gap-2"
+                    >
+                      <UploadCloud className="h-3.5 w-3.5" />
+                      {uploadingSj ? "Mengunggah…" : "Upload Surat Jalan"}
+                    </Button>
+                  </>
+                )}
+
+                {isEditable && (
+                  <Button onClick={handleSaveEdit} disabled={!canSaveEdit} className="w-full h-9 text-sm gap-2">
+                    <Pencil className="h-3.5 w-3.5" />
+                    {savingEdit ? "Menyimpan…" : "Simpan Perubahan"}
+                  </Button>
+                )}
 
                 {canReject && !rejecting && (
                   <Button
@@ -722,6 +894,17 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
                     </div>
                   </div>
                 )}
+
+                {showDelete && (
+                  <Button
+                    variant="outline"
+                    onClick={() => onDelete(pr)}
+                    className="w-full h-9 text-sm gap-2 border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/30"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Hapus PR
+                  </Button>
+                )}
               </div>
             </>
           )}
@@ -733,54 +916,16 @@ function PRDetailSheet({ pr, open, onClose, onUpdated }: {
 
 // ─── WarehouseTab ─────────────────────────────────────────────────────────────
 
-function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
+// Upload SJ lives in PRDetailSheet now (row click -> onOpenDetail) so every
+// PR action is in one place — this tab is a pure, read-only listing.
+function WarehouseTab({ prs, onOpenDetail }: {
   prs:          PurchaseRequestRecord[]
-  onUploaded:   (updated: PurchaseRequestRecord) => void
   onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
-  const { user } = useCurrentUser()
   const pending = prs.filter(p => p.status === "ARRIVED_AT_WAREHOUSE" && p.sj_status === "PENDING_SIGNED_SJ")
-  const uploadTargetRef = React.useRef<string | null>(null)
-  const fileInputRef    = React.useRef<HTMLInputElement>(null)
-  const [uploadingId, setUploadingId] = React.useState<string | null>(null)
-
-  const triggerUpload = (prId: string) => {
-    uploadTargetRef.current = prId
-    fileInputRef.current?.click()
-  }
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    const prId = uploadTargetRef.current
-    e.target.value = ""
-    if (!file || !prId) return
-
-    if (file.size > MAX_SJ_FILE_BYTES) {
-      toast.error(`File terlalu besar (maks ${Math.floor(MAX_SJ_FILE_BYTES / (1024 * 1024))}MB). Kompres dulu atau scan dengan resolusi lebih rendah.`)
-      return
-    }
-
-    setUploadingId(prId)
-    try {
-      const formData = new FormData()
-      formData.append("file", file)
-      if (user.email) formData.append("uploaded_by", user.email)
-
-      const res = await fetch(`/api/purchase-requests/${prId}/surat-jalan`, { method: "POST", body: formData })
-      const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.error)
-      onUploaded(data.data)
-      toast.success("Surat Jalan berhasil diunggah.")
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal mengunggah Surat Jalan.")
-    } finally {
-      setUploadingId(null)
-    }
-  }
 
   return (
     <div className="space-y-3">
-      <input ref={fileInputRef} type="file" accept="image/*,.pdf" title="Upload Surat Jalan" className="hidden" onChange={handleFileChange} />
       {pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <Truck className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
@@ -792,7 +937,7 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["PR NO", "Site Maintenance", "Unit", "Barang", "Tanggal Sampai di Gudang", "Checklist", ""].map((col, i) => (
+                  {["PR NO", "Site Maintenance", "Unit", "Barang", "Tanggal Sampai di Gudang", "Checklist"].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
@@ -814,19 +959,6 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
                         <span className={allReceived ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
                           {receivedCount}/{pr.items.length} diterima
                         </span>
-                      </td>
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1.5"
-                          disabled={uploadingId === pr.id || !allReceived}
-                          title={!allReceived ? "Selesaikan checklist penerimaan barang dulu" : undefined}
-                          onClick={() => triggerUpload(pr.id)}
-                        >
-                          <UploadCloud className="h-3.5 w-3.5" />
-                          {uploadingId === pr.id ? "Mengunggah…" : "Upload SJ"}
-                        </Button>
                       </td>
                     </tr>
                   )
@@ -930,10 +1062,10 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
 function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
   return (
-    <div className="flex flex-col gap-1 min-w-[240px]">
+    <div className="flex flex-col gap-1 w-full min-w-[280px] max-w-[420px]">
       {items.map(it => (
-        <div key={it.id} className="flex items-center gap-1.5">
-          <span className="text-xs text-foreground truncate" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
+        <div key={it.id} className="flex items-center justify-between gap-3">
+          <span className="text-xs text-foreground truncate flex-1 min-w-0" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
             {it.qty} {it.satuan} · {it.nama_barang}
           </span>
           <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
@@ -959,8 +1091,6 @@ export default function PurchasingRequestPage() {
   const [searchQuery, setQ]           = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<PRStatus | "ALL">("ALL")
   const [formOpen, setFormOpen]       = React.useState(false)
-  const [formMode, setFormMode]       = React.useState<"create" | "edit">("create")
-  const [editingPr, setEditingPr]     = React.useState<PurchaseRequestRecord | null>(null)
   const [selected, setSelected]       = React.useState<PurchaseRequestRecord | null>(null)
   const [detailOpen, setDetailOpen]   = React.useState(false)
 
@@ -982,16 +1112,9 @@ export default function PurchasingRequestPage() {
 
   const openDetail = (pr: PurchaseRequestRecord) => { setSelected(pr); setDetailOpen(true) }
 
-  const openCreate = () => { setFormMode("create"); setEditingPr(null); setFormOpen(true) }
-  const openEdit = (pr: PurchaseRequestRecord, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setFormMode("edit")
-    setEditingPr(pr)
-    setFormOpen(true)
-  }
+  const openCreate = () => setFormOpen(true)
 
-  const handleDelete = async (pr: PurchaseRequestRecord, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleDelete = async (pr: PurchaseRequestRecord) => {
     if (!window.confirm(`Hapus PR ${pr.pr_no}? Tindakan ini tidak bisa dibatalkan.`)) return
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}`, {
@@ -1002,6 +1125,7 @@ export default function PurchasingRequestPage() {
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       toast.success(`PR ${pr.pr_no} dihapus.`)
+      setDetailOpen(false)
       loadPrs()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menghapus PR.")
@@ -1113,7 +1237,7 @@ export default function PurchasingRequestPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
-                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status", "Aksi"].map((col, i) => (
+                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status"].map((col, i) => (
                           <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
@@ -1121,7 +1245,7 @@ export default function PurchasingRequestPage() {
                     <tbody className="divide-y divide-border">
                       {filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                          <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
                             Tidak ada PR yang cocok dengan pencarian.
                           </td>
                         </tr>
@@ -1134,40 +1258,13 @@ export default function PurchasingRequestPage() {
                             <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
                             <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
                             <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-3 w-full">
                               <ItemNamesPreview items={pr.items} />
                             </td>
                             <td className="px-4 py-3">
                               <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
                                 {STATUS_CFG[pr.status].label}
                               </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2.5">
-                                {EDITABLE_STATUSES.includes(pr.status) && (
-                                  <button
-                                    type="button"
-                                    aria-label={`Edit ${pr.pr_no}`}
-                                    onClick={e => openEdit(pr, e)}
-                                    className="text-muted-foreground hover:text-foreground transition-colors"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {DELETABLE_STATUSES.includes(pr.status) && (
-                                  <button
-                                    type="button"
-                                    aria-label={`Hapus ${pr.pr_no}`}
-                                    onClick={e => handleDelete(pr, e)}
-                                    className="text-muted-foreground hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {!EDITABLE_STATUSES.includes(pr.status) && !DELETABLE_STATUSES.includes(pr.status) && (
-                                  <span className="text-[10px] text-muted-foreground">—</span>
-                                )}
-                              </div>
                             </td>
                           </tr>
                         ))
@@ -1180,7 +1277,7 @@ export default function PurchasingRequestPage() {
 
             {/* ── Warehouse ── */}
             <TabsContent value="warehouse" className="mt-4">
-              <WarehouseTab prs={prs} onUploaded={applyUpdate} onOpenDetail={openDetail} />
+              <WarehouseTab prs={prs} onOpenDetail={openDetail} />
             </TabsContent>
 
             {/* ── Done PR ── */}
@@ -1192,12 +1289,16 @@ export default function PurchasingRequestPage() {
 
         <PRFormDialog
           open={formOpen}
-          mode={formMode}
-          pr={editingPr}
           onClose={() => setFormOpen(false)}
           onSaved={loadPrs}
         />
-        <PRDetailSheet pr={selected} open={detailOpen} onClose={() => setDetailOpen(false)} onUpdated={applyUpdate} />
+        <PRDetailSheet
+          pr={selected}
+          open={detailOpen}
+          onClose={() => setDetailOpen(false)}
+          onUpdated={applyUpdate}
+          onDelete={handleDelete}
+        />
 
         <Toaster richColors />
       </SidebarInset>
