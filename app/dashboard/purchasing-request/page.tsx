@@ -792,7 +792,7 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["PR NO", "Site Maintenance", "Unit", "Tanggal Sampai di Gudang", "Checklist", ""].map((col, i) => (
+                  {["PR NO", "Site Maintenance", "Unit", "Barang", "Tanggal Sampai di Gudang", "Checklist", ""].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
@@ -806,6 +806,9 @@ function WarehouseTab({ prs, onUploaded, onOpenDetail }: {
                       <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
                       <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+                      <td className="px-4 py-3">
+                        <ItemNamesPreview items={pr.items} />
+                      </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.updated_at)}</td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
                         <span className={allReceived ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
@@ -927,11 +930,21 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
 function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
   return (
-    <div className="flex flex-col gap-0.5 min-w-[220px]">
+    <div className="flex flex-col gap-1 min-w-[240px]">
       {items.map(it => (
-        <span key={it.id} className="text-xs text-foreground" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
-          {it.qty} {it.satuan} · {it.nama_barang}
-        </span>
+        <div key={it.id} className="flex items-center gap-1.5">
+          <span className="text-xs text-foreground truncate" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
+            {it.qty} {it.satuan} · {it.nama_barang}
+          </span>
+          <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
+            it.received
+              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+              : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+          }`}>
+            {it.received && <CheckCircle2 className="h-2 w-2" />}
+            {it.received ? "Diterima" : "Pending"}
+          </span>
+        </div>
       ))}
     </div>
   )
