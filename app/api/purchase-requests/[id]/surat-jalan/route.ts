@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
+import { deriveOverallStatus, isWarehouseReady } from "@/lib/purchase-request/status-rules"
 
 const BUCKET = "surat-jalan-docs"
 // Keeps uploads inside typical serverless function payload limits (Netlify's
@@ -85,20 +86,22 @@ export async function POST(
     }
 
     const prRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,received)`,
+      `${supabaseConfig.url}/rest/v1/purchase_requests` +
+      `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,procurement_status,received)`,
       { headers: headers() }
     )
     if (!prRes.ok) throw new Error(await prRes.text())
     const [pr] = await prRes.json()
     if (!pr) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
-    if (pr.status !== "ARRIVED_AT_WAREHOUSE") {
+    if (pr.status === "DRAFT" || pr.status === "REJECTED" || pr.status === "COMPLETED") {
       return NextResponse.json(
-        { error: "SJ hanya dapat diunggah saat PR berstatus Sampai di Gudang" },
+        { error: "SJ tidak dapat diunggah untuk PR dengan status ini" },
         { status: 400 }
       )
     }
 
-    const items = (pr.purchase_request_items ?? []) as { id: string; received: boolean }[]
+    type ItemRow = { id: string; fulfillment_source: string; procurement_status: string; received: boolean }
+    const items = (pr.purchase_request_items ?? []) as ItemRow[]
     const itemsById = new Map(items.map(it => [it.id, it]))
     for (const itemId of itemIds) {
       const item = itemsById.get(itemId)
@@ -107,6 +110,9 @@ export async function POST(
       }
       if (item.received) {
         return NextResponse.json({ error: "Salah satu item yang dipilih sudah ditandai diterima" }, { status: 400 })
+      }
+      if (!isWarehouseReady(item)) {
+        return NextResponse.json({ error: "Salah satu item yang dipilih belum siap gudang (masih menunggu pembelian)" }, { status: 400 })
       }
     }
 
@@ -160,24 +166,24 @@ export async function POST(
     )
     if (!itemsPatchRes.ok) throw new Error(await itemsPatchRes.text())
 
-    const allNowReceived = items.every(it => itemIds.includes(it.id) || it.received)
-    if (allNowReceived) {
-      const completeRes = await fetch(
+    const itemsAfter = items.map(it => itemIds.includes(it.id) ? { ...it, received: true } : it)
+    const nextStatus = deriveOverallStatus(itemsAfter, pr.status)
+    if (nextStatus !== pr.status) {
+      const headerPatch: Record<string, unknown> = { status: nextStatus }
+      if (nextStatus === "COMPLETED") headerPatch.sj_status = "BILLING_READY"
+
+      const statusRes = await fetch(
         `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,
-        {
-          method:  "PATCH",
-          headers: headers(),
-          body: JSON.stringify({ status: "COMPLETED", sj_status: "BILLING_READY" }),
-        }
+        { method: "PATCH", headers: headers(), body: JSON.stringify(headerPatch) }
       )
-      if (!completeRes.ok) throw new Error(await completeRes.text())
+      if (!statusRes.ok) throw new Error(await statusRes.text())
 
       logActivity({
         actorEmail: uploaded_by ?? undefined,
         action:     "PR_STATUS_CHANGED",
         entityId:   id,
-        summary:    `PR ${pr.pr_no} status diubah dari ARRIVED_AT_WAREHOUSE ke COMPLETED`,
-        payload:    { from: "ARRIVED_AT_WAREHOUSE", to: "COMPLETED" },
+        summary:    `PR ${pr.pr_no} status diubah dari ${pr.status} ke ${nextStatus}`,
+        payload:    { from: pr.status, to: nextStatus },
       })
     }
 

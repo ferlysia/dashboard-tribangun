@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
 import type { PRStatus } from "@/types/purchase-request"
-import { getLegalNextStatuses, validateBeliBaruPoNumbers } from "@/lib/purchase-request/status-rules"
+import { getLegalNextStatuses } from "@/lib/purchase-request/status-rules"
 
 function headers() {
   return {
@@ -32,10 +32,11 @@ async function logActivity(input: {
   }).catch(() => { /* activity log is best-effort */ })
 }
 
-// Item quantities/descriptions only make sense to edit before the PR has
-// actually been purchased — once PURCHASED or later, Purchasing has already
-// acted on the original list.
-const EDITABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT"]
+// Full item replace (delete+reinsert) is destructive, so it's only safe
+// while nothing stateful can exist on any item yet — i.e. strictly DRAFT.
+// From WAITING_PAYMENT onward, items are edited in place via the per-item
+// endpoint (.../items/[itemId]) so received/procurement state is preserved.
+const EDITABLE_STATUSES: PRStatus[] = ["DRAFT"]
 
 interface ItemInput {
   qty:                 number
@@ -52,8 +53,7 @@ function normalizeFulfillment(it: ItemInput): { fulfillment_source: string; po_n
 
 async function fetchOne(id: string) {
   const res = await fetch(
-    `${supabaseConfig.url}/rest/v1/purchase_requests` +
-    `?id=eq.${id}&select=*,purchase_request_items(fulfillment_source,po_number)`,
+    `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=*`,
     { headers: headers() }
   )
   if (!res.ok) throw new Error(await res.text())
@@ -78,8 +78,7 @@ export async function PATCH(
       const current = await fetchOne(id)
       if (!current) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
 
-      const items = (current.purchase_request_items ?? []) as { fulfillment_source: string; po_number: string | null }[]
-      const allowed = getLegalNextStatuses(current.status as PRStatus, items)
+      const allowed = getLegalNextStatuses(current.status as PRStatus)
       if (!allowed.includes(status)) {
         return NextResponse.json(
           { error: `Cannot move a ${current.status} PR to ${status}` },
@@ -88,10 +87,6 @@ export async function PATCH(
       }
       if (status === "REJECTED" && !rejection_reason?.trim()) {
         return NextResponse.json({ error: "rejection_reason is required to reject a PR" }, { status: 400 })
-      }
-      if (status === "PURCHASED") {
-        const poError = validateBeliBaruPoNumbers(items)
-        if (poError) return NextResponse.json({ error: poError }, { status: 400 })
       }
 
       const patch: Record<string, unknown> = { status }
@@ -130,7 +125,7 @@ export async function PATCH(
       if (!current) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
       if (!EDITABLE_STATUSES.includes(current.status as PRStatus)) {
         return NextResponse.json(
-          { error: "Only DRAFT or WAITING_PAYMENT purchase requests can be edited" },
+          { error: "Only DRAFT purchase requests can have their item list edited" },
           { status: 400 }
         )
       }
@@ -152,9 +147,7 @@ export async function PATCH(
       if (permintaan_tanggal !== undefined) headerPatch.permintaan_tanggal = permintaan_tanggal
       if (notes              !== undefined) headerPatch.notes              = notes || null
 
-      const currentHeader: Record<string, unknown> = { ...current }
-      delete currentHeader.purchase_request_items
-      let headerRow = currentHeader
+      let headerRow = current
       if (Object.keys(headerPatch).length > 0) {
         const headerRes = await fetch(
           `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,

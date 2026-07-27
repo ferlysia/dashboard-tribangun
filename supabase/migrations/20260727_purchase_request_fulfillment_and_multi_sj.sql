@@ -2,11 +2,16 @@
 --  PURCHASING REQUEST — PER-ITEM FULFILLMENT & MULTI SURAT JALAN
 --  Run this AFTER the other 20260724_purchase_request*.sql files.
 --
---  1. Per-item fulfillment source (Beli Baru vs Stok Internal) + PO number.
---     - STOK_INTERNAL items never carry a po_number (enforced by CHECK).
---     - If EVERY item on a PR is STOK_INTERNAL, the app layer allows the PR
---       to skip WAITING_PAYMENT entirely (DRAFT -> PURCHASED directly).
---       See lib/purchase-request/status-rules.ts.
+--  1. Per-item fulfillment source (Beli Baru vs Stok Internal), PO number,
+--     and procurement_status. The ITEM is the unit of procurement progress,
+--     not the PR: purchase_requests.status is a derived, display-only
+--     aggregate (see deriveOverallStatus in lib/purchase-request/status-rules.ts)
+--     computed server-side after every item mutation, except for the two
+--     explicit manual states DRAFT and REJECTED. Warehouse checkoff
+--     eligibility for an item is fully decoupled from the parent PR's
+--     status — a STOK_INTERNAL item (or a BELI_BARU item already marked
+--     PURCHASED) is receivable immediately even while sibling BELI_BARU
+--     items on the same PR are still AWAITING_PAYMENT.
 --
 --  2. Multiple Surat Jalan per PR (partial deliveries). A PR can now receive
 --     several SJ documents over time, each covering a subset of items.
@@ -14,20 +19,29 @@
 --     that delivered it (an item is received exactly once, so no join table
 --     is needed). Completion (status -> COMPLETED) is no longer a DB-trigger
 --     side effect of a scalar sj_document_url column — it is driven by
---     application code in the surat-jalan upload route once every item on
---     the PR is received.
+--     application code (status-rules.ts's deriveOverallStatus, called from
+--     the surat-jalan and per-item routes) once every item on the PR is
+--     received.
 --
 --  The old scalar sj_document_url/sj_uploaded_by/sj_uploaded_at columns are
 --  renamed (not dropped) to legacy_* and backfilled into the new table so
 --  historical COMPLETED PRs aren't orphaned. Nothing outside this feature
 --  reads them (confirmed via repo-wide search).
+--
+--  3. (Unrelated concern, bundled into this same not-yet-deployed migration
+--     to avoid a confusing 2-file trail — see the bottom of this file.)
+--     fn_next_pr_no is rewritten to compute the next sequence number from
+--     actual current purchase_requests rows instead of a one-way counter
+--     table, so deleting a PR frees its number back up for reuse.
 -- ============================================================
 
--- ── 1. Per-item fulfillment source + PO number ──────────────────
+-- ── 1. Per-item fulfillment source + PO number + procurement progress ──
 ALTER TABLE public.purchase_request_items
   ADD COLUMN IF NOT EXISTS fulfillment_source TEXT NOT NULL DEFAULT 'BELI_BARU'
     CHECK (fulfillment_source IN ('BELI_BARU', 'STOK_INTERNAL')),
-  ADD COLUMN IF NOT EXISTS po_number TEXT;
+  ADD COLUMN IF NOT EXISTS po_number TEXT,
+  ADD COLUMN IF NOT EXISTS procurement_status TEXT NOT NULL DEFAULT 'AWAITING_PAYMENT'
+    CHECK (procurement_status IN ('AWAITING_PAYMENT', 'PURCHASED'));
 
 ALTER TABLE public.purchase_request_items
   DROP CONSTRAINT IF EXISTS chk_pr_item_stok_internal_no_po;
@@ -36,9 +50,11 @@ ALTER TABLE public.purchase_request_items
     CHECK (fulfillment_source <> 'STOK_INTERNAL' OR po_number IS NULL);
 
 COMMENT ON COLUMN public.purchase_request_items.fulfillment_source IS
-  'BELI_BARU = sourced via vendor purchase (needs po_number). STOK_INTERNAL = pulled from existing stock (no PO, bypasses payment wait if the whole PR is internal).';
+  'BELI_BARU = sourced via vendor purchase (needs po_number). STOK_INTERNAL = pulled from existing stock (no PO, always warehouse-ready).';
 COMMENT ON COLUMN public.purchase_request_items.po_number IS
   'Purchase order number for BELI_BARU items. Always NULL for STOK_INTERNAL items.';
+COMMENT ON COLUMN public.purchase_request_items.procurement_status IS
+  'BELI_BARU-only progress marker: AWAITING_PAYMENT until Purchasing marks it PURCHASED. Irrelevant for STOK_INTERNAL (always implicitly warehouse-ready). Drives per-item Warehouse checkoff eligibility independent of the parent PR''s (derived) status — see lib/purchase-request/status-rules.ts.';
 
 
 -- ── 2. Multiple Surat Jalan documents per PR ─────────────────────
@@ -124,3 +140,48 @@ CREATE POLICY "service_role_pr_surat_jalan_all"
   ON public.purchase_request_surat_jalan FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "auth_pr_surat_jalan_read"
   ON public.purchase_request_surat_jalan FOR SELECT TO anon, authenticated USING (true);
+
+
+-- ============================================================
+--  7. PR NUMBER GENERATOR — reclaim numbers freed by deletion
+--
+--  The original fn_next_pr_no (20260724_purchase_requests.sql) drew from a
+--  persisted pr_number_counters(period_month, period_year, last_seq) table
+--  that only ever increments — deleting a PR (e.g. during testing) left a
+--  permanent gap since the counter never rewinds. Replaced with a version
+--  that computes the next sequence number from the actual current
+--  purchase_requests rows for that period, so a deleted PR's number is
+--  immediately available again, while a still-existing REJECTED PR
+--  correctly keeps holding its own number.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.fn_next_pr_no(p_date DATE)
+RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+  v_month INT := EXTRACT(MONTH FROM p_date);
+  v_year  INT := EXTRACT(YEAR FROM p_date);
+  v_seq   INT;
+BEGIN
+  -- Serializes concurrent number generation for the same period so two
+  -- simultaneous "Buat PR" submissions can't compute the same next number.
+  -- Transaction-scoped, released automatically at commit/rollback.
+  PERFORM pg_advisory_xact_lock(hashtext('pr_no:' || v_month || ':' || v_year));
+
+  SELECT COALESCE(MAX((regexp_match(pr_no, '^(\d+)/'))[1]::INT), 0) + 1
+  INTO v_seq
+  FROM public.purchase_requests
+  WHERE EXTRACT(MONTH FROM permintaan_tanggal) = v_month
+    AND EXTRACT(YEAR  FROM permintaan_tanggal) = v_year;
+
+  RETURN lpad(v_seq::text, 3, '0') || '/' ||
+         (ARRAY['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'])[v_month] || '/' ||
+         v_year::text;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_next_pr_no(DATE) IS
+  'Computes the next PR number (NNN/ROMAN/YYYY) from the current MAX existing sequence for that (month,year) — deleting the highest-numbered PR frees its number back up. Serialized via advisory lock to stay race-safe under concurrent creates.';
+
+-- pr_number_counters is no longer read by anything (confirmed via repo-wide
+-- search) — drop it along with its RLS policy rather than leave dead state.
+DROP TABLE IF EXISTS public.pr_number_counters;

@@ -4,6 +4,8 @@ export type SJStatus = "PENDING_SIGNED_SJ" | "BILLING_READY" | null
 
 export type FulfillmentSource = "BELI_BARU" | "STOK_INTERNAL"
 
+export type ProcurementStatus = "AWAITING_PAYMENT" | "PURCHASED"
+
 export interface PurchaseRequestItem {
   id:                   string
   purchase_request_id:  string
@@ -13,6 +15,7 @@ export interface PurchaseRequestItem {
   nama_barang:          string
   fulfillment_source:   FulfillmentSource
   po_number:            string | null
+  procurement_status:   ProcurementStatus
   received:             boolean
   received_at:          string | null
   surat_jalan_id:       string | null
