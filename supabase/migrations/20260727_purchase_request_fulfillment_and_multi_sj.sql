@@ -85,33 +85,44 @@ COMMENT ON COLUMN public.purchase_request_items.surat_jalan_id IS
   'The Surat Jalan document that delivered this item, if received. An item is received exactly once.';
 
 
--- ── 3. Rename the old scalar SJ columns (non-destructive) ────────
-ALTER TABLE public.purchase_requests RENAME COLUMN sj_document_url TO legacy_sj_document_url;
-ALTER TABLE public.purchase_requests RENAME COLUMN sj_uploaded_by  TO legacy_sj_uploaded_by;
-ALTER TABLE public.purchase_requests RENAME COLUMN sj_uploaded_at  TO legacy_sj_uploaded_at;
+-- ── 3+4. Rename the old scalar SJ columns + backfill (non-destructive) ────
+-- Guarded so this whole migration is safe to re-run: RENAME COLUMN has no
+-- IF EXISTS form in Postgres, and a naive re-run of the backfill INSERT
+-- would duplicate rows on a second pass. Both only execute the first time
+-- (i.e. while sj_document_url still exists under its original name).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'purchase_requests' AND column_name = 'sj_document_url'
+  ) THEN
+    ALTER TABLE public.purchase_requests RENAME COLUMN sj_document_url TO legacy_sj_document_url;
+    ALTER TABLE public.purchase_requests RENAME COLUMN sj_uploaded_by  TO legacy_sj_uploaded_by;
+    ALTER TABLE public.purchase_requests RENAME COLUMN sj_uploaded_at  TO legacy_sj_uploaded_at;
 
-COMMENT ON COLUMN public.purchase_requests.legacy_sj_document_url IS
-  'Deprecated. Pre-multi-SJ-refactor single document URL, kept for historical backfill only. New code reads purchase_request_surat_jalan instead.';
+    COMMENT ON COLUMN public.purchase_requests.legacy_sj_document_url IS
+      'Deprecated. Pre-multi-SJ-refactor single document URL, kept for historical backfill only. New code reads purchase_request_surat_jalan instead.';
 
+    -- Under the OLD trigger, legacy_sj_document_url could only ever be set
+    -- in the same instant status flipped to COMPLETED, which itself
+    -- required every item to already be received. So every PR with a
+    -- non-null legacy URL is, by construction, COMPLETED with 100% of its
+    -- items received.
+    INSERT INTO public.purchase_request_surat_jalan
+      (purchase_request_id, file_url, uploaded_by, uploaded_at, created_at)
+    SELECT id, legacy_sj_document_url, legacy_sj_uploaded_by,
+           COALESCE(legacy_sj_uploaded_at, updated_at), COALESCE(legacy_sj_uploaded_at, updated_at)
+    FROM public.purchase_requests
+    WHERE legacy_sj_document_url IS NOT NULL;
 
--- ── 4. Backfill historical single-SJ data into the new table ─────
--- Under the OLD trigger, legacy_sj_document_url could only ever be set in
--- the same instant status flipped to COMPLETED, which itself required every
--- item to already be received. So every PR with a non-null legacy URL is,
--- by construction, COMPLETED with 100% of its items received.
-INSERT INTO public.purchase_request_surat_jalan
-  (purchase_request_id, file_url, uploaded_by, uploaded_at, created_at)
-SELECT id, legacy_sj_document_url, legacy_sj_uploaded_by,
-       COALESCE(legacy_sj_uploaded_at, updated_at), COALESCE(legacy_sj_uploaded_at, updated_at)
-FROM public.purchase_requests
-WHERE legacy_sj_document_url IS NOT NULL;
-
-UPDATE public.purchase_request_items pri
-SET surat_jalan_id = sj.id
-FROM public.purchase_request_surat_jalan sj
-WHERE sj.purchase_request_id = pri.purchase_request_id
-  AND pri.received = TRUE
-  AND pri.surat_jalan_id IS NULL;
+    UPDATE public.purchase_request_items pri
+    SET surat_jalan_id = sj.id
+    FROM public.purchase_request_surat_jalan sj
+    WHERE sj.purchase_request_id = pri.purchase_request_id
+      AND pri.received = TRUE
+      AND pri.surat_jalan_id IS NULL;
+  END IF;
+END $$;
 
 
 -- ── 5. Rewrite the lifecycle interlock ────────────────────────────
@@ -134,10 +145,15 @@ $$;
 
 
 -- ── 6. RLS for the new table ──────────────────────────────────────
+-- CREATE POLICY has no IF NOT EXISTS form — drop-then-create keeps this
+-- migration safe to re-run.
 ALTER TABLE public.purchase_request_surat_jalan ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "service_role_pr_surat_jalan_all" ON public.purchase_request_surat_jalan;
 CREATE POLICY "service_role_pr_surat_jalan_all"
   ON public.purchase_request_surat_jalan FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "auth_pr_surat_jalan_read" ON public.purchase_request_surat_jalan;
 CREATE POLICY "auth_pr_surat_jalan_read"
   ON public.purchase_request_surat_jalan FOR SELECT TO anon, authenticated USING (true);
 
