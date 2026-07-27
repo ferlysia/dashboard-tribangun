@@ -36,6 +36,23 @@ async function logActivity(input: {
   }).catch(() => { /* activity log is best-effort */ })
 }
 
+async function fetchFullRecord(id: string) {
+  const res = await fetch(
+    `${supabaseConfig.url}/rest/v1/purchase_requests` +
+    `?id=eq.${id}&select=*,purchase_request_items(*),purchase_request_surat_jalan(*)`,
+    { headers: headers() }
+  )
+  if (!res.ok) throw new Error(await res.text())
+  const [row] = await res.json()
+  if (!row) return null
+  const { purchase_request_items, purchase_request_surat_jalan, ...rest } = row
+  return {
+    ...rest,
+    items:                 purchase_request_items ?? [],
+    surat_jalan_documents: purchase_request_surat_jalan ?? [],
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -45,6 +62,7 @@ export async function POST(
     const formData = await request.formData()
     const file        = formData.get("file") as File | null
     const uploaded_by = formData.get("uploaded_by") as string | null
+    const itemIdsRaw  = formData.get("item_ids") as string | null
 
     if (!file) {
       return NextResponse.json({ error: "file is required" }, { status: 400 })
@@ -56,25 +74,40 @@ export async function POST(
       )
     }
 
+    let itemIds: string[]
+    try {
+      itemIds = itemIdsRaw ? JSON.parse(itemIdsRaw) : []
+    } catch {
+      return NextResponse.json({ error: "item_ids must be a JSON array" }, { status: 400 })
+    }
+    if (!Array.isArray(itemIds) || itemIds.length === 0 || !itemIds.every(v => typeof v === "string")) {
+      return NextResponse.json({ error: "Pilih minimal satu item yang tercakup dalam Surat Jalan ini" }, { status: 400 })
+    }
+
     const prRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,sj_status,purchase_request_items(received)`,
+      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,received)`,
       { headers: headers() }
     )
     if (!prRes.ok) throw new Error(await prRes.text())
     const [pr] = await prRes.json()
     if (!pr) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
-    if (pr.sj_status !== "PENDING_SIGNED_SJ") {
+    if (pr.status !== "ARRIVED_AT_WAREHOUSE") {
       return NextResponse.json(
-        { error: "This PR is not waiting on a Surat Jalan upload" },
+        { error: "SJ hanya dapat diunggah saat PR berstatus Sampai di Gudang" },
         { status: 400 }
       )
     }
-    const items = (pr.purchase_request_items ?? []) as { received: boolean }[]
-    if (items.length === 0 || items.some(it => !it.received)) {
-      return NextResponse.json(
-        { error: "All items must be marked as received before uploading Surat Jalan" },
-        { status: 400 }
-      )
+
+    const items = (pr.purchase_request_items ?? []) as { id: string; received: boolean }[]
+    const itemsById = new Map(items.map(it => [it.id, it]))
+    for (const itemId of itemIds) {
+      const item = itemsById.get(itemId)
+      if (!item) {
+        return NextResponse.json({ error: "Salah satu item tidak ditemukan pada PR ini" }, { status: 400 })
+      }
+      if (item.received) {
+        return NextResponse.json({ error: "Salah satu item yang dipilih sudah ditandai diterima" }, { status: 400 })
+      }
     }
 
     const path = `${id}/${Date.now()}-${file.name}`
@@ -98,28 +131,66 @@ export async function POST(
     } as RequestInit & { duplex: "half" })
     if (!uploadRes.ok) throw new Error(`Storage error: ${await uploadRes.text()}`)
 
-    const sj_document_url = `${supabaseConfig.url}/storage/v1/object/public/${BUCKET}/${path}`
+    const file_url = `${supabaseConfig.url}/storage/v1/object/public/${BUCKET}/${path}`
 
-    const patchRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,
+    const sjRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_surat_jalan`, {
+      method:  "POST",
+      headers: { ...headers(), Prefer: "return=representation" },
+      body: JSON.stringify({
+        purchase_request_id: id,
+        file_url,
+        file_name:   file.name,
+        uploaded_by: uploaded_by || null,
+      }),
+    })
+    if (!sjRes.ok) throw new Error(await sjRes.text())
+    const [sjDoc] = await sjRes.json()
+
+    const itemsPatchRes = await fetch(
+      `${supabaseConfig.url}/rest/v1/purchase_request_items?id=in.(${itemIds.join(",")})&purchase_request_id=eq.${id}`,
       {
         method:  "PATCH",
-        headers: { ...headers(), Prefer: "return=representation" },
-        body: JSON.stringify({ sj_document_url, sj_uploaded_by: uploaded_by || null }),
+        headers: headers(),
+        body: JSON.stringify({
+          received:       true,
+          received_at:    new Date().toISOString(),
+          surat_jalan_id: sjDoc.id,
+        }),
       }
     )
-    if (!patchRes.ok) throw new Error(await patchRes.text())
-    const rows = await patchRes.json()
+    if (!itemsPatchRes.ok) throw new Error(await itemsPatchRes.text())
+
+    const allNowReceived = items.every(it => itemIds.includes(it.id) || it.received)
+    if (allNowReceived) {
+      const completeRes = await fetch(
+        `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,
+        {
+          method:  "PATCH",
+          headers: headers(),
+          body: JSON.stringify({ status: "COMPLETED", sj_status: "BILLING_READY" }),
+        }
+      )
+      if (!completeRes.ok) throw new Error(await completeRes.text())
+
+      logActivity({
+        actorEmail: uploaded_by ?? undefined,
+        action:     "PR_STATUS_CHANGED",
+        entityId:   id,
+        summary:    `PR ${pr.pr_no} status diubah dari ARRIVED_AT_WAREHOUSE ke COMPLETED`,
+        payload:    { from: "ARRIVED_AT_WAREHOUSE", to: "COMPLETED" },
+      })
+    }
 
     logActivity({
       actorEmail: uploaded_by ?? undefined,
       action:     "SJ_UPLOADED",
       entityId:   id,
-      summary:    `Surat Jalan diunggah untuk PR ${pr.pr_no}`,
-      payload:    { sj_document_url },
+      summary:    `Surat Jalan diunggah untuk PR ${pr.pr_no} (${itemIds.length} item)`,
+      payload:    { file_url, item_ids: itemIds },
     })
 
-    return NextResponse.json({ data: rows[0] })
+    const data = await fetchFullRecord(id)
+    return NextResponse.json({ data })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to upload Surat Jalan" },

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
 import type { PRStatus } from "@/types/purchase-request"
+import { getLegalNextStatuses, validateBeliBaruPoNumbers } from "@/lib/purchase-request/status-rules"
 
 function headers() {
   return {
@@ -31,31 +32,28 @@ async function logActivity(input: {
   }).catch(() => { /* activity log is best-effort */ })
 }
 
-const LEGAL_TRANSITIONS: Record<PRStatus, PRStatus[]> = {
-  DRAFT:                 ["WAITING_PAYMENT", "REJECTED"],
-  WAITING_PAYMENT:       ["PURCHASED", "REJECTED"],
-  PURCHASED:             ["ARRIVED_AT_WAREHOUSE", "REJECTED"],
-  // ARRIVED_AT_WAREHOUSE -> COMPLETED happens automatically once a signed
-  // Surat Jalan is uploaded (see fn_pr_lifecycle_interlock), not via this endpoint.
-  ARRIVED_AT_WAREHOUSE: ["REJECTED"],
-  COMPLETED:             [],
-  REJECTED:              [],
-}
-
 // Item quantities/descriptions only make sense to edit before the PR has
 // actually been purchased — once PURCHASED or later, Purchasing has already
 // acted on the original list.
 const EDITABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT"]
 
 interface ItemInput {
-  qty:         number
-  satuan:      string
-  nama_barang: string
+  qty:                 number
+  satuan:              string
+  nama_barang:         string
+  fulfillment_source?: string
+  po_number?:          string | null
+}
+
+function normalizeFulfillment(it: ItemInput): { fulfillment_source: string; po_number: string | null } {
+  const source = it.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
+  return { fulfillment_source: source, po_number: source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null) }
 }
 
 async function fetchOne(id: string) {
   const res = await fetch(
-    `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}&select=*`,
+    `${supabaseConfig.url}/rest/v1/purchase_requests` +
+    `?id=eq.${id}&select=*,purchase_request_items(fulfillment_source,po_number)`,
     { headers: headers() }
   )
   if (!res.ok) throw new Error(await res.text())
@@ -80,7 +78,8 @@ export async function PATCH(
       const current = await fetchOne(id)
       if (!current) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
 
-      const allowed = LEGAL_TRANSITIONS[current.status as PRStatus] ?? []
+      const items = (current.purchase_request_items ?? []) as { fulfillment_source: string; po_number: string | null }[]
+      const allowed = getLegalNextStatuses(current.status as PRStatus, items)
       if (!allowed.includes(status)) {
         return NextResponse.json(
           { error: `Cannot move a ${current.status} PR to ${status}` },
@@ -89,6 +88,10 @@ export async function PATCH(
       }
       if (status === "REJECTED" && !rejection_reason?.trim()) {
         return NextResponse.json({ error: "rejection_reason is required to reject a PR" }, { status: 400 })
+      }
+      if (status === "PURCHASED") {
+        const poError = validateBeliBaruPoNumbers(items)
+        if (poError) return NextResponse.json({ error: poError }, { status: 400 })
       }
 
       const patch: Record<string, unknown> = { status }
@@ -149,7 +152,9 @@ export async function PATCH(
       if (permintaan_tanggal !== undefined) headerPatch.permintaan_tanggal = permintaan_tanggal
       if (notes              !== undefined) headerPatch.notes              = notes || null
 
-      let headerRow = current
+      const currentHeader: Record<string, unknown> = { ...current }
+      delete currentHeader.purchase_request_items
+      let headerRow = currentHeader
       if (Object.keys(headerPatch).length > 0) {
         const headerRes = await fetch(
           `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,
@@ -171,6 +176,7 @@ export async function PATCH(
         qty:                 Number(it.qty),
         satuan:               it.satuan,
         nama_barang:          it.nama_barang,
+        ...normalizeFulfillment(it),
       }))
       // The edit drawer applies this response directly to live UI state (no
       // follow-up reload), so — unlike the create flow — it needs the real

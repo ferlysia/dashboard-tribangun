@@ -12,12 +12,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Separator }   from "@/components/ui/separator"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Search, Plus, FileText, CheckCircle2,
   Clock, RefreshCw, X, ShoppingCart, Package,
-  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil,
+  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2,
 } from "lucide-react"
-import type { PRStatus, SJStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
+import type { PRStatus, SJStatus, FulfillmentSource, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
+import { getLegalNextStatuses, describeTransition, validateBeliBaruPoNumbers } from "@/lib/purchase-request/status-rules"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -42,16 +44,10 @@ const SJ_STATUS_CFG: Record<Exclude<SJStatus, null>, { label: string; badge: str
   BILLING_READY:     { label: "Siap Billing",         badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" },
 }
 
-// ARRIVED_AT_WAREHOUSE -> COMPLETED is not listed here — it happens
-// automatically once a signed Surat Jalan is uploaded (Warehouse tab).
-const LEGAL_TRANSITIONS: Record<PRStatus, { to: PRStatus; label: string }[]> = {
-  DRAFT:                [{ to: "WAITING_PAYMENT",       label: "Setujui → Menunggu Pembayaran" }],
-  WAITING_PAYMENT:      [{ to: "PURCHASED",             label: "Tandai Sudah Dibayar" }],
-  PURCHASED:            [{ to: "ARRIVED_AT_WAREHOUSE",  label: "Tandai Sampai di Gudang" }],
-  ARRIVED_AT_WAREHOUSE: [],
-  COMPLETED:            [],
-  REJECTED:             [],
-}
+const FULFILLMENT_SOURCE_OPTIONS: { value: FulfillmentSource; label: string }[] = [
+  { value: "BELI_BARU",     label: "Beli Baru" },
+  { value: "STOK_INTERNAL", label: "Stok Accurate / Internal" },
+]
 
 const REJECTABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE"]
 const EDITABLE_STATUSES:   PRStatus[] = ["DRAFT", "WAITING_PAYMENT"]
@@ -123,14 +119,16 @@ function nextTempId() {
 }
 
 interface ItemDraft {
-  tempId:      string
-  qty:         string
-  satuan:      string
-  nama_barang: string
+  tempId:             string
+  qty:                string
+  satuan:             string
+  nama_barang:        string
+  fulfillmentSource:  FulfillmentSource
+  poNumber:           string
 }
 
 function blankItem(): ItemDraft {
-  return { tempId: nextTempId(), qty: "", satuan: "", nama_barang: "" }
+  return { tempId: nextTempId(), qty: "", satuan: "", nama_barang: "", fulfillmentSource: "BELI_BARU", poNumber: "" }
 }
 
 function padToMin(rows: ItemDraft[]): ItemDraft[] {
@@ -143,7 +141,14 @@ function itemsFromRecord(pr: PurchaseRequestRecord): ItemDraft[] {
   const rows = pr.items
     .slice()
     .sort((a, b) => a.line_no - b.line_no)
-    .map(it => ({ tempId: nextTempId(), qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang }))
+    .map(it => ({
+      tempId:            nextTempId(),
+      qty:               String(it.qty),
+      satuan:            it.satuan,
+      nama_barang:       it.nama_barang,
+      fulfillmentSource: it.fulfillment_source,
+      poNumber:          it.po_number ?? "",
+    }))
   return padToMin(rows)
 }
 
@@ -197,11 +202,11 @@ function StatusFilterChips({ active, onChange, counts }: {
 
 // ─── ItemsTable (used in detail drawer — optionally a receiving checklist) ───
 
-function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: {
-  items:              PurchaseRequestItem[]
-  receivingEditable?: boolean
-  onToggleReceived?:  (item: PurchaseRequestItem) => void
-  togglingId?:        string | null
+function ItemsTable({ items, showUndo, onUndoReceived, undoingId }: {
+  items:           PurchaseRequestItem[]
+  showUndo?:       boolean
+  onUndoReceived?: (item: PurchaseRequestItem) => void
+  undoingId?:      string | null
 }) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -212,7 +217,9 @@ function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: 
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-16">Qty</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Satuan</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
-            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Diterima</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">Sumber</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">No. PO</th>
+            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">Diterima</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -222,17 +229,12 @@ function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: 
               <td className="px-3 py-2 text-foreground">{it.qty}</td>
               <td className="px-3 py-2 text-foreground">{it.satuan}</td>
               <td className="px-3 py-2 text-foreground">{it.nama_barang}</td>
+              <td className="px-3 py-2 text-muted-foreground">
+                {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
+              </td>
+              <td className="px-3 py-2 font-mono text-muted-foreground">{it.po_number || "—"}</td>
               <td className="px-3 py-2">
-                <div className="flex items-center justify-center gap-2">
-                  {receivingEditable && (
-                    <input
-                      type="checkbox"
-                      title={`Tandai ${it.nama_barang} diterima`}
-                      checked={it.received}
-                      disabled={togglingId === it.id}
-                      onChange={() => onToggleReceived?.(it)}
-                    />
-                  )}
+                <div className="flex items-center justify-center gap-1.5">
                   <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
                     it.received
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
@@ -241,6 +243,17 @@ function ItemsTable({ items, receivingEditable, onToggleReceived, togglingId }: 
                     {it.received && <CheckCircle2 className="h-2.5 w-2.5" />}
                     {it.received ? "Diterima" : "Pending"}
                   </span>
+                  {showUndo && it.received && (
+                    <button
+                      type="button"
+                      title={`Batalkan penerimaan ${it.nama_barang}`}
+                      disabled={undoingId === it.id}
+                      onClick={() => onUndoReceived?.(it)}
+                      className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                    >
+                      <Undo2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -278,9 +291,11 @@ function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
-              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-24">QTY</th>
-              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-36">Satuan</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">QTY</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">Satuan</th>
               <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-40">Sumber</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">No. PO</th>
               <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Row Action</th>
             </tr>
           </thead>
@@ -319,6 +334,35 @@ function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
                     placeholder="Nama Barang"
                     title="Nama Barang"
                     className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </td>
+                <td className="px-2 py-2">
+                  <Select
+                    value={item.fulfillmentSource}
+                    onValueChange={v => onUpdate(item.tempId, {
+                      fulfillmentSource: v as FulfillmentSource,
+                      ...(v === "STOK_INTERNAL" ? { poNumber: "" } : {}),
+                    })}
+                  >
+                    <SelectTrigger size="sm" className="w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FULFILLMENT_SOURCE_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </td>
+                <td className="px-2 py-2">
+                  <input
+                    type="text"
+                    value={item.poNumber}
+                    onChange={e => onUpdate(item.tempId, { poNumber: e.target.value })}
+                    disabled={item.fulfillmentSource === "STOK_INTERNAL"}
+                    placeholder={item.fulfillmentSource === "STOK_INTERNAL" ? "—" : "No. PO"}
+                    title="No. PO"
+                    className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50 disabled:cursor-not-allowed"
                   />
                 </td>
                 <td className="px-2 py-2 text-center">
@@ -394,9 +438,11 @@ function PRFormDialog({ open, onClose, onSaved }: {
           notes:               notes.trim() || undefined,
           requested_by:        user.email || undefined,
           items: validItems.map(i => ({
-            qty:         Number(i.qty),
-            satuan:      i.satuan.trim(),
-            nama_barang: i.nama_barang.trim(),
+            qty:                 Number(i.qty),
+            satuan:              i.satuan.trim(),
+            nama_barang:         i.nama_barang.trim(),
+            fulfillment_source:  i.fulfillmentSource,
+            po_number:           i.fulfillmentSource === "STOK_INTERNAL" ? null : (i.poNumber.trim() || null),
           })),
         }),
       })
@@ -511,7 +557,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [rejecting, setRejecting]       = React.useState(false)
   const [reason, setReason]             = React.useState("")
   const [busy, setBusy]                 = React.useState(false)
-  const [togglingItemId, setTogglingItemId] = React.useState<string | null>(null)
+  const [undoingItemId, setUndoingItemId] = React.useState<string | null>(null)
 
   // ── Full-edit state (header + items) — only relevant while EDITABLE_STATUSES ──
   const [editSiteMaintenance, setEditSiteMaintenance] = React.useState("")
@@ -522,12 +568,14 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [savingEdit, setSavingEdit]                   = React.useState(false)
 
   // ── Surat Jalan upload (moved in from the Warehouse tab so every action
-  // lives in one place) ──
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [uploadingSj, setUploadingSj] = React.useState(false)
+  // lives in one place) — item checklist supports partial/multi-SJ delivery ──
+  const [sjPanelOpen, setSjPanelOpen]         = React.useState(false)
+  const [selectedItemIds, setSelectedItemIds] = React.useState<Set<string>>(new Set())
+  const [sjFile, setSjFile]                   = React.useState<File | null>(null)
+  const [uploadingSj, setUploadingSj]         = React.useState(false)
 
   React.useEffect(() => {
-    if (!open) { setRejecting(false); setReason("") }
+    if (!open) { setRejecting(false); setReason(""); setSjPanelOpen(false); setSelectedItemIds(new Set()); setSjFile(null) }
   }, [open])
 
   React.useEffect(() => {
@@ -543,11 +591,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
   if (!pr) return null
 
-  const isEditable   = EDITABLE_STATUSES.includes(pr.status)
-  const isReceiving  = pr.status === "ARRIVED_AT_WAREHOUSE"
-  const showUploadSj = isReceiving && pr.sj_status === "PENDING_SIGNED_SJ"
-  const showDelete   = DELETABLE_STATUSES.includes(pr.status)
-  const allItemsReceived = pr.items.length > 0 && pr.items.every(i => i.received)
+  const isEditable      = EDITABLE_STATUSES.includes(pr.status)
+  const isReceiving     = pr.status === "ARRIVED_AT_WAREHOUSE"
+  const unreceivedItems = pr.items.filter(i => !i.received)
+  const showUploadSj    = isReceiving && unreceivedItems.length > 0
+  const showDelete      = DELETABLE_STATUSES.includes(pr.status)
 
   const addEditItem    = () => setEditItems(prev => [...prev, blankItem()])
   const removeEditItem = (tempId: string) => setEditItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
@@ -574,9 +622,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
           notes:               editNotes.trim() || undefined,
           actor_email:         user.email || undefined,
           items: validEditItems.map(i => ({
-            qty:         Number(i.qty),
-            satuan:      i.satuan.trim(),
-            nama_barang: i.nama_barang.trim(),
+            qty:                 Number(i.qty),
+            satuan:              i.satuan.trim(),
+            nama_barang:         i.nama_barang.trim(),
+            fulfillment_source:  i.fulfillmentSource,
+            po_number:           i.fulfillmentSource === "STOK_INTERNAL" ? null : (i.poNumber.trim() || null),
           })),
         }),
       })
@@ -591,18 +641,38 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
-  const handleSjFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ""
-    if (!file) return
-    if (file.size > MAX_SJ_FILE_BYTES) {
+  const toggleSelectedItem = (itemId: string) => setSelectedItemIds(prev => {
+    const next = new Set(prev)
+    if (next.has(itemId)) next.delete(itemId); else next.add(itemId)
+    return next
+  })
+
+  const toggleSelectAllUnreceived = () => setSelectedItemIds(prev =>
+    prev.size === unreceivedItems.length ? new Set() : new Set(unreceivedItems.map(i => i.id))
+  )
+
+  const canSubmitSj = selectedItemIds.size > 0 && Boolean(sjFile) && !uploadingSj
+
+  const handleSjFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    if (file && file.size > MAX_SJ_FILE_BYTES) {
       toast.error(`File terlalu besar (maks ${Math.floor(MAX_SJ_FILE_BYTES / (1024 * 1024))}MB). Kompres dulu atau scan dengan resolusi lebih rendah.`)
+      e.target.value = ""
+      return
+    }
+    setSjFile(file)
+  }
+
+  const handleSjSubmit = async () => {
+    if (!canSubmitSj || !sjFile) {
+      toast.error("Pilih minimal satu item dan satu file Surat Jalan.")
       return
     }
     setUploadingSj(true)
     try {
       const formData = new FormData()
-      formData.append("file", file)
+      formData.append("file", sjFile)
+      formData.append("item_ids", JSON.stringify(Array.from(selectedItemIds)))
       if (user.email) formData.append("uploaded_by", user.email)
 
       const res = await fetch(`/api/purchase-requests/${pr.id}/surat-jalan`, { method: "POST", body: formData })
@@ -610,6 +680,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, ...data.data })
       toast.success("Surat Jalan berhasil diunggah.")
+      setSjPanelOpen(false)
+      setSelectedItemIds(new Set())
+      setSjFile(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal mengunggah Surat Jalan.")
     } finally {
@@ -617,33 +690,22 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
-  const toggleReceived = async (item: PurchaseRequestItem) => {
-    const nextReceived = !item.received
-
-    // Optimistic: flip the checkbox instantly instead of waiting on the
-    // round trip, so the checklist feels snappy. Reverts on failure.
-    onUpdated({
-      ...pr,
-      items: pr.items.map(i => i.id === item.id
-        ? { ...i, received: nextReceived, received_at: nextReceived ? new Date().toISOString() : null }
-        : i
-      ),
-    })
-    setTogglingItemId(item.id)
+  const undoReceived = async (item: PurchaseRequestItem) => {
+    setUndoingItemId(item.id)
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ received: nextReceived }),
+        body:    JSON.stringify({ received: false }),
       })
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, items: pr.items.map(i => i.id === item.id ? data.data : i) })
+      toast.success(`Penerimaan ${item.nama_barang} dibatalkan.`)
     } catch (err) {
-      onUpdated({ ...pr, items: pr.items.map(i => i.id === item.id ? item : i) })
-      toast.error(err instanceof Error ? err.message : "Gagal memperbarui status item.")
+      toast.error(err instanceof Error ? err.message : "Gagal membatalkan status item.")
     } finally {
-      setTogglingItemId(null)
+      setUndoingItemId(null)
     }
   }
 
@@ -668,9 +730,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
-  const transitions  = LEGAL_TRANSITIONS[pr.status]
-  const canReject     = REJECTABLE_STATUSES.includes(pr.status)
-  const hasActions    = transitions.length > 0 || canReject || isEditable || showUploadSj || showDelete
+  const transitions = getLegalNextStatuses(pr.status, pr.items)
+    .filter(to => to !== "REJECTED")
+    .map(to => ({ to, label: describeTransition(pr.status, to) }))
+  const canReject  = REJECTABLE_STATUSES.includes(pr.status)
+  const hasActions = transitions.length > 0 || canReject || isEditable || showUploadSj || showDelete
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose() }}>
@@ -780,17 +844,33 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             </div>
           )}
 
-          {pr.sj_document_url && (
-            <a
-              href={pr.sj_document_url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-foreground hover:bg-muted/70 transition-colors"
-            >
-              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="truncate flex-1">Dokumen Surat Jalan</span>
-              <Download className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            </a>
+          {pr.surat_jalan_documents.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Dokumen Surat Jalan ({pr.surat_jalan_documents.length})
+              </p>
+              {pr.surat_jalan_documents.map(doc => {
+                const covered = pr.items.filter(i => i.surat_jalan_id === doc.id)
+                return (
+                  <a
+                    key={doc.id}
+                    href={doc.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-foreground hover:bg-muted/70 transition-colors"
+                  >
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate flex-1">
+                      {doc.file_name || "Dokumen Surat Jalan"}
+                      {covered.length > 0 && (
+                        <span className="text-muted-foreground"> · {covered.length} item</span>
+                      )}
+                    </span>
+                    <Download className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  </a>
+                )
+              })}
+            </div>
           )}
 
           <Separator />
@@ -811,9 +891,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             ) : (
               <ItemsTable
                 items={pr.items}
-                receivingEditable={isReceiving}
-                onToggleReceived={toggleReceived}
-                togglingId={togglingItemId}
+                showUndo={isReceiving}
+                onUndoReceived={undoReceived}
+                undoingId={undoingItemId}
               />
             )}
           </div>
@@ -822,32 +902,74 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             <>
               <Separator />
               <div className="space-y-2">
-                {transitions.map(t => (
-                  <Button
-                    key={t.to}
-                    onClick={() => changeStatus(t.to)}
-                    disabled={busy}
-                    className="w-full h-9 text-sm gap-2"
-                  >
-                    <ArrowRight className="h-3.5 w-3.5" />
-                    {t.label}
-                  </Button>
-                ))}
-
-                {showUploadSj && (
-                  <>
-                    <input ref={fileInputRef} type="file" accept="image/*,.pdf" title="Upload Surat Jalan" className="hidden" onChange={handleSjFileChange} />
+                {transitions.map(t => {
+                  const blockReason = t.to === "PURCHASED" ? validateBeliBaruPoNumbers(pr.items) : null
+                  return (
                     <Button
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadingSj || !allItemsReceived}
-                      title={!allItemsReceived ? "Selesaikan checklist penerimaan barang dulu" : undefined}
+                      key={t.to}
+                      onClick={() => changeStatus(t.to)}
+                      disabled={busy || Boolean(blockReason)}
+                      title={blockReason ?? undefined}
                       className="w-full h-9 text-sm gap-2"
                     >
-                      <UploadCloud className="h-3.5 w-3.5" />
-                      {uploadingSj ? "Mengunggah…" : "Upload Surat Jalan"}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                      {t.label}
                     </Button>
-                  </>
+                  )
+                })}
+
+                {showUploadSj && !sjPanelOpen && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setSjPanelOpen(true)}
+                    className="w-full h-9 text-sm gap-2"
+                  >
+                    <UploadCloud className="h-3.5 w-3.5" />
+                    Upload Surat Jalan
+                  </Button>
+                )}
+
+                {showUploadSj && sjPanelOpen && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-medium text-foreground">Pilih item yang tercakup dalam SJ ini</p>
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllUnreceived}
+                        className="text-xs text-primary hover:underline"
+                      >
+                        {selectedItemIds.size === unreceivedItems.length ? "Batal pilih semua" : "Pilih semua"}
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {unreceivedItems.map(item => (
+                        <label key={item.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedItemIds.has(item.id)}
+                            onChange={() => toggleSelectedItem(item.id)}
+                          />
+                          <span className="text-foreground truncate">{item.qty} {item.satuan} · {item.nama_barang}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      title="File Surat Jalan"
+                      onChange={handleSjFileSelect}
+                      className="w-full text-xs text-foreground file:mr-2 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1.5 file:text-xs file:text-foreground"
+                    />
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setSjPanelOpen(false); setSelectedItemIds(new Set()); setSjFile(null) }} className="flex-1 h-8 text-xs">
+                        Batal
+                      </Button>
+                      <Button size="sm" onClick={handleSjSubmit} disabled={!canSubmitSj} className="flex-1 h-8 text-xs gap-1.5">
+                        <UploadCloud className="h-3.5 w-3.5" />
+                        {uploadingSj ? "Mengunggah…" : `Upload (${selectedItemIds.size} item)`}
+                      </Button>
+                    </div>
+                  </div>
                 )}
 
                 {isEditable && (
@@ -945,7 +1067,7 @@ function WarehouseTab({ prs, onOpenDetail }: {
               <tbody className="divide-y divide-border">
                 {pending.map(pr => {
                   const receivedCount = pr.items.filter(i => i.received).length
-                  const allReceived   = pr.items.length > 0 && receivedCount === pr.items.length
+                  const isPartial     = receivedCount > 0 && receivedCount < pr.items.length
                   return (
                     <tr key={pr.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
                       <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
@@ -956,8 +1078,8 @@ function WarehouseTab({ prs, onOpenDetail }: {
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.updated_at)}</td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        <span className={allReceived ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
-                          {receivedCount}/{pr.items.length} diterima
+                        <span className={isPartial ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}>
+                          {receivedCount}/{pr.items.length} diterima{isPartial ? " · Partial" : ""}
                         </span>
                       </td>
                     </tr>
@@ -992,12 +1114,12 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
   }
 
   const downloadSelected = () => {
-    const targets = done.filter(p => selected.has(p.id) && p.sj_document_url)
+    const targets = done.filter(p => selected.has(p.id) && p.surat_jalan_documents.length > 0)
     if (targets.length === 0) {
       toast.error("Pilih minimal satu PR untuk diunduh.")
       return
     }
-    targets.forEach(p => window.open(p.sj_document_url!, "_blank"))
+    targets.forEach(p => p.surat_jalan_documents.forEach(doc => window.open(doc.file_url, "_blank")))
   }
 
   return (
@@ -1030,24 +1152,32 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {done.map(pr => (
-                  <tr key={pr.id} className="hover:bg-muted/40 transition-colors">
-                    <td className="px-4 py-3">
-                      <input type="checkbox" title={`Pilih ${pr.pr_no}`} checked={selected.has(pr.id)} onChange={() => toggle(pr.id)} />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
-                    <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.sj_uploaded_at)}</td>
-                    <td className="px-4 py-3">
-                      {pr.sj_document_url && (
-                        <a href={pr.sj_document_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                          <FileText className="h-3.5 w-3.5" /> Lihat
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {done.map(pr => {
+                  const docs = pr.surat_jalan_documents
+                  const latestUploadedAt = docs.length > 0
+                    ? docs.reduce((latest, d) => d.uploaded_at > latest ? d.uploaded_at : latest, docs[0].uploaded_at)
+                    : null
+                  return (
+                    <tr key={pr.id} className="hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3">
+                        <input type="checkbox" title={`Pilih ${pr.pr_no}`} checked={selected.has(pr.id)} onChange={() => toggle(pr.id)} />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
+                      <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(latestUploadedAt)}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          {docs.map(doc => (
+                            <a key={doc.id} href={doc.file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                              <FileText className="h-3.5 w-3.5" /> {doc.file_name || "Lihat"}
+                            </a>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

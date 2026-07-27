@@ -9,6 +9,12 @@ function headers() {
   }
 }
 
+// Marking an item received now only happens via the Surat Jalan upload
+// checklist (see .../surat-jalan/route.ts), which links it to the document
+// that delivered it. This endpoint is the safety net for undoing a mistaken
+// receipt (wrong item checked, damaged goods found later) — it only accepts
+// `received: false`, clearing the item back to pending and detaching it from
+// whichever Surat Jalan it was linked to.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string; itemId: string }> }
@@ -18,8 +24,11 @@ export async function PATCH(
     const body = await request.json()
     const { received } = body as { received: boolean }
 
-    if (typeof received !== "boolean") {
-      return NextResponse.json({ error: "received must be a boolean" }, { status: 400 })
+    if (received !== false) {
+      return NextResponse.json(
+        { error: "Item hanya dapat dibatalkan penerimaannya di sini — tandai diterima lewat upload Surat Jalan" },
+        { status: 400 }
+      )
     }
 
     const prRes = await fetch(
@@ -31,7 +40,7 @@ export async function PATCH(
     if (!pr) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
     if (pr.status !== "ARRIVED_AT_WAREHOUSE") {
       return NextResponse.json(
-        { error: "Items can only be checked off while the PR is Sampai di Gudang" },
+        { error: "Item hanya dapat diubah selagi PR berstatus Sampai di Gudang" },
         { status: 400 }
       )
     }
@@ -42,8 +51,9 @@ export async function PATCH(
         method:  "PATCH",
         headers: { ...headers(), Prefer: "return=representation" },
         body: JSON.stringify({
-          received,
-          received_at: received ? new Date().toISOString() : null,
+          received:       false,
+          received_at:    null,
+          surat_jalan_id: null,
         }),
       }
     )

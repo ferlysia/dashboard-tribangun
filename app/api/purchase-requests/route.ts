@@ -34,7 +34,7 @@ export async function GET() {
   try {
     const res = await fetch(
       `${supabaseConfig.url}/rest/v1/purchase_requests` +
-      `?select=*,purchase_request_items(*)` +
+      `?select=*,purchase_request_items(*),purchase_request_surat_jalan(*)` +
       `&order=created_at.desc`,
       { headers: headers() }
     )
@@ -42,8 +42,12 @@ export async function GET() {
 
     const rows = await res.json()
     const data = rows.map((r: Record<string, unknown>) => {
-      const { purchase_request_items, ...rest } = r
-      return { ...rest, items: purchase_request_items ?? [] }
+      const { purchase_request_items, purchase_request_surat_jalan, ...rest } = r
+      return {
+        ...rest,
+        items:                 purchase_request_items ?? [],
+        surat_jalan_documents: purchase_request_surat_jalan ?? [],
+      }
     })
 
     return NextResponse.json({ data })
@@ -56,9 +60,16 @@ export async function GET() {
 }
 
 interface ItemInput {
-  qty:         number
-  satuan:      string
-  nama_barang: string
+  qty:                 number
+  satuan:              string
+  nama_barang:         string
+  fulfillment_source?: string
+  po_number?:          string | null
+}
+
+function normalizeFulfillment(it: ItemInput): { fulfillment_source: string; po_number: string | null } {
+  const source = it.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
+  return { fulfillment_source: source, po_number: source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null) }
 }
 
 export async function POST(request: Request) {
@@ -117,6 +128,7 @@ export async function POST(request: Request) {
       qty:                 Number(it.qty),
       satuan:               it.satuan,
       nama_barang:          it.nama_barang,
+      ...normalizeFulfillment(it),
     }))
     const itemsRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_items`, {
       method:  "POST",
