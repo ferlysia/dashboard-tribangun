@@ -4,7 +4,10 @@ export type SJStatus = "PENDING_SIGNED_SJ" | "BILLING_READY" | null
 
 export type FulfillmentSource = "BELI_BARU" | "STOK_INTERNAL"
 
-export type ProcurementStatus = "AWAITING_PAYMENT" | "PURCHASED"
+// AWAITING_PAYMENT -> PURCHASED (PO placed) -> RECEIVED (Purchasing verifies
+// vendor delivery, via the "Diterima" checklist toggle). Only RECEIVED items
+// (or STOK_INTERNAL ones) are warehouse-eligible — see isWarehouseReady().
+export type ProcurementStatus = "AWAITING_PAYMENT" | "PURCHASED" | "RECEIVED"
 
 export interface PurchaseRequestItem {
   id:                   string

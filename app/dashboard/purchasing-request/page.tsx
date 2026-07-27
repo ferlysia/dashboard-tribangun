@@ -196,18 +196,20 @@ function StatusFilterChips({ active, onChange, counts }: {
 }
 
 // ─── ProcurementTable ("Sudah Dibayar" section) ────────────────────────────────
-// Only ever holds items that are NOT YET warehouse-ready (fulfillment_source
-// BELI_BARU and procurement_status AWAITING_PAYMENT — a STOK_INTERNAL item is
-// warehouse-ready the instant it's set, so it never appears here). Purely
-// procurement work: assign Sumber/No. PO, then "Tandai Siap Kirim" moves the
-// item out of this table and into WarehouseTable on the next render. No SJ
-// upload affordance lives here at all — that's exclusively WarehouseTable's.
+// Only ever holds items that are NOT YET warehouse-ready — Beli Baru items
+// still AWAITING_PAYMENT or PURCHASED-but-unverified (a STOK_INTERNAL item is
+// warehouse-ready the instant it's set, so it never appears here). Two
+// sequential per-item checkpoints, both live in the Status column:
+//   AWAITING_PAYMENT --["Tandai Dibeli" button, needs PO]--> PURCHASED
+//   PURCHASED --["Diterima" checklist toggle]--> RECEIVED (moves to WarehouseTable)
+// No SJ upload affordance lives here at all — that's exclusively WarehouseTable's.
 
-function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, savingItemId }: {
+function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onVerifyReceived, savingItemId }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
   onMarkReady?:          (item: PurchaseRequestItem) => void
+  onVerifyReceived?:     (item: PurchaseRequestItem) => void
   savingItemId?:         string | null
 }) {
   const [poDrafts, setPoDrafts] = React.useState<Record<string, string>>({})
@@ -293,18 +295,32 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  {interactive ? (
+                  {interactive && it.procurement_status === "AWAITING_PAYMENT" ? (
                     <Button
                       type="button" size="sm" variant="outline"
                       disabled={!canMarkPurchased(it) || saving}
-                      title={!canMarkPurchased(it) ? "Isi No. PO dulu" : "Pindahkan ke Sampai di Gudang"}
+                      title={!canMarkPurchased(it) ? "Isi No. PO dulu" : "Tandai sudah dibeli dari vendor"}
                       onClick={() => onMarkReady?.(it)}
                       className="h-7 w-full text-[11px] gap-1 px-2"
                     >
-                      <ArrowRight className="h-3 w-3" /> Tandai Siap Kirim
+                      <ShoppingCart className="h-3 w-3" /> Tandai Dibeli
                     </Button>
+                  ) : interactive ? (
+                    <label className="flex items-center gap-1.5 cursor-pointer" title="Verifikasi barang sudah diterima dari vendor">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        disabled={saving}
+                        onChange={() => onVerifyReceived?.(it)}
+                      />
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                        Pending
+                      </span>
+                    </label>
                   ) : (
-                    <span className="text-muted-foreground">Menunggu Pembelian</span>
+                    <span className="text-muted-foreground">
+                      {it.procurement_status === "AWAITING_PAYMENT" ? "Menunggu Pembelian" : "Menunggu Verifikasi"}
+                    </span>
                   )}
                 </td>
               </tr>
@@ -845,6 +861,37 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
+  // Optimistic: the "Diterima" checklist toggle in the "Sudah Dibayar" section
+  // flips the item's procurement_status locally before the network round trip
+  // resolves — since ProcurementTable/WarehouseTable are just filters over
+  // pr.items, this instantly (and correctly) moves the row into the
+  // Warehouse section without waiting on the server. Rolls back to the exact
+  // pre-toggle snapshot if the request fails.
+  const handleVerifyReceived = async (item: PurchaseRequestItem) => {
+    const snapshot = pr
+    onUpdated({
+      ...pr,
+      items: pr.items.map(i => i.id === item.id ? { ...i, procurement_status: "RECEIVED" as const } : i),
+    })
+    setSavingItemId(item.id)
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ procurement_status: "RECEIVED" }),
+      })
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...snapshot, ...data.data })
+      toast.success(`${item.nama_barang} diverifikasi diterima — siap ke Gudang.`)
+    } catch (err) {
+      onUpdated(snapshot)
+      toast.error(err instanceof Error ? err.message : "Gagal memverifikasi item diterima.")
+    } finally {
+      setSavingItemId(null)
+    }
+  }
+
   const undoReceived = async (item: PurchaseRequestItem) => {
     setUndoingItemId(item.id)
     try {
@@ -1037,13 +1084,14 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sudah Dibayar · Proses Pembelian</p>
-                <span className="text-xs text-muted-foreground">{pendingItems.length} item menunggu dibeli</span>
+                <span className="text-xs text-muted-foreground">{pendingItems.length} item dalam proses pembelian</span>
               </div>
               <ProcurementTable
                 items={pendingItems}
                 interactive={itemsEditable}
                 onFulfillmentCommit={handleFulfillmentCommit}
                 onMarkReady={handleMarkPurchased}
+                onVerifyReceived={handleVerifyReceived}
                 savingItemId={savingItemId}
               />
             </div>

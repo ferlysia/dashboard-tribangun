@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
-import { deriveOverallStatus, canMarkPurchased } from "@/lib/purchase-request/status-rules"
+import { deriveOverallStatus, canMarkPurchased, canVerifyReceived } from "@/lib/purchase-request/status-rules"
 
 function headers() {
   return {
@@ -58,9 +58,12 @@ type ItemRow = {
 
 // The item, not the PR, is the unit of procurement progress. This endpoint
 // handles every per-item mutation once a PR has left DRAFT:
-//   - {received:false}                    undo a mistaken receipt
+//   - {received:false}                    undo a mistaken (warehouse) receipt
 //   - {fulfillment_source, po_number}      (re)assign Sumber / No. PO
-//   - {procurement_status}                 mark Beli Baru purchased / undo
+//   - {procurement_status}                 AWAITING_PAYMENT -> PURCHASED
+//                                           -> RECEIVED (procurement-side
+//                                           verification, gates entry into
+//                                           the Warehouse (SJ) pipeline)
 // After any mutation, the parent PR's (derived, display-only) status is
 // recomputed from its full item list and persisted if it changed.
 export async function PATCH(
@@ -108,12 +111,19 @@ export async function PATCH(
         // flip back to BELI_BARU with no PO.
         procurement_status: "AWAITING_PAYMENT",
       }
-    } else if (body.procurement_status === "PURCHASED" || body.procurement_status === "AWAITING_PAYMENT") {
+    } else if (
+      body.procurement_status === "PURCHASED" ||
+      body.procurement_status === "AWAITING_PAYMENT" ||
+      body.procurement_status === "RECEIVED"
+    ) {
       if (item.received) {
         return NextResponse.json({ error: "Item yang sudah diterima tidak dapat diubah statusnya" }, { status: 400 })
       }
       if (body.procurement_status === "PURCHASED" && !canMarkPurchased(item)) {
         return NextResponse.json({ error: "Isi No. PO terlebih dahulu sebelum menandai Dibeli" }, { status: 400 })
+      }
+      if (body.procurement_status === "RECEIVED" && !canVerifyReceived(item)) {
+        return NextResponse.json({ error: "Item harus berstatus Dibeli terlebih dahulu sebelum diverifikasi Diterima" }, { status: 400 })
       }
       itemPatch = { procurement_status: body.procurement_status }
     } else {

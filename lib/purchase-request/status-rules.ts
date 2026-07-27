@@ -10,9 +10,13 @@ interface FulfillmentItem {
 }
 
 // STOK_INTERNAL items are always implicitly ready (no vendor/PO involved).
-// BELI_BARU items are ready only once Purchasing has marked them PURCHASED.
+// BELI_BARU items are ready only once Purchasing has verified the vendor
+// actually delivered them — PURCHASED (PO placed) alone is NOT enough; that's
+// still an intermediate "Sudah Dibayar" checkpoint. The item only enters the
+// Warehouse (SJ) pipeline once explicitly checked off as RECEIVED via the
+// per-item verification toggle (see canVerifyReceived below).
 export function isWarehouseReady(item: FulfillmentItem): boolean {
-  return item.fulfillment_source === "STOK_INTERNAL" || item.procurement_status === "PURCHASED"
+  return item.fulfillment_source === "STOK_INTERNAL" || item.procurement_status === "RECEIVED"
 }
 
 // What actually gates the Warehouse checklist / SJ-upload selection — fully
@@ -26,6 +30,14 @@ export function isCheckoffEligible(item: FulfillmentItem): boolean {
 // Gate for the per-item "Tandai Dibeli" action — a PO must already be set.
 export function canMarkPurchased(item: FulfillmentItem): boolean {
   return item.fulfillment_source === "BELI_BARU" && Boolean(item.po_number?.trim())
+}
+
+// Gate for the per-item "Diterima / Pending" verification toggle in the
+// "Sudah Dibayar" section — only a PURCHASED Beli Baru item can be verified
+// as received from the vendor (nothing to verify while still AWAITING_PAYMENT,
+// and STOK_INTERNAL items never pass through this checkpoint at all).
+export function canVerifyReceived(item: FulfillmentItem): boolean {
+  return item.fulfillment_source === "BELI_BARU" && item.procurement_status === "PURCHASED"
 }
 
 // The only two manual, user-triggered edges left. Everything else
