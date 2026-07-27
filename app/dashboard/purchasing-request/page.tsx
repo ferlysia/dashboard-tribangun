@@ -15,12 +15,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Search, Plus, FileText, CheckCircle2,
   Clock, RefreshCw, X, ShoppingCart, Package,
-  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2, CircleDollarSign,
+  Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2,
 } from "lucide-react"
 import type { PRStatus, SJStatus, FulfillmentSource, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 import {
   getLegalNextStatuses, describeTransition,
-  isCheckoffEligible, canMarkPurchased,
+  isCheckoffEligible, isWarehouseReady, canMarkPurchased,
 } from "@/lib/purchase-request/status-rules"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ function nextTempId() {
 
 // Sumber/No. PO don't exist yet at this stage — the admin creating/editing a
 // DRAFT PR only ever enters qty/satuan/nama_barang. Fulfillment is assigned
-// later by Purchasing once the PR leaves DRAFT (see ItemsTable).
+// later by Purchasing once the PR leaves DRAFT (see ProcurementTable).
 interface ItemDraft {
   tempId:      string
   qty:         string
@@ -195,30 +195,20 @@ function StatusFilterChips({ active, onChange, counts }: {
   )
 }
 
-// ─── ItemsTable ───────────────────────────────────────────────────────────────
-// The working table for any PR that has left DRAFT: Sumber/No. PO are set
-// and corrected here (per item, not a bulk PR-level action), "Tandai Dibeli"
-// marks a Beli Baru item purchased, and the last column doubles as the
-// warehouse receiving checklist — a checkbox appears the moment an item is
-// checkoff-eligible (internal stock, or purchased) and feeds the Surat Jalan
-// upload selection directly, no separate hidden panel.
+// ─── ProcurementTable ("Sudah Dibayar" section) ────────────────────────────────
+// Only ever holds items that are NOT YET warehouse-ready (fulfillment_source
+// BELI_BARU and procurement_status AWAITING_PAYMENT — a STOK_INTERNAL item is
+// warehouse-ready the instant it's set, so it never appears here). Purely
+// procurement work: assign Sumber/No. PO, then "Tandai Siap Kirim" moves the
+// item out of this table and into WarehouseTable on the next render. No SJ
+// upload affordance lives here at all — that's exclusively WarehouseTable's.
 
-function ItemsTable({
-  items, editable,
-  onFulfillmentCommit, onMarkPurchased, savingItemId,
-  selectedItemIds, onToggleSelect,
-  showUndo, onUndoReceived, undoingId,
-}: {
+function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, savingItemId }: {
   items:                 PurchaseRequestItem[]
-  editable?:             boolean
+  interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
-  onMarkPurchased?:      (item: PurchaseRequestItem) => void
+  onMarkReady?:          (item: PurchaseRequestItem) => void
   savingItemId?:         string | null
-  selectedItemIds?:      Set<string>
-  onToggleSelect?:       (itemId: string) => void
-  showUndo?:             boolean
-  onUndoReceived?:       (item: PurchaseRequestItem) => void
-  undoingId?:            string | null
 }) {
   const [poDrafts, setPoDrafts] = React.useState<Record<string, string>>({})
 
@@ -238,32 +228,38 @@ function ItemsTable({
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs table-fixed">
+        <colgroup>
+          <col style={{ width: "5%" }} />
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "9%" }} />
+          <col style={{ width: "25%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "20%" }} />
+          <col style={{ width: "18%" }} />
+        </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/30">
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-16">Qty</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Satuan</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Qty</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Satuan</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-40">Sumber</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">No. PO</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-32">Status</th>
-            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">Aksi</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Sumber</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No. PO</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {items.map(it => {
-            const rowEditable = Boolean(editable) && !it.received
-            const eligible    = isCheckoffEligible(it)
-            const saving      = savingItemId === it.id
+            const saving = savingItemId === it.id
             return (
-              <tr key={it.id} className={it.received ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
+              <tr key={it.id}>
                 <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
                 <td className="px-3 py-2 text-foreground">{it.qty}</td>
-                <td className="px-3 py-2 text-foreground">{it.satuan}</td>
-                <td className="px-3 py-2 text-foreground">{it.nama_barang}</td>
+                <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
+                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
                 <td className="px-2 py-2">
-                  {rowEditable ? (
+                  {interactive ? (
                     <Select value={it.fulfillment_source} onValueChange={v => commitSource(it, v as FulfillmentSource)}>
                       <SelectTrigger size="sm" className="w-full text-xs" disabled={saving}>
                         <SelectValue />
@@ -281,7 +277,7 @@ function ItemsTable({
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  {rowEditable ? (
+                  {interactive ? (
                     <input
                       type="text"
                       value={poValue(it)}
@@ -297,68 +293,113 @@ function ItemsTable({
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  {it.received ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : it.fulfillment_source === "STOK_INTERNAL" ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
-                      Siap Kirim
-                    </span>
-                  ) : it.procurement_status === "PURCHASED" ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
-                      Siap Kirim
-                    </span>
-                  ) : rowEditable ? (
+                  {interactive ? (
                     <Button
                       type="button" size="sm" variant="outline"
                       disabled={!canMarkPurchased(it) || saving}
-                      title={!canMarkPurchased(it) ? "Isi No. PO dulu" : undefined}
-                      onClick={() => onMarkPurchased?.(it)}
-                      className="h-7 text-[11px] gap-1 px-2"
+                      title={!canMarkPurchased(it) ? "Isi No. PO dulu" : "Pindahkan ke Sampai di Gudang"}
+                      onClick={() => onMarkReady?.(it)}
+                      className="h-7 w-full text-[11px] gap-1 px-2"
                     >
-                      <CircleDollarSign className="h-3 w-3" /> Tandai Dibeli
+                      <ArrowRight className="h-3 w-3" /> Tandai Siap Kirim
                     </Button>
                   ) : (
                     <span className="text-muted-foreground">Menunggu Pembelian</span>
                   )}
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex items-center justify-center gap-1.5">
-                    {it.received ? (
-                      <>
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                          <CheckCircle2 className="h-2.5 w-2.5" /> Diterima
-                        </span>
-                        {showUndo && (
-                          <button
-                            type="button"
-                            title={`Batalkan penerimaan ${it.nama_barang}`}
-                            disabled={undoingId === it.id}
-                            onClick={() => onUndoReceived?.(it)}
-                            className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-                          >
-                            <Undo2 className="h-3 w-3" />
-                          </button>
-                        )}
-                      </>
-                    ) : eligible ? (
-                      <label className="flex items-center gap-1.5 cursor-pointer" title="Pilih untuk Surat Jalan">
-                        <input
-                          type="checkbox"
-                          checked={selectedItemIds?.has(it.id) ?? false}
-                          onChange={() => onToggleSelect?.(it.id)}
-                        />
-                        <span className="text-[10px] text-foreground">Pilih SJ</span>
-                      </label>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-                        Pending
-                      </span>
-                    )}
-                  </div>
-                </td>
               </tr>
             )
           })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── WarehouseTable ("Sampai di Gudang" section) ───────────────────────────────
+// Only ever holds warehouse-ready items (internal stock, or purchased Beli
+// Baru) — every row here is either already Diterima, or eligible for the SJ
+// checklist. This is the ONLY place a checkbox/SJ-upload affordance appears.
+
+function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onUndoReceived, undoingId }: {
+  items:             PurchaseRequestItem[]
+  interactive?:      boolean
+  selectedItemIds?:  Set<string>
+  onToggleSelect?:   (itemId: string) => void
+  onUndoReceived?:   (item: PurchaseRequestItem) => void
+  undoingId?:        string | null
+}) {
+  return (
+    <div className="rounded-lg border border-border overflow-hidden">
+      <table className="w-full text-xs table-fixed">
+        <colgroup>
+          <col style={{ width: "5%" }} />
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "9%" }} />
+          <col style={{ width: "26%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "16%" }} />
+          <col style={{ width: "22%" }} />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-border bg-muted/30">
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Qty</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Satuan</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Sumber</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No. PO</th>
+            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Aksi</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {items.map(it => (
+            <tr key={it.id} className={it.received ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
+              <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
+              <td className="px-3 py-2 text-foreground">{it.qty}</td>
+              <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
+              <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
+              <td className="px-3 py-2 text-muted-foreground truncate">
+                {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
+              </td>
+              <td className="px-3 py-2 font-mono text-muted-foreground truncate">{it.po_number || "—"}</td>
+              <td className="px-3 py-2">
+                <div className="flex items-center justify-center gap-1.5">
+                  {it.received ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                        <CheckCircle2 className="h-2.5 w-2.5" /> Diterima
+                      </span>
+                      {interactive && (
+                        <button
+                          type="button"
+                          title={`Batalkan penerimaan ${it.nama_barang}`}
+                          disabled={undoingId === it.id}
+                          onClick={() => onUndoReceived?.(it)}
+                          className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                        >
+                          <Undo2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </>
+                  ) : interactive ? (
+                    <label className="flex items-center gap-1.5 cursor-pointer" title="Pilih untuk Surat Jalan">
+                      <input
+                        type="checkbox"
+                        checked={selectedItemIds?.has(it.id) ?? false}
+                        onChange={() => onToggleSelect?.(it.id)}
+                      />
+                      <span className="text-[10px] text-foreground">Pilih SJ</span>
+                    </label>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                      Siap Kirim
+                    </span>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -636,9 +677,10 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [editItems, setEditItems]                     = React.useState<ItemDraft[]>([])
   const [savingEdit, setSavingEdit]                   = React.useState(false)
 
-  // ── Surat Jalan upload — checkboxes live inline in ItemsTable (per-item,
-  // one checkbox per checkoff-eligible row), this just tracks the selection
-  // and drives the always-visible upload action beneath the table ──
+  // ── Surat Jalan upload — checkboxes live inline in WarehouseTable (per-item,
+  // one checkbox per checkoff-eligible row, only ever rendered in the
+  // "Sampai di Gudang" section), this just tracks the selection and drives
+  // the upload action rendered right beneath that table ──
   const [selectedItemIds, setSelectedItemIds] = React.useState<Set<string>>(new Set())
   const [sjFile, setSjFile]                   = React.useState<File | null>(null)
   const [uploadingSj, setUploadingSj]         = React.useState(false)
@@ -662,9 +704,16 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
   const isEditable    = pr.status === "DRAFT"
   const itemsEditable = pr.status !== "DRAFT" && pr.status !== "REJECTED"
-  const eligibleItems = pr.items.filter(isCheckoffEligible)
-  const showUploadSj  = itemsEditable && eligibleItems.length > 0
-  const showDelete    = DELETABLE_STATUSES.includes(pr.status)
+  // "Sudah Dibayar" vs "Sampai di Gudang" are two disjoint, purpose-built
+  // sections — every item falls into exactly one, based on actual readiness,
+  // never on the PR's own (derived) aggregate status. This is what lets a
+  // hybrid PR's Stok Internal item sit in the warehouse section immediately
+  // while a sibling Beli Baru item is still in the procurement section.
+  const pendingItems   = pr.items.filter(i => !isWarehouseReady(i))
+  const warehouseItems = pr.items.filter(isWarehouseReady)
+  const eligibleItems  = warehouseItems.filter(i => !i.received)
+  const showUploadSj   = itemsEditable && eligibleItems.length > 0
+  const showDelete     = DELETABLE_STATUSES.includes(pr.status)
 
   const addEditItem    = () => setEditItems(prev => [...prev, blankItem()])
   const removeEditItem = (tempId: string) => setEditItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
@@ -840,7 +889,10 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     .filter(to => to !== "REJECTED")
     .map(to => ({ to, label: describeTransition(pr.status, to) }))
   const canReject  = REJECTABLE_STATUSES.includes(pr.status)
-  const hasActions = transitions.length > 0 || canReject || isEditable || showUploadSj || showDelete
+  // Upload Surat Jalan now renders inline within the "Sampai di Gudang"
+  // section itself (not in this bottom action cluster), so it doesn't
+  // factor into whether that cluster's Separator/actions render at all.
+  const hasActions = transitions.length > 0 || canReject || isEditable || showDelete
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
@@ -974,32 +1026,66 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
           <Separator />
 
-          <div>
-            {!isEditable && (
+          {isEditable && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Daftar Barang</p>
+              <ItemEditGrid items={editItems} onAdd={addEditItem} onRemove={removeEditItem} onUpdate={updateEditItem} datalistId="satuan-options-edit" />
+            </div>
+          )}
+
+          {!isEditable && pendingItems.length > 0 && (
+            <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daftar Barang</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sudah Dibayar · Proses Pembelian</p>
+                <span className="text-xs text-muted-foreground">{pendingItems.length} item menunggu dibeli</span>
+              </div>
+              <ProcurementTable
+                items={pendingItems}
+                interactive={itemsEditable}
+                onFulfillmentCommit={handleFulfillmentCommit}
+                onMarkReady={handleMarkPurchased}
+                savingItemId={savingItemId}
+              />
+            </div>
+          )}
+
+          {!isEditable && warehouseItems.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sampai di Gudang · Penerimaan</p>
                 <span className="text-xs text-muted-foreground">
-                  {pr.items.filter(i => i.received).length}/{pr.items.length} diterima
+                  {warehouseItems.filter(i => i.received).length}/{warehouseItems.length} diterima
                 </span>
               </div>
-            )}
-            {isEditable ? (
-              <ItemEditGrid items={editItems} onAdd={addEditItem} onRemove={removeEditItem} onUpdate={updateEditItem} datalistId="satuan-options-edit" />
-            ) : (
-              <ItemsTable
-                items={pr.items}
-                editable={itemsEditable}
-                onFulfillmentCommit={handleFulfillmentCommit}
-                onMarkPurchased={handleMarkPurchased}
-                savingItemId={savingItemId}
+              <WarehouseTable
+                items={warehouseItems}
+                interactive={itemsEditable}
                 selectedItemIds={selectedItemIds}
                 onToggleSelect={toggleSelectedItem}
-                showUndo={itemsEditable}
                 onUndoReceived={undoReceived}
                 undoingId={undoingItemId}
               />
-            )}
-          </div>
+
+              {showUploadSj && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3 mt-3">
+                  <p className="text-xs font-medium text-foreground">
+                    Upload Surat Jalan untuk item terpilih di atas ({selectedItemIds.size} dipilih)
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    title="File Surat Jalan"
+                    onChange={handleSjFileSelect}
+                    className="w-full text-xs text-foreground file:mr-2 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1.5 file:text-xs file:text-foreground"
+                  />
+                  <Button size="sm" onClick={handleSjSubmit} disabled={!canSubmitSj} className="w-full h-8 text-xs gap-1.5">
+                    <UploadCloud className="h-3.5 w-3.5" />
+                    {uploadingSj ? "Mengunggah…" : `Upload (${selectedItemIds.size} item)`}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {hasActions && (
             <>
@@ -1016,25 +1102,6 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                     {t.label}
                   </Button>
                 ))}
-
-                {showUploadSj && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3">
-                    <p className="text-xs font-medium text-foreground">
-                      Upload Surat Jalan untuk item terpilih di atas ({selectedItemIds.size} dipilih)
-                    </p>
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      title="File Surat Jalan"
-                      onChange={handleSjFileSelect}
-                      className="w-full text-xs text-foreground file:mr-2 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1.5 file:text-xs file:text-foreground"
-                    />
-                    <Button size="sm" onClick={handleSjSubmit} disabled={!canSubmitSj} className="w-full h-8 text-xs gap-1.5">
-                      <UploadCloud className="h-3.5 w-3.5" />
-                      {uploadingSj ? "Mengunggah…" : `Upload (${selectedItemIds.size} item)`}
-                    </Button>
-                  </div>
-                )}
 
                 {isEditable && (
                   <Button onClick={handleSaveEdit} disabled={!canSaveEdit} className="w-full h-9 text-sm gap-2">
