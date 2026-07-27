@@ -6,25 +6,29 @@ interface FulfillmentItem {
   fulfillment_source:  string
   po_number?:          string | null
   procurement_status?: string
-  received?:           boolean
+  warehouse_status?:   string
 }
 
-// STOK_INTERNAL items are always implicitly ready (no vendor/PO involved).
-// BELI_BARU items are ready only once Purchasing has verified the vendor
-// actually delivered them — PURCHASED (PO placed) alone is NOT enough; that's
-// still an intermediate "Sudah Dibayar" checkpoint. The item only enters the
-// Warehouse (SJ) pipeline once explicitly checked off as RECEIVED via the
-// per-item verification toggle (see canVerifyReceived below).
-export function isWarehouseReady(item: FulfillmentItem): boolean {
-  return item.fulfillment_source === "STOK_INTERNAL" || item.procurement_status === "RECEIVED"
+// The ONLY gate deciding ProcurementTable ("Sudah Dibayar") vs
+// WarehouseTable ("Sampai di Gudang") membership. STOK_INTERNAL items skip
+// Purchasing entirely (no vendor/PO involved); BELI_BARU items enter once
+// the PO has been placed. Warehouse's own 3-step progress (warehouse_status)
+// plays no part in this — an item stays visible in the Warehouse section
+// throughout all of its steps, never bounces back to Purchasing.
+export function hasEnteredWarehousePipeline(item: FulfillmentItem): boolean {
+  return item.fulfillment_source === "STOK_INTERNAL" || item.procurement_status === "PURCHASED"
 }
 
-// What actually gates the Warehouse checklist / SJ-upload selection — fully
-// decoupled from the parent PR's status, which is what lets a hybrid PR's
-// STOK_INTERNAL items become receivable immediately while sibling BELI_BARU
-// items are still working through payment/PO.
-export function isCheckoffEligible(item: FulfillmentItem): boolean {
-  return isWarehouseReady(item) && !item.received
+// Step-3 gate: only items Warehouse has already verified (Step 1) AND
+// allocated for dispatch (Step 2) may be selected for an SJ batch upload.
+export function canSelectForSJ(item: FulfillmentItem): boolean {
+  return item.warehouse_status === "READY_FOR_DISPATCH"
+}
+
+// Final state — item is linked to an uploaded Surat Jalan. Only ever set by
+// the surat-jalan upload route, never a direct manual toggle.
+export function isDispatched(item: FulfillmentItem): boolean {
+  return item.warehouse_status === "DISPATCHED"
 }
 
 // Gate for the per-item "Tandai Dibeli" action — a PO must already be set.
@@ -32,15 +36,23 @@ export function canMarkPurchased(item: FulfillmentItem): boolean {
   return item.fulfillment_source === "BELI_BARU" && Boolean(item.po_number?.trim())
 }
 
-// Gate for the per-item "Diterima / Pending" verification toggle in the
-// "Sudah Dibayar" section — only a PURCHASED Beli Baru item can be verified
-// as received from the vendor (nothing to verify while still AWAITING_PAYMENT,
-// and STOK_INTERNAL items never pass through this checkpoint at all).
-export function canVerifyReceived(item: FulfillmentItem): boolean {
-  return item.fulfillment_source === "BELI_BARU" && item.procurement_status === "PURCHASED"
+// Warehouse Operations' 3-step pipeline, forward and backward (corrections).
+// DISPATCHED is intentionally absent as a *target* here — it's only ever
+// reachable via the surat-jalan upload route (a real file + SJ record must
+// exist), never a bare status toggle. Undoing a dispatch (DISPATCHED ->
+// READY_FOR_DISPATCH) IS legal here, since that's just clearing the link.
+const WAREHOUSE_STEP_ADJACENCY: Record<string, string[]> = {
+  PENDING:             ["RECEIVED"],
+  RECEIVED:            ["PENDING", "READY_FOR_DISPATCH"],
+  READY_FOR_DISPATCH:  ["RECEIVED"],
+  DISPATCHED:          ["READY_FOR_DISPATCH"],
 }
 
-// The only two manual, user-triggered edges left. Everything else
+export function isLegalWarehouseStatusChange(from: string, to: string): boolean {
+  return WAREHOUSE_STEP_ADJACENCY[from]?.includes(to) ?? false
+}
+
+// The only two manual, user-triggered PR-level edges left. Everything else
 // (WAITING_PAYMENT -> PURCHASED -> ARRIVED_AT_WAREHOUSE -> COMPLETED) is
 // derived automatically from item state by deriveOverallStatus below and
 // persisted directly — never routed through this transition table.
@@ -66,20 +78,24 @@ export function describeTransition(from: PRStatus, to: PRStatus): string {
 }
 
 // The PR's status is a derived, display-only aggregate of its items' actual
-// procurement/receiving progress — except DRAFT and REJECTED, which stay
-// explicit and manual (nothing here can move a PR into or out of either).
-// Recomputed server-side after every item mutation (fulfillment/PO edit,
-// mark purchased, receive, undo-receipt) and persisted directly; it can
-// legitimately move backward (e.g. undoing the last receipt on a COMPLETED
-// PR correctly un-derives it back to ARRIVED_AT_WAREHOUSE).
+// procurement/warehouse progress — except DRAFT and REJECTED, which stay
+// explicit and manual. Recomputed server-side after every item mutation and
+// persisted directly; it can legitimately move backward (e.g. undoing the
+// last dispatch on a COMPLETED PR correctly un-derives it back to
+// ARRIVED_AT_WAREHOUSE).
 export function deriveOverallStatus<T extends FulfillmentItem>(items: T[], currentStatus: PRStatus): PRStatus {
   if (currentStatus === "DRAFT" || currentStatus === "REJECTED") return currentStatus
   if (items.length === 0) return currentStatus
 
-  if (items.every(i => i.received)) return "COMPLETED"
-  if (items.some(i => i.received)) return "ARRIVED_AT_WAREHOUSE"
+  if (items.every(isDispatched)) return "COMPLETED"
 
-  if (items.every(isWarehouseReady)) {
+  // Any real warehouse progress at all (even on a single item) means the PR
+  // is actively "Sampai di Gudang" — partial fulfillment is the norm, not
+  // an edge case (a PR's items routinely arrive/dispatch across multiple
+  // separate Surat Jalan over time).
+  if (items.some(i => i.warehouse_status !== "PENDING")) return "ARRIVED_AT_WAREHOUSE"
+
+  if (items.every(hasEnteredWarehousePipeline)) {
     // Real purchasing happened somewhere in this PR -> show "Sudah Dibayar"
     // as a checkpoint. A pure-internal PR (zero BELI_BARU items ever) has
     // nothing to checkpoint, so it skips straight to "Sampai di Gudang".

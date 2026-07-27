@@ -4,10 +4,17 @@ export type SJStatus = "PENDING_SIGNED_SJ" | "BILLING_READY" | null
 
 export type FulfillmentSource = "BELI_BARU" | "STOK_INTERNAL"
 
-// AWAITING_PAYMENT -> PURCHASED (PO placed) -> RECEIVED (Purchasing verifies
-// vendor delivery, via the "Diterima" checklist toggle). Only RECEIVED items
-// (or STOK_INTERNAL ones) are warehouse-eligible — see isWarehouseReady().
-export type ProcurementStatus = "AWAITING_PAYMENT" | "PURCHASED" | "RECEIVED"
+// Purchasing/Finance-owned, payment progress only: AWAITING_PAYMENT ->
+// PURCHASED (PO placed). Does NOT track physical receipt — that's
+// warehouse_status below, exclusively Warehouse Operations' domain.
+export type ProcurementStatus = "AWAITING_PAYMENT" | "PURCHASED"
+
+// Warehouse Operations-owned, exclusively: PENDING (not yet physically
+// verified) -> RECEIVED (Step 1) -> READY_FOR_DISPATCH (Step 2, queued for
+// site shipment) -> DISPATCHED (Step 3, linked to an uploaded Surat Jalan).
+// DISPATCHED is only ever reachable via the surat-jalan upload endpoint,
+// never a direct manual toggle — see status-rules.ts.
+export type WarehouseStatus = "PENDING" | "RECEIVED" | "READY_FOR_DISPATCH" | "DISPATCHED"
 
 export interface PurchaseRequestItem {
   id:                   string
@@ -19,8 +26,8 @@ export interface PurchaseRequestItem {
   fulfillment_source:   FulfillmentSource
   po_number:            string | null
   procurement_status:   ProcurementStatus
-  received:             boolean
-  received_at:          string | null
+  warehouse_status:     WarehouseStatus
+  dispatched_at:        string | null
   surat_jalan_id:       string | null
 }
 

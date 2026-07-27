@@ -13,14 +13,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Separator }   from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  Search, Plus, FileText, CheckCircle2,
+  Search, Plus, FileText, CheckCircle2, PackageCheck,
   Clock, RefreshCw, X, ShoppingCart, Package,
   Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2,
 } from "lucide-react"
-import type { PRStatus, SJStatus, FulfillmentSource, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
+import type { PRStatus, SJStatus, FulfillmentSource, WarehouseStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 import {
   getLegalNextStatuses, describeTransition,
-  isCheckoffEligible, isWarehouseReady, canMarkPurchased,
+  hasEnteredWarehousePipeline, canSelectForSJ, isDispatched, canMarkPurchased,
 } from "@/lib/purchase-request/status-rules"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -50,6 +50,13 @@ const FULFILLMENT_SOURCE_OPTIONS: { value: FulfillmentSource; label: string }[] 
   { value: "BELI_BARU",     label: "Beli Baru" },
   { value: "STOK_INTERNAL", label: "Stok Accurate / Internal" },
 ]
+
+const WAREHOUSE_STEP_MESSAGES: Record<WarehouseStatus, string> = {
+  PENDING:            "Verifikasi dibatalkan, item kembali menunggu verifikasi.",
+  RECEIVED:           "Item diverifikasi diterima secara fisik.",
+  READY_FOR_DISPATCH: "Item dialokasikan untuk pengiriman.",
+  DISPATCHED:         "Item ditandai terkirim.",
+}
 
 const REJECTABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE"]
 const DELETABLE_STATUSES:  PRStatus[] = ["DRAFT", "REJECTED"]
@@ -196,20 +203,22 @@ function StatusFilterChips({ active, onChange, counts }: {
 }
 
 // ─── ProcurementTable ("Sudah Dibayar" section) ────────────────────────────────
-// Only ever holds items that are NOT YET warehouse-ready — Beli Baru items
-// still AWAITING_PAYMENT or PURCHASED-but-unverified (a STOK_INTERNAL item is
-// warehouse-ready the instant it's set, so it never appears here). Two
-// sequential per-item checkpoints, both live in the Status column:
-//   AWAITING_PAYMENT --["Tandai Dibeli" button, needs PO]--> PURCHASED
-//   PURCHASED --["Diterima" checklist toggle]--> RECEIVED (moves to WarehouseTable)
-// No SJ upload affordance lives here at all — that's exclusively WarehouseTable's.
+// Purchasing/Finance's domain, strictly read-only regarding inventory and
+// logistics — Sumber, No. PO, and "Tandai Dibeli" are the ONLY controls here.
+// No physical-verification, dispatch, or SJ-upload affordance ever appears
+// in this table — that's exclusively Warehouse Operations' job, entirely
+// inside WarehouseTable, once the item has left this table.
+//
+// Only ever holds items that have NOT entered the warehouse pipeline yet
+// (hasEnteredWarehousePipeline===false) — i.e. still AWAITING_PAYMENT (a
+// STOK_INTERNAL item skips Purchasing entirely and never appears here; a
+// PURCHASED Beli Baru item leaves this table immediately on the next render).
 
-function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onVerifyReceived, savingItemId }: {
+function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, savingItemId }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
   onMarkReady?:          (item: PurchaseRequestItem) => void
-  onVerifyReceived?:     (item: PurchaseRequestItem) => void
   savingItemId?:         string | null
 }) {
   const [poDrafts, setPoDrafts] = React.useState<Record<string, string>>({})
@@ -295,7 +304,7 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
                   )}
                 </td>
                 <td className="px-2 py-2">
-                  {interactive && it.procurement_status === "AWAITING_PAYMENT" ? (
+                  {interactive ? (
                     <Button
                       type="button" size="sm" variant="outline"
                       disabled={!canMarkPurchased(it) || saving}
@@ -305,22 +314,8 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
                     >
                       <ShoppingCart className="h-3 w-3" /> Tandai Dibeli
                     </Button>
-                  ) : interactive ? (
-                    <label className="flex items-center gap-1.5 cursor-pointer" title="Verifikasi barang sudah diterima dari vendor">
-                      <input
-                        type="checkbox"
-                        checked={false}
-                        disabled={saving}
-                        onChange={() => onVerifyReceived?.(it)}
-                      />
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-                        Pending
-                      </span>
-                    </label>
                   ) : (
-                    <span className="text-muted-foreground">
-                      {it.procurement_status === "AWAITING_PAYMENT" ? "Menunggu Pembelian" : "Menunggu Verifikasi"}
-                    </span>
+                    <span className="text-muted-foreground">Menunggu Pembelian</span>
                   )}
                 </td>
               </tr>
@@ -333,29 +328,37 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
 }
 
 // ─── WarehouseTable ("Sampai di Gudang" section) ───────────────────────────────
-// Only ever holds warehouse-ready items (internal stock, or purchased Beli
-// Baru) — every row here is either already Diterima, or eligible for the SJ
-// checklist. This is the ONLY place a checkbox/SJ-upload affordance appears.
+// Warehouse Operations' exclusive domain — the ONLY place physical
+// verification, dispatch allocation, and SJ selection/upload controls exist
+// anywhere in this app. Holds every item that has left Purchasing
+// (hasEnteredWarehousePipeline===true), regardless of which of the 3 steps
+// it's currently at — an item stays visible here throughout its whole
+// journey, it never bounces back to ProcurementTable. Aksi column branches
+// on warehouse_status:
+//   PENDING             -> "Verifikasi Fisik" button      (Step 1)
+//   RECEIVED            -> "Alokasikan Kirim" button       (Step 2)
+//   READY_FOR_DISPATCH  -> "Pilih SJ" checkbox             (Step 3, feeds the SJ upload below)
+//   DISPATCHED          -> "Terkirim" badge + undo
 
-function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onUndoReceived, undoingId }: {
-  items:             PurchaseRequestItem[]
-  interactive?:      boolean
-  selectedItemIds?:  Set<string>
-  onToggleSelect?:   (itemId: string) => void
-  onUndoReceived?:   (item: PurchaseRequestItem) => void
-  undoingId?:        string | null
+function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onSetWarehouseStatus, savingItemId }: {
+  items:                  PurchaseRequestItem[]
+  interactive?:           boolean
+  selectedItemIds?:       Set<string>
+  onToggleSelect?:        (itemId: string) => void
+  onSetWarehouseStatus?:  (item: PurchaseRequestItem, target: WarehouseStatus) => void
+  savingItemId?:          string | null
 }) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-xs table-fixed">
         <colgroup>
           <col style={{ width: "5%" }} />
+          <col style={{ width: "7%" }} />
           <col style={{ width: "8%" }} />
-          <col style={{ width: "9%" }} />
-          <col style={{ width: "26%" }} />
-          <col style={{ width: "14%" }} />
-          <col style={{ width: "16%" }} />
           <col style={{ width: "22%" }} />
+          <col style={{ width: "12%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "32%" }} />
         </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -365,57 +368,116 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Sumber</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No. PO</th>
-            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Aksi</th>
+            <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Status Gudang</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {items.map(it => (
-            <tr key={it.id} className={it.received ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
-              <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
-              <td className="px-3 py-2 text-foreground">{it.qty}</td>
-              <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
-              <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
-              <td className="px-3 py-2 text-muted-foreground truncate">
-                {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
-              </td>
-              <td className="px-3 py-2 font-mono text-muted-foreground truncate">{it.po_number || "—"}</td>
-              <td className="px-3 py-2">
-                <div className="flex items-center justify-center gap-1.5">
-                  {it.received ? (
-                    <>
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                        <CheckCircle2 className="h-2.5 w-2.5" /> Diterima
-                      </span>
-                      {interactive && (
-                        <button
-                          type="button"
-                          title={`Batalkan penerimaan ${it.nama_barang}`}
-                          disabled={undoingId === it.id}
-                          onClick={() => onUndoReceived?.(it)}
-                          className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+          {items.map(it => {
+            const saving = savingItemId === it.id
+            return (
+              <tr key={it.id} className={isDispatched(it) ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
+                <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
+                <td className="px-3 py-2 text-foreground">{it.qty}</td>
+                <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
+                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
+                <td className="px-3 py-2 text-muted-foreground truncate">
+                  {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
+                </td>
+                <td className="px-3 py-2 font-mono text-muted-foreground truncate">{it.po_number || "—"}</td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center justify-center gap-1.5">
+                    {it.warehouse_status === "PENDING" && (
+                      interactive ? (
+                        <Button
+                          type="button" size="sm" variant="outline"
+                          disabled={saving}
+                          onClick={() => onSetWarehouseStatus?.(it, "RECEIVED")}
+                          className="h-7 w-full text-[11px] gap-1 px-2"
                         >
-                          <Undo2 className="h-3 w-3" />
-                        </button>
-                      )}
-                    </>
-                  ) : interactive ? (
-                    <label className="flex items-center gap-1.5 cursor-pointer" title="Pilih untuk Surat Jalan">
-                      <input
-                        type="checkbox"
-                        checked={selectedItemIds?.has(it.id) ?? false}
-                        onChange={() => onToggleSelect?.(it.id)}
-                      />
-                      <span className="text-[10px] text-foreground">Pilih SJ</span>
-                    </label>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
-                      Siap Kirim
-                    </span>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
+                          <PackageCheck className="h-3 w-3" /> Verifikasi Fisik
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground">Menunggu Verifikasi</span>
+                      )
+                    )}
+
+                    {it.warehouse_status === "RECEIVED" && (
+                      interactive ? (
+                        <>
+                          <Button
+                            type="button" size="sm" variant="outline"
+                            disabled={saving}
+                            onClick={() => onSetWarehouseStatus?.(it, "READY_FOR_DISPATCH")}
+                            className="h-7 flex-1 text-[11px] gap-1 px-2"
+                          >
+                            <Truck className="h-3 w-3" /> Alokasikan Kirim
+                          </Button>
+                          <button
+                            type="button"
+                            title="Batalkan verifikasi"
+                            disabled={saving}
+                            onClick={() => onSetWarehouseStatus?.(it, "PENDING")}
+                            className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                          >
+                            <Undo2 className="h-3 w-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">Siap Dialokasikan</span>
+                      )
+                    )}
+
+                    {it.warehouse_status === "READY_FOR_DISPATCH" && (
+                      interactive ? (
+                        <>
+                          <label className="flex items-center gap-1.5 cursor-pointer flex-1" title="Pilih untuk Surat Jalan">
+                            <input
+                              type="checkbox"
+                              checked={selectedItemIds?.has(it.id) ?? false}
+                              onChange={() => onToggleSelect?.(it.id)}
+                            />
+                            <span className="text-[10px] text-foreground">Pilih SJ</span>
+                          </label>
+                          <button
+                            type="button"
+                            title="Batalkan alokasi kirim"
+                            disabled={saving}
+                            onClick={() => onSetWarehouseStatus?.(it, "RECEIVED")}
+                            className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                          >
+                            <Undo2 className="h-3 w-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                          Siap Kirim
+                        </span>
+                      )
+                    )}
+
+                    {isDispatched(it) && (
+                      <>
+                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                          <CheckCircle2 className="h-2.5 w-2.5" /> Terkirim
+                        </span>
+                        {interactive && (
+                          <button
+                            type="button"
+                            title={`Batalkan pengiriman ${it.nama_barang}`}
+                            disabled={saving}
+                            onClick={() => onSetWarehouseStatus?.(it, "READY_FOR_DISPATCH")}
+                            className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                          >
+                            <Undo2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -682,7 +744,6 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [rejecting, setRejecting]       = React.useState(false)
   const [reason, setReason]             = React.useState("")
   const [busy, setBusy]                 = React.useState(false)
-  const [undoingItemId, setUndoingItemId] = React.useState<string | null>(null)
   const [savingItemId, setSavingItemId]   = React.useState<string | null>(null)
 
   // ── Full-edit state (header + items) — only relevant while DRAFT ──
@@ -705,6 +766,23 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     if (!open) { setRejecting(false); setReason(""); setSelectedItemIds(new Set()); setSjFile(null) }
   }, [open])
 
+  // Prune the visible selection the instant an item drops out of
+  // READY_FOR_DISPATCH (e.g. another action mid-session bumped it back a
+  // step) — the submit-time filter already prevents a stale id from being
+  // POSTed, this just keeps the "N dipilih" counter honest in the meantime.
+  React.useEffect(() => {
+    if (!pr) return
+    setSelectedItemIds(prev => {
+      const next = new Set(Array.from(prev).filter(id => {
+        const item = pr.items.find(i => i.id === id)
+        return item ? canSelectForSJ(item) : false
+      }))
+      return next.size === prev.size ? prev : next
+    })
+    // Only re-run when the items themselves change, not on every selection toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pr?.items])
+
   React.useEffect(() => {
     if (!open || !pr) return
     setEditSiteMaintenance(pr.site_maintenance)
@@ -721,13 +799,16 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const isEditable    = pr.status === "DRAFT"
   const itemsEditable = pr.status !== "DRAFT" && pr.status !== "REJECTED"
   // "Sudah Dibayar" vs "Sampai di Gudang" are two disjoint, purpose-built
-  // sections — every item falls into exactly one, based on actual readiness,
-  // never on the PR's own (derived) aggregate status. This is what lets a
-  // hybrid PR's Stok Internal item sit in the warehouse section immediately
-  // while a sibling Beli Baru item is still in the procurement section.
-  const pendingItems   = pr.items.filter(i => !isWarehouseReady(i))
-  const warehouseItems = pr.items.filter(isWarehouseReady)
-  const eligibleItems  = warehouseItems.filter(i => !i.received)
+  // sections — every item falls into exactly one, based on whether it has
+  // entered Warehouse's pipeline at all, never on the PR's own (derived)
+  // aggregate status. This is what lets a hybrid PR's Stok Internal item sit
+  // in the warehouse section immediately while a sibling Beli Baru item is
+  // still in the procurement section. Warehouse's own 3-step progress plays
+  // no part in this split — an item stays in warehouseItems throughout all
+  // of its steps.
+  const pendingItems   = pr.items.filter(i => !hasEnteredWarehousePipeline(i))
+  const warehouseItems = pr.items.filter(hasEnteredWarehousePipeline)
+  const eligibleItems  = warehouseItems.filter(canSelectForSJ)
   const showUploadSj   = itemsEditable && eligibleItems.length > 0
   const showDelete     = DELETABLE_STATUSES.includes(pr.status)
 
@@ -861,55 +942,35 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
-  // Optimistic: the "Diterima" checklist toggle in the "Sudah Dibayar" section
-  // flips the item's procurement_status locally before the network round trip
-  // resolves — since ProcurementTable/WarehouseTable are just filters over
-  // pr.items, this instantly (and correctly) moves the row into the
-  // Warehouse section without waiting on the server. Rolls back to the exact
-  // pre-toggle snapshot if the request fails.
-  const handleVerifyReceived = async (item: PurchaseRequestItem) => {
-    const snapshot = pr
-    onUpdated({
-      ...pr,
-      items: pr.items.map(i => i.id === item.id ? { ...i, procurement_status: "RECEIVED" as const } : i),
-    })
+  // Shared by all 5 legal Warehouse-side transitions (Step 1, Step 2, and
+  // their 3 undo directions — DISPATCHED's own undo included). None of these
+  // cross the ProcurementTable/WarehouseTable boundary (membership is
+  // hasEnteredWarehousePipeline, constant across every warehouse_status
+  // value), so — unlike the deleted handleVerifyReceived this replaces —
+  // there's no need for optimistic pre-application here; the simple
+  // await-then-reconcile pattern already used by handleFulfillmentCommit/
+  // handleMarkPurchased is sufficient and keeps this file's handlers consistent.
+  const handleSetWarehouseStatus = async (item: PurchaseRequestItem, warehouse_status: WarehouseStatus, successMsg: string) => {
     setSavingItemId(item.id)
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ procurement_status: "RECEIVED" }),
+        body:    JSON.stringify({ warehouse_status }),
       })
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
-      onUpdated({ ...snapshot, ...data.data })
-      toast.success(`${item.nama_barang} diverifikasi diterima — siap ke Gudang.`)
+      onUpdated({ ...pr, ...data.data })
+      toast.success(successMsg)
     } catch (err) {
-      onUpdated(snapshot)
-      toast.error(err instanceof Error ? err.message : "Gagal memverifikasi item diterima.")
+      toast.error(err instanceof Error ? err.message : "Gagal memperbarui status gudang.")
     } finally {
       setSavingItemId(null)
     }
   }
 
-  const undoReceived = async (item: PurchaseRequestItem) => {
-    setUndoingItemId(item.id)
-    try {
-      const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ received: false }),
-      })
-      const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.error)
-      onUpdated({ ...pr, ...data.data })
-      toast.success(`Penerimaan ${item.nama_barang} dibatalkan.`)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal membatalkan status item.")
-    } finally {
-      setUndoingItemId(null)
-    }
-  }
+  const handleWarehouseStep = (item: PurchaseRequestItem, target: WarehouseStatus) =>
+    handleSetWarehouseStatus(item, target, `${item.nama_barang}: ${WAREHOUSE_STEP_MESSAGES[target]}`)
 
   const changeStatus = async (status: PRStatus, rejection_reason?: string) => {
     setBusy(true)
@@ -1091,7 +1152,6 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 interactive={itemsEditable}
                 onFulfillmentCommit={handleFulfillmentCommit}
                 onMarkReady={handleMarkPurchased}
-                onVerifyReceived={handleVerifyReceived}
                 savingItemId={savingItemId}
               />
             </div>
@@ -1100,9 +1160,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
           {!isEditable && warehouseItems.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sampai di Gudang · Penerimaan</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sampai di Gudang · Verifikasi &amp; Pengiriman</p>
                 <span className="text-xs text-muted-foreground">
-                  {warehouseItems.filter(i => i.received).length}/{warehouseItems.length} diterima
+                  {warehouseItems.filter(isDispatched).length}/{warehouseItems.length} terkirim
                 </span>
               </div>
               <WarehouseTable
@@ -1110,8 +1170,8 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 interactive={itemsEditable}
                 selectedItemIds={selectedItemIds}
                 onToggleSelect={toggleSelectedItem}
-                onUndoReceived={undoReceived}
-                undoingId={undoingItemId}
+                onSetWarehouseStatus={handleWarehouseStep}
+                savingItemId={savingItemId}
               />
 
               {showUploadSj && (
@@ -1219,25 +1279,24 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
 // Upload SJ lives in PRDetailSheet now (row click -> onOpenDetail) so every
 // PR action is in one place — this tab is a pure, read-only listing.
+// Warehouse Operations' single worklist — every PR with any item that has
+// entered their pipeline (hasEnteredWarehousePipeline), covering all 3 steps
+// (physical verification, dispatch allocation, SJ upload), not just items
+// immediately ready for an SJ. Same predicate as isInGudangPipeline (the
+// "Sampai di Gudang" status chip on the main table) — reused directly so
+// the two views never drift apart.
 function WarehouseTab({ prs, onOpenDetail }: {
   prs:          PurchaseRequestRecord[]
   onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
-  // Checkoff eligibility is item-level, not PR-level — a hybrid PR still
-  // showing WAITING_PAYMENT overall (because a sibling Beli Baru item isn't
-  // purchased yet) belongs here too as soon as it has ANY item ready to
-  // receive (e.g. a Stok Internal item). Not gated on PR status at all,
-  // besides excluding DRAFT/REJECTED where nothing can ever be ready.
-  const pending = prs.filter(p =>
-    p.status !== "DRAFT" && p.status !== "REJECTED" && p.items.some(isCheckoffEligible)
-  )
+  const pending = prs.filter(isInGudangPipeline)
 
   return (
     <div className="space-y-3">
       {pending.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <Truck className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Tidak ada PR yang menunggu Surat Jalan.</p>
+          <p className="text-sm text-muted-foreground">Tidak ada PR yang perlu diproses gudang.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -1245,18 +1304,20 @@ function WarehouseTab({ prs, onOpenDetail }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["PR NO", "Site Maintenance", "Unit", "Barang", "Status PR", "Checklist"].map((col, i) => (
+                  {["PR NO", "Site Maintenance", "Unit", "Barang", "Status PR", "Progres Gudang"].map((col, i) => (
                     <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {pending.map(pr => {
-                  const total         = pr.items.length
-                  const receivedCount = pr.items.filter(i => i.received).length
-                  const eligibleCount = pr.items.filter(isCheckoffEligible).length
-                  const isPartial     = receivedCount > 0 && receivedCount < total
-                  const stillWaiting  = total - receivedCount - eligibleCount
+                  const total          = pr.items.length
+                  const dispatchedCount = pr.items.filter(isDispatched).length
+                  const readyCount      = pr.items.filter(canSelectForSJ).length
+                  const inProgressCount = pr.items.filter(i =>
+                    hasEnteredWarehousePipeline(i) && !isDispatched(i) && !canSelectForSJ(i)
+                  ).length
+                  const isPartial = dispatchedCount > 0 && dispatchedCount < total
                   return (
                     <tr key={pr.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
                       <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
@@ -1272,10 +1333,13 @@ function WarehouseTab({ prs, onOpenDetail }: {
                       </td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
                         <span className={isPartial ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground"}>
-                          {receivedCount}/{total} diterima{isPartial ? " · Partial" : ""}
+                          {dispatchedCount}/{total} terkirim{isPartial ? " · Partial" : ""}
                         </span>
-                        {stillWaiting > 0 && (
-                          <span className="text-muted-foreground"> · {stillWaiting} menunggu pembelian</span>
+                        {readyCount > 0 && (
+                          <span className="text-muted-foreground"> · {readyCount} siap SJ</span>
+                        )}
+                        {inProgressCount > 0 && (
+                          <span className="text-muted-foreground"> · {inProgressCount} diproses gudang</span>
                         )}
                       </td>
                     </tr>
@@ -1395,12 +1459,12 @@ function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
             {it.qty} {it.satuan} · {it.nama_barang}
           </span>
           <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
-            it.received
+            isDispatched(it)
               ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
               : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
           }`}>
-            {it.received && <CheckCircle2 className="h-2 w-2" />}
-            {it.received ? "Diterima" : "Pending"}
+            {isDispatched(it) && <CheckCircle2 className="h-2 w-2" />}
+            {isDispatched(it) ? "Terkirim" : "Pending"}
           </span>
         </div>
       ))}
@@ -1409,19 +1473,19 @@ function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
 }
 
 // A PR belongs in the "Sampai di Gudang" bucket the moment ANY of its items
-// clears procurement verification (RECEIVED, or STOK_INTERNAL) — independent
-// of whether every item has, and independent of whether SJ receiving has
-// physically started yet. deriveOverallStatus (server-side) only flips a
-// PR's own status column to ARRIVED_AT_WAREHOUSE once physical receiving has
-// begun (some item received=true) or, for an all-Beli-Baru PR, never before
-// that — so filtering this chip/stat by the literal pr.status undercounts
-// PRs that have fully cleared Gate 1 but haven't started Gate 2 yet. This is
-// intentionally broader than the "Warehouse (SJ)" tab's own isCheckoffEligible
-// worklist (which only lists items still actionable right now); this is a
-// status/reporting view, not an action worklist.
+// has entered Warehouse Operations' pipeline (hasEnteredWarehousePipeline) —
+// independent of whether every item has, and independent of which of the 3
+// warehouse steps that item is actually at. deriveOverallStatus (server-side)
+// only flips a PR's own status column to ARRIVED_AT_WAREHOUSE once real
+// warehouse progress has begun (some item's warehouse_status !== 'PENDING')
+// or, for an all-Beli-Baru PR, never before that — so filtering this
+// chip/stat by the literal pr.status undercounts PRs that have fully
+// cleared Purchasing but haven't had any Warehouse action yet. Reused
+// directly by the "Warehouse (SJ)" tab's own worklist filter so the two
+// views never drift apart.
 function isInGudangPipeline(pr: PurchaseRequestRecord): boolean {
   return pr.status !== "DRAFT" && pr.status !== "REJECTED" && pr.status !== "COMPLETED" &&
-    pr.items.some(isWarehouseReady)
+    pr.items.some(hasEnteredWarehousePipeline)
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -1500,7 +1564,7 @@ export default function PurchasingRequestPage() {
   }, [prs, statusFilter, searchQuery])
 
   const warehousePendingCount = React.useMemo(
-    () => prs.filter(p => p.status !== "DRAFT" && p.status !== "REJECTED" && p.items.some(isCheckoffEligible)).length,
+    () => prs.filter(isInGudangPipeline).length,
     [prs]
   )
   const donePrCount = React.useMemo(

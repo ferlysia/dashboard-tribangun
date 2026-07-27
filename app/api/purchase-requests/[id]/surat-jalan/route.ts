@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
-import { deriveOverallStatus, isWarehouseReady } from "@/lib/purchase-request/status-rules"
+import { deriveOverallStatus, canSelectForSJ } from "@/lib/purchase-request/status-rules"
 
 const BUCKET = "surat-jalan-docs"
 // Keeps uploads inside typical serverless function payload limits (Netlify's
@@ -87,7 +87,7 @@ export async function POST(
 
     const prRes = await fetch(
       `${supabaseConfig.url}/rest/v1/purchase_requests` +
-      `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,procurement_status,received)`,
+      `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,warehouse_status)`,
       { headers: headers() }
     )
     if (!prRes.ok) throw new Error(await prRes.text())
@@ -100,7 +100,7 @@ export async function POST(
       )
     }
 
-    type ItemRow = { id: string; fulfillment_source: string; procurement_status: string; received: boolean }
+    type ItemRow = { id: string; fulfillment_source: string; warehouse_status: string }
     const items = (pr.purchase_request_items ?? []) as ItemRow[]
     const itemsById = new Map(items.map(it => [it.id, it]))
     for (const itemId of itemIds) {
@@ -108,11 +108,11 @@ export async function POST(
       if (!item) {
         return NextResponse.json({ error: "Salah satu item tidak ditemukan pada PR ini" }, { status: 400 })
       }
-      if (item.received) {
-        return NextResponse.json({ error: "Salah satu item yang dipilih sudah ditandai diterima" }, { status: 400 })
-      }
-      if (!isWarehouseReady(item)) {
-        return NextResponse.json({ error: "Salah satu item yang dipilih belum siap gudang (masih menunggu pembelian)" }, { status: 400 })
+      if (!canSelectForSJ(item)) {
+        return NextResponse.json(
+          { error: "Salah satu item yang dipilih belum siap dikirim (harus melalui verifikasi dan alokasi pengiriman dulu)" },
+          { status: 400 }
+        )
       }
     }
 
@@ -158,15 +158,15 @@ export async function POST(
         method:  "PATCH",
         headers: headers(),
         body: JSON.stringify({
-          received:       true,
-          received_at:    new Date().toISOString(),
-          surat_jalan_id: sjDoc.id,
+          warehouse_status: "DISPATCHED",
+          dispatched_at:    new Date().toISOString(),
+          surat_jalan_id:   sjDoc.id,
         }),
       }
     )
     if (!itemsPatchRes.ok) throw new Error(await itemsPatchRes.text())
 
-    const itemsAfter = items.map(it => itemIds.includes(it.id) ? { ...it, received: true } : it)
+    const itemsAfter = items.map(it => itemIds.includes(it.id) ? { ...it, warehouse_status: "DISPATCHED" } : it)
     const nextStatus = deriveOverallStatus(itemsAfter, pr.status)
     if (nextStatus !== pr.status) {
       const headerPatch: Record<string, unknown> = { status: nextStatus }

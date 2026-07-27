@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
-import { deriveOverallStatus, canMarkPurchased, canVerifyReceived } from "@/lib/purchase-request/status-rules"
+import {
+  deriveOverallStatus, canMarkPurchased,
+  hasEnteredWarehousePipeline, isDispatched, isLegalWarehouseStatusChange,
+} from "@/lib/purchase-request/status-rules"
 
 function headers() {
   return {
@@ -53,17 +56,20 @@ type ItemRow = {
   fulfillment_source:  string
   po_number:           string | null
   procurement_status:  string
-  received:            boolean
+  warehouse_status:    string
 }
 
-// The item, not the PR, is the unit of procurement progress. This endpoint
-// handles every per-item mutation once a PR has left DRAFT:
-//   - {received:false}                    undo a mistaken (warehouse) receipt
-//   - {fulfillment_source, po_number}      (re)assign Sumber / No. PO
-//   - {procurement_status}                 AWAITING_PAYMENT -> PURCHASED
-//                                           -> RECEIVED (procurement-side
-//                                           verification, gates entry into
-//                                           the Warehouse (SJ) pipeline)
+// The item, not the PR, is the unit of progress, split cleanly by
+// organizational ownership. This endpoint handles every per-item mutation
+// once a PR has left DRAFT:
+//   - {fulfillment_source, po_number}   Purchasing/Finance: (re)assign Sumber / No. PO
+//   - {procurement_status}              Purchasing/Finance: AWAITING_PAYMENT <-> PURCHASED
+//   - {warehouse_status}                Warehouse Operations ONLY: step the item through
+//                                        PENDING -> RECEIVED -> READY_FOR_DISPATCH (and
+//                                        back, for corrections), or undo a dispatch
+//                                        (DISPATCHED -> READY_FOR_DISPATCH). Reaching
+//                                        DISPATCHED itself is NOT possible here — only
+//                                        the surat-jalan upload route can do that.
 // After any mutation, the parent PR's (derived, display-only) status is
 // recomputed from its full item list and persisted if it changed.
 export async function PATCH(
@@ -76,7 +82,7 @@ export async function PATCH(
 
     const prRes = await fetch(
       `${supabaseConfig.url}/rest/v1/purchase_requests` +
-      `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,po_number,procurement_status,received)`,
+      `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,po_number,procurement_status,warehouse_status)`,
       { headers: headers() }
     )
     if (!prRes.ok) throw new Error(await prRes.text())
@@ -96,11 +102,27 @@ export async function PATCH(
 
     let itemPatch: Record<string, unknown>
 
-    if (body.received === false) {
-      itemPatch = { received: false, received_at: null, surat_jalan_id: null }
+    if (body.warehouse_status !== undefined) {
+      const target = body.warehouse_status
+      if (target === "DISPATCHED") {
+        return NextResponse.json({ error: "Gunakan upload Surat Jalan untuk menandai item terkirim" }, { status: 400 })
+      }
+      if (!hasEnteredWarehousePipeline(item)) {
+        return NextResponse.json({ error: "Item belum masuk pipeline gudang (belum dibeli / bukan stok internal)" }, { status: 400 })
+      }
+      if (!isLegalWarehouseStatusChange(item.warehouse_status, target)) {
+        return NextResponse.json({ error: `Tidak dapat mengubah status gudang dari ${item.warehouse_status} ke ${target}` }, { status: 400 })
+      }
+      itemPatch = { warehouse_status: target }
+      // Undoing a dispatch clears the SJ link — the item goes back to being
+      // an ordinary READY_FOR_DISPATCH candidate for a future SJ upload.
+      if (item.warehouse_status === "DISPATCHED" && target === "READY_FOR_DISPATCH") {
+        itemPatch.surat_jalan_id = null
+        itemPatch.dispatched_at  = null
+      }
     } else if (body.fulfillment_source !== undefined) {
-      if (item.received) {
-        return NextResponse.json({ error: "Item yang sudah diterima tidak dapat diubah sumbernya" }, { status: 400 })
+      if (isDispatched(item)) {
+        return NextResponse.json({ error: "Item yang sudah terkirim tidak dapat diubah sumbernya" }, { status: 400 })
       }
       const source = body.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
       itemPatch = {
@@ -111,19 +133,12 @@ export async function PATCH(
         // flip back to BELI_BARU with no PO.
         procurement_status: "AWAITING_PAYMENT",
       }
-    } else if (
-      body.procurement_status === "PURCHASED" ||
-      body.procurement_status === "AWAITING_PAYMENT" ||
-      body.procurement_status === "RECEIVED"
-    ) {
-      if (item.received) {
-        return NextResponse.json({ error: "Item yang sudah diterima tidak dapat diubah statusnya" }, { status: 400 })
+    } else if (body.procurement_status === "PURCHASED" || body.procurement_status === "AWAITING_PAYMENT") {
+      if (isDispatched(item)) {
+        return NextResponse.json({ error: "Item yang sudah terkirim tidak dapat diubah statusnya" }, { status: 400 })
       }
       if (body.procurement_status === "PURCHASED" && !canMarkPurchased(item)) {
         return NextResponse.json({ error: "Isi No. PO terlebih dahulu sebelum menandai Dibeli" }, { status: 400 })
-      }
-      if (body.procurement_status === "RECEIVED" && !canVerifyReceived(item)) {
-        return NextResponse.json({ error: "Item harus berstatus Dibeli terlebih dahulu sebelum diverifikasi Diterima" }, { status: 400 })
       }
       itemPatch = { procurement_status: body.procurement_status }
     } else {
