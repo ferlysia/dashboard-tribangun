@@ -1408,6 +1408,22 @@ function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   )
 }
 
+// A PR belongs in the "Sampai di Gudang" bucket the moment ANY of its items
+// clears procurement verification (RECEIVED, or STOK_INTERNAL) — independent
+// of whether every item has, and independent of whether SJ receiving has
+// physically started yet. deriveOverallStatus (server-side) only flips a
+// PR's own status column to ARRIVED_AT_WAREHOUSE once physical receiving has
+// begun (some item received=true) or, for an all-Beli-Baru PR, never before
+// that — so filtering this chip/stat by the literal pr.status undercounts
+// PRs that have fully cleared Gate 1 but haven't started Gate 2 yet. This is
+// intentionally broader than the "Warehouse (SJ)" tab's own isCheckoffEligible
+// worklist (which only lists items still actionable right now); this is a
+// status/reporting view, not an action worklist.
+function isInGudangPipeline(pr: PurchaseRequestRecord): boolean {
+  return pr.status !== "DRAFT" && pr.status !== "REJECTED" && pr.status !== "COMPLETED" &&
+    pr.items.some(isWarehouseReady)
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PurchasingRequestPage() {
@@ -1461,14 +1477,17 @@ export default function PurchasingRequestPage() {
   const counts = React.useMemo(() => {
     const c = { ALL: prs.length } as Record<PRStatus | "ALL", number>
     ALL_STATUSES.forEach(s => {
-      c[s] = prs.filter(p => p.status === s).length
+      c[s] = s === "ARRIVED_AT_WAREHOUSE"
+        ? prs.filter(isInGudangPipeline).length
+        : prs.filter(p => p.status === s).length
     })
     return c
   }, [prs])
 
   const filtered = React.useMemo(() => {
     let result = prs
-    if (statusFilter !== "ALL") result = result.filter(p => p.status === statusFilter)
+    if (statusFilter === "ARRIVED_AT_WAREHOUSE") result = result.filter(isInGudangPipeline)
+    else if (statusFilter !== "ALL") result = result.filter(p => p.status === statusFilter)
     const q = searchQuery.trim().toLowerCase()
     if (q) {
       result = result.filter(p =>
