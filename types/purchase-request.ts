@@ -29,6 +29,7 @@ export interface PurchaseRequestItem {
   warehouse_status:     WarehouseStatus
   dispatched_at:        string | null
   surat_jalan_id:       string | null
+  parent_item_id:       string | null
 }
 
 export interface PurchaseRequestSuratJalan {

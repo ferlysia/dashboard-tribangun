@@ -214,14 +214,18 @@ function StatusFilterChips({ active, onChange, counts }: {
 // STOK_INTERNAL item skips Purchasing entirely and never appears here; a
 // PURCHASED Beli Baru item leaves this table immediately on the next render).
 
-function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, savingItemId }: {
+function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onSplit, splitParentIds, savingItemId }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
   onMarkReady?:          (item: PurchaseRequestItem) => void
+  onSplit?:              (item: PurchaseRequestItem, stok_internal_qty: number) => void
+  splitParentIds?:       Set<string>
   savingItemId?:         string | null
 }) {
-  const [poDrafts, setPoDrafts] = React.useState<Record<string, string>>({})
+  const [poDrafts, setPoDrafts]     = React.useState<Record<string, string>>({})
+  const [splittingId, setSplittingId] = React.useState<string | null>(null)
+  const [splitQty, setSplitQty]     = React.useState("")
 
   const poValue = (it: PurchaseRequestItem) => poDrafts[it.id] ?? it.po_number ?? ""
 
@@ -237,17 +241,31 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
     onFulfillmentCommit?.(it, { fulfillment_source: it.fulfillment_source, po_number: next })
   }
 
+  const openSplit = (it: PurchaseRequestItem) => {
+    setSplittingId(it.id)
+    setSplitQty("")
+  }
+
+  const confirmSplit = (it: PurchaseRequestItem) => {
+    const qty = Number(splitQty)
+    if (!(qty > 0) || qty >= it.qty) return
+    onSplit?.(it, qty)
+    setSplittingId(null)
+    setSplitQty("")
+  }
+
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-xs table-fixed">
         <colgroup>
           <col style={{ width: "5%" }} />
           <col style={{ width: "8%" }} />
-          <col style={{ width: "9%" }} />
-          <col style={{ width: "25%" }} />
-          <col style={{ width: "15%" }} />
-          <col style={{ width: "20%" }} />
+          <col style={{ width: "8%" }} />
+          <col style={{ width: "21%" }} />
+          <col style={{ width: "14%" }} />
           <col style={{ width: "18%" }} />
+          <col style={{ width: "16%" }} />
+          <col style={{ width: "10%" }} />
         </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -258,17 +276,23 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Sumber</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No. PO</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Split</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {items.map(it => {
             const saving = savingItemId === it.id
+            const alreadySplit = splitParentIds?.has(it.id) ?? false
             return (
-              <tr key={it.id}>
+              <React.Fragment key={it.id}>
+              <tr>
                 <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
                 <td className="px-3 py-2 text-foreground">{it.qty}</td>
                 <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
-                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
+                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>
+                  {it.nama_barang}
+                  {alreadySplit && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
+                </td>
                 <td className="px-2 py-2">
                   {interactive ? (
                     <Select value={it.fulfillment_source} onValueChange={v => commitSource(it, v as FulfillmentSource)}>
@@ -318,7 +342,57 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
                     <span className="text-muted-foreground">Menunggu Pembelian</span>
                   )}
                 </td>
+                <td className="px-2 py-2">
+                  {interactive && !alreadySplit && (
+                    <Button
+                      type="button" size="sm" variant="ghost"
+                      disabled={saving || it.qty <= 1}
+                      title={it.qty <= 1 ? "Qty terlalu kecil untuk displit" : "Split sebagian qty ke stok internal"}
+                      onClick={() => (splittingId === it.id ? setSplittingId(null) : openSplit(it))}
+                      className="h-7 w-full text-[11px] gap-1 px-2"
+                    >
+                      Split
+                    </Button>
+                  )}
+                </td>
               </tr>
+              {splittingId === it.id && (
+                <tr className="bg-muted/20">
+                  <td colSpan={8} className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        Dari stok internal ({it.satuan}):
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={it.qty - 1}
+                        step="any"
+                        value={splitQty}
+                        onChange={e => setSplitQty(e.target.value)}
+                        autoFocus
+                        className="w-24 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                      />
+                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        Sisa dibeli baru: {Number(splitQty) > 0 && Number(splitQty) < it.qty ? it.qty - Number(splitQty) : "—"} {it.satuan}
+                      </span>
+                      <div className="flex-1" />
+                      <Button type="button" size="sm" variant="outline" onClick={() => setSplittingId(null)} className="h-7 text-[11px] px-2">
+                        Batal
+                      </Button>
+                      <Button
+                        type="button" size="sm"
+                        disabled={!(Number(splitQty) > 0) || Number(splitQty) >= it.qty}
+                        onClick={() => confirmSplit(it)}
+                        className="h-7 text-[11px] px-2"
+                      >
+                        Konfirmasi Split
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             )
           })}
         </tbody>
@@ -339,13 +413,18 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
 //   RECEIVED            -> "Alokasikan Kirim" button       (Step 2)
 //   READY_FOR_DISPATCH  -> "Pilih SJ" checkbox             (Step 3, feeds the SJ upload below)
 //   DISPATCHED          -> "Terkirim" badge + undo
+// A row with parent_item_id set is the STOK_INTERNAL half of a split line
+// (see ProcurementTable's "Split" action) — while still PENDING (Warehouse
+// hasn't started physical verification yet), it can be merged back into its
+// BELI_BARU sibling via "Undo split".
 
-function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onSetWarehouseStatus, savingItemId }: {
+function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onSetWarehouseStatus, onUnsplit, savingItemId }: {
   items:                  PurchaseRequestItem[]
   interactive?:           boolean
   selectedItemIds?:       Set<string>
   onToggleSelect?:        (itemId: string) => void
   onSetWarehouseStatus?:  (item: PurchaseRequestItem, target: WarehouseStatus) => void
+  onUnsplit?:             (item: PurchaseRequestItem) => void
   savingItemId?:          string | null
 }) {
   return (
@@ -379,7 +458,10 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
                 <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
                 <td className="px-3 py-2 text-foreground">{it.qty}</td>
                 <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
-                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>{it.nama_barang}</td>
+                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>
+                  {it.nama_barang}
+                  {it.parent_item_id && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
+                </td>
                 <td className="px-3 py-2 text-muted-foreground truncate">
                   {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
                 </td>
@@ -388,14 +470,27 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
                   <div className="flex items-center justify-center gap-1.5">
                     {it.warehouse_status === "PENDING" && (
                       interactive ? (
-                        <Button
-                          type="button" size="sm" variant="outline"
-                          disabled={saving}
-                          onClick={() => onSetWarehouseStatus?.(it, "RECEIVED")}
-                          className="h-7 w-full text-[11px] gap-1 px-2"
-                        >
-                          <PackageCheck className="h-3 w-3" /> Verifikasi Fisik
-                        </Button>
+                        <>
+                          <Button
+                            type="button" size="sm" variant="outline"
+                            disabled={saving}
+                            onClick={() => onSetWarehouseStatus?.(it, "RECEIVED")}
+                            className="h-7 flex-1 text-[11px] gap-1 px-2"
+                          >
+                            <PackageCheck className="h-3 w-3" /> Verifikasi Fisik
+                          </Button>
+                          {it.parent_item_id && (
+                            <button
+                              type="button"
+                              title="Batalkan split, gabungkan kembali qty ke item Beli Baru"
+                              disabled={saving}
+                              onClick={() => onUnsplit?.(it)}
+                              className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+                            >
+                              <Undo2 className="h-3 w-3" />
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <span className="text-muted-foreground">Menunggu Verifikasi</span>
                       )
@@ -809,6 +904,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const pendingItems   = pr.items.filter(i => !hasEnteredWarehousePipeline(i))
   const warehouseItems = pr.items.filter(hasEnteredWarehousePipeline)
   const eligibleItems  = warehouseItems.filter(canSelectForSJ)
+  const splitParentIds = new Set(pr.items.filter(i => i.parent_item_id).map(i => i.parent_item_id as string))
   const showUploadSj   = itemsEditable && eligibleItems.length > 0
   const showDelete     = DELETABLE_STATUSES.includes(pr.status)
 
@@ -937,6 +1033,40 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
       toast.success(`${item.nama_barang} ditandai sudah dibeli.`)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menandai item sebagai dibeli.")
+    } finally {
+      setSavingItemId(null)
+    }
+  }
+
+  const handleSplitItem = async (item: PurchaseRequestItem, stok_internal_qty: number) => {
+    setSavingItemId(item.id)
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}/split`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ stok_internal_qty }),
+      })
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...pr, ...data.data })
+      toast.success(`${item.nama_barang} berhasil displit.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal split item.")
+    } finally {
+      setSavingItemId(null)
+    }
+  }
+
+  const handleUnsplitItem = async (item: PurchaseRequestItem) => {
+    setSavingItemId(item.id)
+    try {
+      const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}/split`, { method: "DELETE" })
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(data.error)
+      onUpdated({ ...pr, ...data.data })
+      toast.success("Split dibatalkan.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal membatalkan split.")
     } finally {
       setSavingItemId(null)
     }
@@ -1152,6 +1282,8 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 interactive={itemsEditable}
                 onFulfillmentCommit={handleFulfillmentCommit}
                 onMarkReady={handleMarkPurchased}
+                onSplit={handleSplitItem}
+                splitParentIds={splitParentIds}
                 savingItemId={savingItemId}
               />
             </div>
@@ -1171,6 +1303,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 selectedItemIds={selectedItemIds}
                 onToggleSelect={toggleSelectedItem}
                 onSetWarehouseStatus={handleWarehouseStep}
+                onUnsplit={handleUnsplitItem}
                 savingItemId={savingItemId}
               />
 
