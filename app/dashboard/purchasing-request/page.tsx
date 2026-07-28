@@ -214,6 +214,165 @@ function StatusFilterChips({ active, onChange, counts }: {
 // STOK_INTERNAL item skips Purchasing entirely and never appears here; a
 // PURCHASED Beli Baru item leaves this table immediately on the next render).
 
+// Row-local state (PO draft text, split panel) lives entirely inside this
+// memoized row instead of a shared Record/state at the table level — typing
+// a PO number for one item used to re-render every row in the table on
+// every keystroke (a single `poDrafts` object at ProcurementTable level).
+// Isolating it here means keystrokes only ever touch this one row.
+const ProcurementRow = React.memo(function ProcurementRow({
+  item, interactive, alreadySplit, saving, onFulfillmentCommit, onMarkReady, onSplit,
+}: {
+  item:                  PurchaseRequestItem
+  interactive?:          boolean
+  alreadySplit:          boolean
+  saving:                boolean
+  onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
+  onMarkReady?:          (item: PurchaseRequestItem) => void
+  onSplit?:              (item: PurchaseRequestItem, stok_internal_qty: number) => void
+}) {
+  const [poDraft, setPoDraft]     = React.useState<string | null>(null)
+  const [splitting, setSplitting] = React.useState(false)
+  const [splitQty, setSplitQty]   = React.useState("")
+
+  const poValue = poDraft ?? item.po_number ?? ""
+
+  const commitSource = (source: FulfillmentSource) => {
+    const po_number = source === "STOK_INTERNAL" ? null : (poValue.trim() || null)
+    setPoDraft(po_number ?? "")
+    onFulfillmentCommit?.(item, { fulfillment_source: source, po_number })
+  }
+
+  const commitPoBlur = () => {
+    const next = poValue.trim() || null
+    if (next === (item.po_number ?? null)) return
+    onFulfillmentCommit?.(item, { fulfillment_source: item.fulfillment_source, po_number: next })
+  }
+
+  const confirmSplit = () => {
+    const qty = Number(splitQty)
+    if (!(qty > 0) || qty >= item.qty) return
+    onSplit?.(item, qty)
+    setSplitting(false)
+    setSplitQty("")
+  }
+
+  return (
+    <>
+      <tr>
+        <td className="px-3 py-2 text-muted-foreground">{item.line_no}</td>
+        <td className="px-3 py-2 text-foreground">{item.qty}</td>
+        <td className="px-3 py-2 text-foreground truncate">{item.satuan}</td>
+        <td className="px-3 py-2 text-foreground truncate" title={item.nama_barang}>
+          {item.nama_barang}
+          {alreadySplit && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
+        </td>
+        <td className="px-2 py-2">
+          {interactive ? (
+            <Select value={item.fulfillment_source} onValueChange={v => commitSource(v as FulfillmentSource)}>
+              <SelectTrigger size="sm" className="w-full text-xs" disabled={saving}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FULFILLMENT_SOURCE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <span className="text-muted-foreground">
+              {item.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
+            </span>
+          )}
+        </td>
+        <td className="px-2 py-2">
+          {interactive ? (
+            <input
+              type="text"
+              value={poValue}
+              onChange={e => setPoDraft(e.target.value)}
+              onBlur={commitPoBlur}
+              disabled={item.fulfillment_source === "STOK_INTERNAL"}
+              placeholder={item.fulfillment_source === "STOK_INTERNAL" ? "—" : "No. PO"}
+              title="No. PO"
+              className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+          ) : (
+            <span className="font-mono text-muted-foreground">{item.po_number || "—"}</span>
+          )}
+        </td>
+        <td className="px-2 py-2">
+          {interactive ? (
+            <Button
+              type="button" size="sm" variant="outline"
+              // Not gated on `saving` — canMarkPurchased already reflects the
+              // optimistically-applied po_number the instant the PO field is
+              // blurred, so this button must be clickable immediately rather
+              // than waiting on that background PATCH to resolve.
+              disabled={!canMarkPurchased(item)}
+              title={!canMarkPurchased(item) ? "Isi No. PO dulu" : "Tandai sudah dibeli dari vendor"}
+              onClick={() => onMarkReady?.(item)}
+              className="h-7 w-full text-[11px] gap-1 px-2"
+            >
+              <ShoppingCart className="h-3 w-3" /> Tandai Dibeli
+            </Button>
+          ) : (
+            <span className="text-muted-foreground">Menunggu Pembelian</span>
+          )}
+        </td>
+        <td className="px-2 py-2">
+          {interactive && !alreadySplit && (
+            <Button
+              type="button" size="sm" variant="ghost"
+              disabled={saving || item.qty <= 1}
+              title={item.qty <= 1 ? "Qty terlalu kecil untuk displit" : "Split sebagian qty ke stok internal"}
+              onClick={() => { setSplitting(v => !v); setSplitQty("") }}
+              className="h-7 w-full text-[11px] gap-1 px-2"
+            >
+              Split
+            </Button>
+          )}
+        </td>
+      </tr>
+      {splitting && (
+        <tr className="bg-muted/20">
+          <td colSpan={8} className="px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                Dari stok internal ({item.satuan}):
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={item.qty - 1}
+                step="any"
+                value={splitQty}
+                onChange={e => setSplitQty(e.target.value)}
+                autoFocus
+                className="w-24 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30"
+              />
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                Sisa dibeli baru: {Number(splitQty) > 0 && Number(splitQty) < item.qty ? item.qty - Number(splitQty) : "—"} {item.satuan}
+              </span>
+              <div className="flex-1" />
+              <Button type="button" size="sm" variant="outline" onClick={() => setSplitting(false)} className="h-7 text-[11px] px-2">
+                Batal
+              </Button>
+              <Button
+                type="button" size="sm"
+                disabled={!(Number(splitQty) > 0) || Number(splitQty) >= item.qty}
+                onClick={confirmSplit}
+                className="h-7 text-[11px] px-2"
+              >
+                Konfirmasi Split
+              </Button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+})
+
 function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onSplit, splitParentIds, savingItemId }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
@@ -223,37 +382,6 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
   splitParentIds?:       Set<string>
   savingItemId?:         string | null
 }) {
-  const [poDrafts, setPoDrafts]     = React.useState<Record<string, string>>({})
-  const [splittingId, setSplittingId] = React.useState<string | null>(null)
-  const [splitQty, setSplitQty]     = React.useState("")
-
-  const poValue = (it: PurchaseRequestItem) => poDrafts[it.id] ?? it.po_number ?? ""
-
-  const commitSource = (it: PurchaseRequestItem, source: FulfillmentSource) => {
-    const po_number = source === "STOK_INTERNAL" ? null : (poValue(it).trim() || null)
-    setPoDrafts(prev => ({ ...prev, [it.id]: po_number ?? "" }))
-    onFulfillmentCommit?.(it, { fulfillment_source: source, po_number })
-  }
-
-  const commitPoBlur = (it: PurchaseRequestItem) => {
-    const next = poValue(it).trim() || null
-    if (next === (it.po_number ?? null)) return
-    onFulfillmentCommit?.(it, { fulfillment_source: it.fulfillment_source, po_number: next })
-  }
-
-  const openSplit = (it: PurchaseRequestItem) => {
-    setSplittingId(it.id)
-    setSplitQty("")
-  }
-
-  const confirmSplit = (it: PurchaseRequestItem) => {
-    const qty = Number(splitQty)
-    if (!(qty > 0) || qty >= it.qty) return
-    onSplit?.(it, qty)
-    setSplittingId(null)
-    setSplitQty("")
-  }
-
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-xs table-fixed">
@@ -280,121 +408,18 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {items.map(it => {
-            const saving = savingItemId === it.id
-            const alreadySplit = splitParentIds?.has(it.id) ?? false
-            return (
-              <React.Fragment key={it.id}>
-              <tr>
-                <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
-                <td className="px-3 py-2 text-foreground">{it.qty}</td>
-                <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
-                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>
-                  {it.nama_barang}
-                  {alreadySplit && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
-                </td>
-                <td className="px-2 py-2">
-                  {interactive ? (
-                    <Select value={it.fulfillment_source} onValueChange={v => commitSource(it, v as FulfillmentSource)}>
-                      <SelectTrigger size="sm" className="w-full text-xs" disabled={saving}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {FULFILLMENT_SOURCE_OPTIONS.map(opt => (
-                          <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
-                    </span>
-                  )}
-                </td>
-                <td className="px-2 py-2">
-                  {interactive ? (
-                    <input
-                      type="text"
-                      value={poValue(it)}
-                      onChange={e => setPoDrafts(prev => ({ ...prev, [it.id]: e.target.value }))}
-                      onBlur={() => commitPoBlur(it)}
-                      disabled={it.fulfillment_source === "STOK_INTERNAL" || saving}
-                      placeholder={it.fulfillment_source === "STOK_INTERNAL" ? "—" : "No. PO"}
-                      title="No. PO"
-                      className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                  ) : (
-                    <span className="font-mono text-muted-foreground">{it.po_number || "—"}</span>
-                  )}
-                </td>
-                <td className="px-2 py-2">
-                  {interactive ? (
-                    <Button
-                      type="button" size="sm" variant="outline"
-                      disabled={!canMarkPurchased(it) || saving}
-                      title={!canMarkPurchased(it) ? "Isi No. PO dulu" : "Tandai sudah dibeli dari vendor"}
-                      onClick={() => onMarkReady?.(it)}
-                      className="h-7 w-full text-[11px] gap-1 px-2"
-                    >
-                      <ShoppingCart className="h-3 w-3" /> Tandai Dibeli
-                    </Button>
-                  ) : (
-                    <span className="text-muted-foreground">Menunggu Pembelian</span>
-                  )}
-                </td>
-                <td className="px-2 py-2">
-                  {interactive && !alreadySplit && (
-                    <Button
-                      type="button" size="sm" variant="ghost"
-                      disabled={saving || it.qty <= 1}
-                      title={it.qty <= 1 ? "Qty terlalu kecil untuk displit" : "Split sebagian qty ke stok internal"}
-                      onClick={() => (splittingId === it.id ? setSplittingId(null) : openSplit(it))}
-                      className="h-7 w-full text-[11px] gap-1 px-2"
-                    >
-                      Split
-                    </Button>
-                  )}
-                </td>
-              </tr>
-              {splittingId === it.id && (
-                <tr className="bg-muted/20">
-                  <td colSpan={8} className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        Dari stok internal ({it.satuan}):
-                      </span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={it.qty - 1}
-                        step="any"
-                        value={splitQty}
-                        onChange={e => setSplitQty(e.target.value)}
-                        autoFocus
-                        className="w-24 rounded-md border border-border bg-background text-xs text-foreground px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                      />
-                      <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                        Sisa dibeli baru: {Number(splitQty) > 0 && Number(splitQty) < it.qty ? it.qty - Number(splitQty) : "—"} {it.satuan}
-                      </span>
-                      <div className="flex-1" />
-                      <Button type="button" size="sm" variant="outline" onClick={() => setSplittingId(null)} className="h-7 text-[11px] px-2">
-                        Batal
-                      </Button>
-                      <Button
-                        type="button" size="sm"
-                        disabled={!(Number(splitQty) > 0) || Number(splitQty) >= it.qty}
-                        onClick={() => confirmSplit(it)}
-                        className="h-7 text-[11px] px-2"
-                      >
-                        Konfirmasi Split
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              </React.Fragment>
-            )
-          })}
+          {items.map(it => (
+            <ProcurementRow
+              key={it.id}
+              item={it}
+              interactive={interactive}
+              alreadySplit={splitParentIds?.has(it.id) ?? false}
+              saving={savingItemId === it.id}
+              onFulfillmentCommit={onFulfillmentCommit}
+              onMarkReady={onMarkReady}
+              onSplit={onSplit}
+            />
+          ))}
         </tbody>
       </table>
     </div>
@@ -901,8 +926,16 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   // still in the procurement section. Warehouse's own 3-step progress plays
   // no part in this split — an item stays in warehouseItems throughout all
   // of its steps.
-  const pendingItems   = pr.items.filter(i => !hasEnteredWarehousePipeline(i))
-  const warehouseItems = pr.items.filter(hasEnteredWarehousePipeline)
+  // Sorted by line_no (tie-broken by id) so inline edits — which only ever
+  // change a single field on an existing row — never reshuffle row order.
+  // Without this, row order silently followed whatever order the backend
+  // happened to return items in, which is not guaranteed stable across an
+  // UPDATE (Postgres/PostgREST give no ordering guarantee absent an explicit
+  // ORDER BY), causing the edited row to visibly jump position mid-edit.
+  const byLineNo = (a: PurchaseRequestItem, b: PurchaseRequestItem) =>
+    a.line_no - b.line_no || a.id.localeCompare(b.id)
+  const pendingItems   = pr.items.filter(i => !hasEnteredWarehousePipeline(i)).sort(byLineNo)
+  const warehouseItems = pr.items.filter(hasEnteredWarehousePipeline).sort(byLineNo)
   const eligibleItems  = warehouseItems.filter(canSelectForSJ)
   const splitParentIds = new Set(pr.items.filter(i => i.parent_item_id).map(i => i.parent_item_id as string))
   const showUploadSj   = itemsEditable && eligibleItems.length > 0
@@ -998,10 +1031,23 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     }
   }
 
+  // Optimistic: apply the edit to local state immediately (0ms perceived
+  // latency for typing a PO number / switching Sumber) and reconcile with
+  // the server's response once it arrives; roll back only if the request
+  // actually fails. Mirrors the server's own reset-on-source-change rule
+  // (see [itemId]/route.ts) so the optimistic state never disagrees with
+  // what the backend is about to persist.
   const handleFulfillmentCommit = async (
     item: PurchaseRequestItem,
     patch: { fulfillment_source: FulfillmentSource; po_number: string | null }
   ) => {
+    const previousItems = pr.items
+    onUpdated({
+      ...pr,
+      items: pr.items.map(it => it.id === item.id
+        ? { ...it, ...patch, procurement_status: "AWAITING_PAYMENT" }
+        : it),
+    })
     setSavingItemId(item.id)
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
@@ -1013,6 +1059,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, ...data.data })
     } catch (err) {
+      onUpdated({ ...pr, items: previousItems })
       toast.error(err instanceof Error ? err.message : "Gagal memperbarui sumber item.")
     } finally {
       setSavingItemId(null)
@@ -1020,6 +1067,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   }
 
   const handleMarkPurchased = async (item: PurchaseRequestItem) => {
+    const previousItems = pr.items
+    onUpdated({
+      ...pr,
+      items: pr.items.map(it => it.id === item.id ? { ...it, procurement_status: "PURCHASED" } : it),
+    })
     setSavingItemId(item.id)
     try {
       const res = await fetch(`/api/purchase-requests/${pr.id}/items/${item.id}`, {
@@ -1032,6 +1084,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
       onUpdated({ ...pr, ...data.data })
       toast.success(`${item.nama_barang} ditandai sudah dibeli.`)
     } catch (err) {
+      onUpdated({ ...pr, items: previousItems })
       toast.error(err instanceof Error ? err.message : "Gagal menandai item sebagai dibeli.")
     } finally {
       setSavingItemId(null)

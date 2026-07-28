@@ -31,23 +31,6 @@ async function logActivity(input: {
   }).catch(() => { /* activity log is best-effort */ })
 }
 
-async function fetchFullRecord(id: string) {
-  const res = await fetch(
-    `${supabaseConfig.url}/rest/v1/purchase_requests` +
-    `?id=eq.${id}&select=*,purchase_request_items(*),purchase_request_surat_jalan(*)`,
-    { headers: headers() }
-  )
-  if (!res.ok) throw new Error(await res.text())
-  const [row] = await res.json()
-  if (!row) return null
-  const { purchase_request_items, purchase_request_surat_jalan, ...rest } = row
-  return {
-    ...rest,
-    items:                 purchase_request_items ?? [],
-    surat_jalan_documents: purchase_request_surat_jalan ?? [],
-  }
-}
-
 type ItemRow = {
   id:                  string
   fulfillment_source:  string
@@ -57,43 +40,62 @@ type ItemRow = {
   parent_item_id:      string | null
 }
 
-async function loadPrAndItem(id: string, itemId: string) {
+async function loadPr(id: string) {
   const prRes = await fetch(
     `${supabaseConfig.url}/rest/v1/purchase_requests` +
-    `?id=eq.${id}&select=id,pr_no,status,purchase_request_items(id,fulfillment_source,po_number,procurement_status,warehouse_status,parent_item_id)`,
+    `?id=eq.${id}&select=*,purchase_request_items(*),purchase_request_surat_jalan(*)`,
     { headers: headers() }
   )
   if (!prRes.ok) throw new Error(await prRes.text())
-  const [pr] = await prRes.json()
-  if (!pr) return { pr: null, items: [], item: null }
-  const items = (pr.purchase_request_items ?? []) as ItemRow[]
-  const item = items.find(it => it.id === itemId) ?? null
-  return { pr, items, item }
+  const [row] = await prRes.json()
+  if (!row) return null
+  const { purchase_request_items, purchase_request_surat_jalan, ...prHeader } = row
+  return {
+    prHeader,
+    items:                 (purchase_request_items ?? []) as ItemRow[],
+    surat_jalan_documents: purchase_request_surat_jalan ?? [],
+  }
 }
 
-async function persistDerivedStatus(
+// See persistDerivedStatusInBackground in ../route.ts for the rationale —
+// this is a derived, display-only aggregate; a failed/delayed write here
+// only leaves it briefly stale, so it doesn't need to block the response.
+function persistDerivedStatusInBackground(
   id: string,
-  pr: { status: string; pr_no: string },
+  pr: { pr_no: string; status: string },
+  nextStatus: string,
+  headerPatch: Record<string, unknown>
+) {
+  fetch(`${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`, {
+    method: "PATCH", headers: headers(), body: JSON.stringify(headerPatch),
+  })
+    .then(res => { if (!res.ok) return res.text().then(text => Promise.reject(new Error(text))) })
+    .then(() => {
+      logActivity({
+        action:   "PR_STATUS_CHANGED",
+        entityId: id,
+        summary:  `PR ${pr.pr_no} status diubah dari ${pr.status} ke ${nextStatus}`,
+        payload:  { from: pr.status, to: nextStatus },
+      })
+    })
+    .catch(err => console.error(`Failed to persist derived status for PR ${id}:`, err))
+}
+
+function deriveAndRespond(
+  id: string,
+  prHeader: Record<string, unknown> & { status: string; pr_no: string },
+  surat_jalan_documents: unknown[],
   itemsAfter: ItemRow[]
 ) {
-  const nextStatus = deriveOverallStatus(itemsAfter, pr.status as never)
-  if (nextStatus !== pr.status) {
+  const nextStatus = deriveOverallStatus(itemsAfter, prHeader.status as never)
+  let responseHeader = prHeader
+  if (nextStatus !== prHeader.status) {
     const headerPatch: Record<string, unknown> = { status: nextStatus }
     if (nextStatus === "COMPLETED") headerPatch.sj_status = "BILLING_READY"
-
-    const headerRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${id}`,
-      { method: "PATCH", headers: headers(), body: JSON.stringify(headerPatch) }
-    )
-    if (!headerRes.ok) throw new Error(await headerRes.text())
-
-    logActivity({
-      action:   "PR_STATUS_CHANGED",
-      entityId: id,
-      summary:  `PR ${pr.pr_no} status diubah dari ${pr.status} ke ${nextStatus}`,
-      payload:  { from: pr.status, to: nextStatus },
-    })
+    responseHeader = { ...prHeader, ...headerPatch }
+    persistDerivedStatusInBackground(id, prHeader, nextStatus, headerPatch)
   }
+  return { ...responseHeader, items: itemsAfter, surat_jalan_documents }
 }
 
 // Splits a pre-pipeline item into a BELI_BARU remainder (this item id, qty
@@ -101,7 +103,8 @@ async function persistDerivedStatus(
 // id) for the split-off qty. Delegates the atomic mutate+insert to
 // fn_split_purchase_request_item (see the 20260730 migration) — every
 // status-rules.ts predicate already operates per-item over the full items
-// array, so no other endpoint needs to change.
+// array, so no other endpoint needs to change. Only two DB round trips on
+// the critical path: the upfront fetch and the RPC call itself.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; itemId: string }> }
@@ -114,11 +117,13 @@ export async function POST(
       return NextResponse.json({ error: "stok_internal_qty harus lebih dari 0" }, { status: 400 })
     }
 
-    const { pr, items, item } = await loadPrAndItem(id, itemId)
-    if (!pr) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
+    const loaded = await loadPr(id)
+    if (!loaded) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
+    const { prHeader, items, surat_jalan_documents } = loaded
+    const item = items.find(it => it.id === itemId)
     if (!item) return NextResponse.json({ error: "Item not found on this PR" }, { status: 404 })
 
-    if (pr.status === "DRAFT" || pr.status === "REJECTED") {
+    if (prHeader.status === "DRAFT" || prHeader.status === "REJECTED") {
       return NextResponse.json(
         { error: "Item hanya dapat diubah setelah PR disetujui dan sebelum ditolak" },
         { status: 400 }
@@ -144,9 +149,7 @@ export async function POST(
       ...(childAfter ? [childAfter] : []),
     ]
 
-    await persistDerivedStatus(id, pr, itemsAfter)
-
-    const data = await fetchFullRecord(id)
+    const data = deriveAndRespond(id, prHeader, surat_jalan_documents, itemsAfter)
     return NextResponse.json({ data })
   } catch (error) {
     return NextResponse.json(
@@ -168,8 +171,10 @@ export async function DELETE(
   try {
     const { id, itemId } = await params
 
-    const { pr, items, item } = await loadPrAndItem(id, itemId)
-    if (!pr) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
+    const loaded = await loadPr(id)
+    if (!loaded) return NextResponse.json({ error: "Purchase request not found" }, { status: 404 })
+    const { prHeader, items, surat_jalan_documents } = loaded
+    const item = items.find(it => it.id === itemId)
     if (!item) return NextResponse.json({ error: "Item not found on this PR" }, { status: 404 })
     if (!item.parent_item_id) {
       return NextResponse.json({ error: "Item ini bukan hasil split" }, { status: 400 })
@@ -188,9 +193,7 @@ export async function DELETE(
       parentAfter,
     ]
 
-    await persistDerivedStatus(id, pr, itemsAfter)
-
-    const data = await fetchFullRecord(id)
+    const data = deriveAndRespond(id, prHeader, surat_jalan_documents, itemsAfter)
     return NextResponse.json({ data })
   } catch (error) {
     return NextResponse.json(
