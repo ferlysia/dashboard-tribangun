@@ -57,7 +57,11 @@ export async function POST(request: Request) {
       site_id:        row.site_id,
       scheduled_date: row.scheduled_date,
       status:         row.status ?? "PLANNED",
-      assignee:       row.assignee ?? null,
+      // Always optional, empty by default — never pre-filled, including on
+      // recurring/batch-generated visits (technicians are assigned
+      // dynamically ~1 week before the visit, not at scheduling time).
+      assignees:      Array.isArray(row.assignees) ? row.assignees : [],
+      unit_count:     row.unit_count ?? null,
       notes:          row.notes ?? null,
     }))
 

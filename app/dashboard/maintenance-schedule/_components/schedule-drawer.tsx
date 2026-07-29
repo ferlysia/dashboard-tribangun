@@ -10,7 +10,7 @@ import { Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import type { PmSchedule, PmScheduleStatus } from "@/types/pm-schedule"
 import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
-import { AssigneeInput } from "./assignee-input"
+import { AssigneesInput } from "./assignees-input"
 import { getLegalNextStatuses } from "@/lib/pm-schedule/status-rules"
 import { useDeleteSchedule, useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
@@ -27,13 +27,15 @@ export function ScheduleDrawer({ schedule, month, assigneeOptions, onClose }: {
   const updateSchedule = useUpdateSchedule(month)
   const deleteSchedule = useDeleteSchedule(month)
   const [notesDraft, setNotesDraft] = React.useState<string | null>(null)
+  const [unitDraft, setUnitDraft] = React.useState<string | null>(null)
 
-  React.useEffect(() => { setNotesDraft(null) }, [schedule?.id])
+  React.useEffect(() => { setNotesDraft(null); setUnitDraft(null) }, [schedule?.id])
 
   if (!schedule) return null
 
   const legalNext = getLegalNextStatuses(schedule.status)
   const notesValue = notesDraft ?? schedule.notes ?? ""
+  const unitValue = unitDraft ?? (schedule.unit_count != null ? String(schedule.unit_count) : "")
 
   const commitStatus = (status: PmScheduleStatus) => {
     updateSchedule.mutate({ id: schedule.id, status })
@@ -43,6 +45,18 @@ export function ScheduleDrawer({ schedule, month, assigneeOptions, onClose }: {
     const next = notesValue.trim() || null
     if (next === (schedule.notes ?? null)) return
     updateSchedule.mutate({ id: schedule.id, notes: next })
+  }
+
+  const commitUnitBlur = () => {
+    const trimmed = unitValue.trim()
+    const next = trimmed === "" ? null : Number(trimmed)
+    if (next === schedule.unit_count) return
+    if (next !== null && (!Number.isInteger(next) || next < 0)) {
+      toast.error("Unit count harus bilangan bulat >= 0")
+      setUnitDraft(schedule.unit_count != null ? String(schedule.unit_count) : "")
+      return
+    }
+    updateSchedule.mutate({ id: schedule.id, unit_count: next })
   }
 
   const handleDelete = () => {
@@ -83,11 +97,27 @@ export function ScheduleDrawer({ schedule, month, assigneeOptions, onClose }: {
 
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">Assignee</Label>
-            <AssigneeInput
-              value={schedule.assignee}
+            <AssigneesInput
+              value={schedule.assignees}
               options={assigneeOptions}
-              onCommit={assignee => updateSchedule.mutate({ id: schedule.id, assignee })}
-              placeholder="Nama teknisi/tim"
+              onChange={assignees => updateSchedule.mutate({ id: schedule.id, assignees })}
+              placeholder="Belum ditugaskan — ditugaskan ~1 minggu sebelum kunjungan"
+            />
+          </div>
+
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">
+              Unit Count Override
+              <span className="font-normal normal-case text-muted-foreground/70"> (default site: {schedule.sites?.unit_count ?? 0})</span>
+            </Label>
+            <input
+              type="number"
+              min={0}
+              value={unitValue}
+              onChange={e => setUnitDraft(e.target.value)}
+              onBlur={commitUnitBlur}
+              placeholder={String(schedule.sites?.unit_count ?? 0)}
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
             />
           </div>
 

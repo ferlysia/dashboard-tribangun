@@ -55,7 +55,7 @@ export function PmScheduleDashboard() {
 
   const kpis = React.useMemo(() => deriveKpis(schedules), [schedules])
   const assigneeOptions = React.useMemo(
-    () => Array.from(new Set(schedules.map(s => s.assignee).filter((a): a is string => !!a))).sort(),
+    () => Array.from(new Set(schedules.flatMap(s => s.assignees))).sort(),
     [schedules]
   )
   const selectedSchedule = schedules.find(s => s.id === selectedId) ?? null
@@ -64,7 +64,7 @@ export function PmScheduleDashboard() {
     <div className="flex flex-col gap-6 p-6 min-h-0">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold text-foreground tracking-tight">PM Maintenance Schedule</h1>
+          <h1 className="text-xl font-semibold text-foreground tracking-tight">Maintenance Schedule</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Perencanaan &amp; dispatch kunjungan preventive maintenance per site
           </p>
@@ -123,7 +123,13 @@ export function PmScheduleDashboard() {
         assigneeOptions={assigneeOptions}
         onClose={() => setSelectedId(null)}
       />
-      <CreateScheduleDialog open={createOpen} onClose={() => setCreateOpen(false)} sites={sites} month={month} />
+      <CreateScheduleDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        sites={sites}
+        month={month}
+        assigneeOptions={assigneeOptions}
+      />
     </div>
   )
 }

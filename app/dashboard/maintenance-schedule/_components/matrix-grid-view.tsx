@@ -4,10 +4,13 @@ import * as React from "react"
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { FileText } from "lucide-react"
 import type { PmSchedule, PmScheduleStatus } from "@/types/pm-schedule"
 import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
-import { AssigneeInput } from "./assignee-input"
+import { AssigneesInput } from "./assignees-input"
 import { getLegalNextStatuses } from "@/lib/pm-schedule/status-rules"
+import { effectiveUnitCount } from "@/lib/pm-schedule/recurring"
 import { useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
 function fDate(iso: string) {
@@ -34,6 +37,8 @@ const GridRow = React.memo(function GridRow({
 }) {
   const updateSchedule = useUpdateSchedule(month)
   const legalNext = getLegalNextStatuses(schedule.status)
+  const unitCount = effectiveUnitCount(schedule, schedule.sites)
+  const isOverridden = schedule.unit_count != null
 
   return (
     <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -62,14 +67,33 @@ const GridRow = React.memo(function GridRow({
         </Select>
       </td>
       <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
-        <AssigneeInput
-          value={schedule.assignee}
+        <AssigneesInput
+          value={schedule.assignees}
           options={assigneeOptions}
-          onCommit={assignee => updateSchedule.mutate({ id: schedule.id, assignee })}
+          onChange={assignees => updateSchedule.mutate({ id: schedule.id, assignees })}
         />
       </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground truncate max-w-[240px]" title={schedule.notes ?? ""}>
-        {schedule.notes || "—"}
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap" title={isOverridden ? `Override: ${schedule.unit_count} (default site: ${schedule.sites?.unit_count ?? 0})` : "Mengikuti default site"}>
+        {isOverridden ? `${schedule.unit_count}/${schedule.sites?.unit_count ?? 0}` : unitCount}
+      </td>
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-center">
+        <Checkbox
+          checked={schedule.report_submitted}
+          disabled={schedule.status !== "COMPLETED"}
+          onCheckedChange={checked => updateSchedule.mutate({ id: schedule.id, report_submitted: checked === true })}
+          title={schedule.status !== "COMPLETED" ? "Hanya berlaku setelah status Done" : "Laporan sudah disubmit"}
+        />
+      </td>
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800">
+        <button
+          type="button"
+          onClick={() => onOpenDrawer(schedule.id)}
+          title={schedule.notes ?? "Tambah catatan"}
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors truncate max-w-[200px]"
+        >
+          <FileText className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{schedule.notes || "Catatan"}</span>
+        </button>
       </td>
     </tr>
   )
@@ -85,6 +109,8 @@ const columns: ColumnDef<PmSchedule>[] = [
   { id: "date",     header: "Tanggal" },
   { id: "status",   header: "Status" },
   { id: "assignee", header: "Assignee" },
+  { id: "unit",     header: "Unit" },
+  { id: "report",   header: "Laporan" },
   { id: "notes",    header: "Catatan" },
 ]
 

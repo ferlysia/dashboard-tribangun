@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { PmScheduleQueryProvider } from "./_lib/query-client"
 import { PmScheduleDashboard } from "./_components/pm-schedule-dashboard"
 
-export default function PmMaintenanceSchedulePage() {
+export default function MaintenanceSchedulePage() {
   return (
     <PmScheduleQueryProvider>
       <SidebarProvider>

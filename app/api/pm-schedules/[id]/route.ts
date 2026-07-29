@@ -48,7 +48,23 @@ export async function PATCH(
       patch.completed_at = body.status === "COMPLETED" ? new Date().toISOString() : null
     }
 
-    if (body.assignee !== undefined) patch.assignee = String(body.assignee ?? "").trim() || null
+    if (body.assignees !== undefined) {
+      if (!Array.isArray(body.assignees) || !body.assignees.every((a: unknown) => typeof a === "string")) {
+        return NextResponse.json({ error: "assignees must be an array of strings" }, { status: 400 })
+      }
+      patch.assignees = body.assignees
+    }
+    if (body.unit_count !== undefined) {
+      if (body.unit_count !== null) {
+        const n = Number(body.unit_count)
+        if (!Number.isInteger(n) || n < 0) {
+          return NextResponse.json({ error: "unit_count harus bilangan bulat >= 0" }, { status: 400 })
+        }
+        patch.unit_count = n
+      } else {
+        patch.unit_count = null
+      }
+    }
     if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null
     if (body.scheduled_date !== undefined) patch.scheduled_date = body.scheduled_date
     if (body.report_submitted !== undefined) patch.report_submitted = Boolean(body.report_submitted)

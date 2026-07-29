@@ -44,7 +44,8 @@ export function useSchedulesQuery(month: string) {
 export interface SchedulePatch {
   id:                string
   status?:           PmScheduleStatus
-  assignee?:         string | null
+  assignees?:        string[]
+  unit_count?:       number | null
   notes?:            string | null
   scheduled_date?:   string
   report_submitted?: boolean
@@ -104,7 +105,11 @@ export interface NewSchedule {
   site_id:        string
   scheduled_date: string
   status?:        PmScheduleStatus
-  assignee?:      string | null
+  // Always optional, defaults to [] — never pre-filled at creation time,
+  // including by the recurring generator (see lib/pm-schedule/recurring.ts
+  // and the migration comment on pm_schedules.assignees).
+  assignees?:     string[]
+  unit_count?:    number | null
   notes?:         string | null
 }
 
@@ -113,7 +118,28 @@ export function useCreateSchedule(month: string) {
   const key = schedulesQueryKey(month)
 
   return useMutation({
-    mutationFn: (rows: NewSchedule | NewSchedule[]) =>
+    mutationFn: (row: NewSchedule) =>
+      fetchJson<PmSchedule[]>("/api/pm-schedules", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(row),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+// Recurring generator posts N visit rows in one request — the API already
+// batch-inserts an array body (see app/api/pm-schedules/route.ts). Kept as
+// its own hook (distinct from useCreateSchedule) so call sites are explicit
+// about single-visit vs batch intent, even though both hit the same endpoint.
+export function useCreateBatchSchedules(month: string) {
+  const queryClient = useQueryClient()
+  const key = schedulesQueryKey(month)
+
+  return useMutation({
+    mutationFn: (rows: NewSchedule[]) =>
       fetchJson<PmSchedule[]>("/api/pm-schedules", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,6 +147,24 @@ export function useCreateSchedule(month: string) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: key })
+    },
+  })
+}
+
+// Sites change rarely but unit_count is explicitly "editable anytime" (e.g.
+// Sales upsells more units) — powers the inline edit in Sites Overview.
+export function useUpdateSite() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (patch: { id: string; unit_count?: number; name?: string; is_active?: boolean }) =>
+      fetchJson<Site>(`/api/sites/${patch.id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(patch),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sitesQueryKey })
     },
   })
 }

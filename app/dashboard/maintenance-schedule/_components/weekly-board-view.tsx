@@ -3,6 +3,7 @@
 import * as React from "react"
 import { DndContext, useDraggable, useDroppable, type DragEndEvent } from "@dnd-kit/core"
 import { toast } from "sonner"
+import { CheckCircle2 } from "lucide-react"
 import type { PmSchedule } from "@/types/pm-schedule"
 import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
 import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
@@ -20,8 +21,9 @@ function fDate(iso: string) {
   return new Date(iso).toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" })
 }
 
-function Card({ schedule }: { schedule: PmSchedule }) {
+function Card({ schedule, month }: { schedule: PmSchedule; month: string }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: schedule.id })
+  const updateSchedule = useUpdateSchedule(month)
   const style: React.CSSProperties = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 }
     : {}
@@ -30,20 +32,39 @@ function Card({ schedule }: { schedule: PmSchedule }) {
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
-      {...attributes}
-      className={`rounded-lg border border-border bg-card p-3 cursor-grab active:cursor-grabbing shadow-sm ${isDragging ? "opacity-50" : ""}`}
+      className={`rounded-lg border border-border bg-card p-3 shadow-sm ${isDragging ? "opacity-50" : ""}`}
     >
-      <p className="text-xs font-medium text-foreground">{schedule.sites?.name ?? "—"}</p>
-      <p className="text-[11px] text-muted-foreground mt-0.5">{fDate(schedule.scheduled_date)}</p>
-      {schedule.assignee && (
-        <p className="text-[11px] text-muted-foreground mt-1.5">👤 {schedule.assignee}</p>
+      <div {...listeners} {...attributes} className="cursor-grab active:cursor-grabbing">
+        <p className="text-xs font-medium text-foreground">{schedule.sites?.name ?? "—"}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{fDate(schedule.scheduled_date)}</p>
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {schedule.assignees.length > 0 ? (
+            schedule.assignees.map(name => (
+              <span key={name} className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100">
+                {name}
+              </span>
+            ))
+          ) : (
+            <span className="text-[10px] text-muted-foreground italic">Belum ditugaskan</span>
+          )}
+        </div>
+      </div>
+      {schedule.status === "COMPLETED" && (
+        <button
+          type="button"
+          onClick={() => updateSchedule.mutate({ id: schedule.id, report_submitted: !schedule.report_submitted })}
+          title={schedule.report_submitted ? "Laporan sudah disubmit" : "Tandai laporan sudah disubmit"}
+          className={`mt-2 flex items-center gap-1 text-[10px] font-medium ${schedule.report_submitted ? "text-green-600 dark:text-green-400" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <CheckCircle2 className="h-3 w-3" />
+          {schedule.report_submitted ? "Laporan submitted" : "Tandai laporan"}
+        </button>
       )}
     </div>
   )
 }
 
-function Column({ status, schedules }: { status: PmSchedule["status"]; schedules: PmSchedule[] }) {
+function Column({ status, schedules, month }: { status: PmSchedule["status"]; schedules: PmSchedule[]; month: string }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
   return (
     <div
@@ -55,7 +76,7 @@ function Column({ status, schedules }: { status: PmSchedule["status"]; schedules
         <span className="text-[11px] text-muted-foreground">{schedules.length}</span>
       </div>
       <div className="flex flex-col gap-2">
-        {schedules.map(s => <Card key={s.id} schedule={s} />)}
+        {schedules.map(s => <Card key={s.id} schedule={s} month={month} />)}
       </div>
     </div>
   )
@@ -112,7 +133,7 @@ export function WeeklyBoardView({ schedules, month }: { schedules: PmSchedule[];
     <DndContext onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {STATUS_OPTIONS.map(status => (
-          <Column key={status} status={status} schedules={weekSchedules.filter(s => s.status === status)} />
+          <Column key={status} status={status} schedules={weekSchedules.filter(s => s.status === status)} month={month} />
         ))}
       </div>
     </DndContext>
