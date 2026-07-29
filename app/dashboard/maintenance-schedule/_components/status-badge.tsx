@@ -2,15 +2,15 @@ import type { PmScheduleStatus } from "@/types/pm-schedule"
 
 // Deliberately NOT the pale bg-{c}-50/text-{c}-700 convention used
 // elsewhere in the app (purchasing-request, maintenance-assets) — this page
-// specifically wants the Monday.com "solid pill" look: saturated background,
-// white text, high contrast against a plain grid. Planned stays a softer
-// neutral tone on purpose (it's the "nothing's happened yet" state).
+// wants the exact Monday.com palette: solid, saturated hex backgrounds with
+// white text, unchanged between light/dark (Monday's own status colors
+// don't shift per theme either).
 export const STATUS_CFG: Record<PmScheduleStatus, { label: string; badge: string }> = {
-  PLANNED:     { label: "Planned",       badge: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100" },
-  ANNOUNCED:   { label: "Announced",     badge: "bg-cyan-500 text-white dark:bg-cyan-600" },
-  IN_PROGRESS: { label: "Working on it", badge: "bg-blue-500 text-white dark:bg-blue-600" },
-  COMPLETED:   { label: "Done",          badge: "bg-green-500 text-white dark:bg-green-600" },
-  RESCHEDULED: { label: "Rescheduled",   badge: "bg-orange-500 text-white dark:bg-orange-600" },
+  PLANNED:     { label: "Planned",       badge: "bg-[#A25DDC] text-white" },
+  ANNOUNCED:   { label: "Announced",     badge: "bg-[#579BFC] text-white" },
+  IN_PROGRESS: { label: "Working on it", badge: "bg-[#FDAB3D] text-white" },
+  COMPLETED:   { label: "Done",          badge: "bg-[#00C875] text-white" },
+  RESCHEDULED: { label: "Rescheduled",   badge: "bg-[#E2445C] text-white" },
 }
 
 export const STATUS_OPTIONS: PmScheduleStatus[] = ["PLANNED", "ANNOUNCED", "IN_PROGRESS", "COMPLETED", "RESCHEDULED"]

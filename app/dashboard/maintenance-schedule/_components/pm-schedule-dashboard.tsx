@@ -5,11 +5,11 @@ import { ChevronLeft, ChevronRight, Plus, LayoutGrid, Kanban, Building2, Calenda
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { deriveKpis } from "@/lib/pm-schedule/status-rules"
-import { useSchedulesQuery, useSitesQuery } from "../_hooks/use-pm-schedules"
+import { useAllSchedulesQuery, useSchedulesQuery, useSitesQuery } from "../_hooks/use-pm-schedules"
 import { KpiBar } from "./kpi-bar"
 import { MatrixGridView } from "./matrix-grid-view"
 import { WeeklyBoardView } from "./weekly-board-view"
-import { SitesOverviewView } from "./sites-overview-view"
+import { AllSitesView } from "./all-sites-view"
 import { CalendarView } from "./calendar-view"
 import { ScheduleDrawer } from "./schedule-drawer"
 import { CreateScheduleDialog } from "./create-schedule-dialog"
@@ -49,6 +49,12 @@ export function PmScheduleDashboard() {
 
   const schedulesQuery = useSchedulesQuery(month)
   const sitesQuery = useSitesQuery()
+  // Shared with AllSitesView's own useAllSchedulesQuery() call (same query
+  // key, deduped by React Query) — kept here too so the Drawer can resolve
+  // a selected schedule opened from Calendar or All Sites, both of which
+  // can show visits outside the active month that schedulesQuery alone
+  // wouldn't contain.
+  const allSchedulesQuery = useAllSchedulesQuery()
 
   const schedules = schedulesQuery.data ?? EMPTY_SCHEDULES
   const sites = sitesQuery.data ?? EMPTY_SITES
@@ -58,7 +64,10 @@ export function PmScheduleDashboard() {
     () => Array.from(new Set(schedules.flatMap(s => s.assignees))).sort(),
     [schedules]
   )
-  const selectedSchedule = schedules.find(s => s.id === selectedId) ?? null
+  const selectedSchedule =
+    schedules.find(s => s.id === selectedId) ??
+    allSchedulesQuery.data?.find(s => s.id === selectedId) ??
+    null
 
   return (
     <div className="flex flex-col gap-6 p-6 min-h-0">
@@ -90,7 +99,7 @@ export function PmScheduleDashboard() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="h-9">
           <TabsTrigger value="matrix" className="text-xs gap-1.5"><LayoutGrid className="h-3.5 w-3.5" /> Matrix Grid</TabsTrigger>
-          <TabsTrigger value="board" className="text-xs gap-1.5"><Kanban className="h-3.5 w-3.5" /> Rekap Senin</TabsTrigger>
+          <TabsTrigger value="board" className="text-xs gap-1.5"><Kanban className="h-3.5 w-3.5" /> Status</TabsTrigger>
           <TabsTrigger value="sites" className="text-xs gap-1.5"><Building2 className="h-3.5 w-3.5" /> All Sites</TabsTrigger>
           <TabsTrigger value="calendar" className="text-xs gap-1.5"><CalendarDays className="h-3.5 w-3.5" /> Calendar</TabsTrigger>
         </TabsList>
@@ -102,13 +111,13 @@ export function PmScheduleDashboard() {
         ) : (
           <>
             <TabsContent value="matrix" className="mt-4">
-              <MatrixGridView schedules={schedules} month={month} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
+              <MatrixGridView schedules={schedules} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
             </TabsContent>
             <TabsContent value="board" className="mt-4">
-              <WeeklyBoardView schedules={schedules} month={month} />
+              <WeeklyBoardView schedules={schedules} />
             </TabsContent>
             <TabsContent value="sites" className="mt-4">
-              <SitesOverviewView sites={sites} schedules={schedules} monthLabel={monthLabel(month)} />
+              <AllSitesView sites={sites} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
             </TabsContent>
             <TabsContent value="calendar" className="mt-4">
               <CalendarView anchorMonth={month} onOpenDrawer={setSelectedId} />
@@ -119,7 +128,6 @@ export function PmScheduleDashboard() {
 
       <ScheduleDrawer
         schedule={selectedSchedule}
-        month={month}
         assigneeOptions={assigneeOptions}
         onClose={() => setSelectedId(null)}
       />

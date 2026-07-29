@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { PmSchedule, PmScheduleStatus, Site } from "@/types/pm-schedule"
+import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
 
 async function safeJson(res: Response) {
   const text = await res.text()
@@ -61,9 +62,19 @@ export interface SchedulePatch {
 // board's drag-drop handler, and the drawer's edit form — so an edit made
 // in any of them behaves the same way everywhere (optimistic apply,
 // rollback on failure).
-export function useUpdateSchedule(month: string) {
+//
+// Not scoped to a single month's cache — a schedule row can be reached (via
+// the Drawer, or the shared ScheduleTableRow) from a view showing a
+// *different* month than whatever the global month picker currently says
+// (Calendar and All Sites both render other months' rows). Scoping the
+// optimistic write to just one month key would silently update the wrong
+// cache entry for those cases. Instead this writes through every
+// currently-cached pm-schedules query (any month already loaded, plus the
+// "all" query All Sites uses) via setQueriesData's partial-key matching, so
+// whichever cache actually holds this row gets updated no matter where the
+// edit came from.
+export function useUpdateSchedule() {
   const queryClient = useQueryClient()
-  const key = schedulesQueryKey(month)
 
   return useMutation({
     mutationFn: (patch: SchedulePatch) =>
@@ -73,17 +84,17 @@ export function useUpdateSchedule(month: string) {
         body:    JSON.stringify(patch),
       }),
     onMutate: async (patch) => {
-      await queryClient.cancelQueries({ queryKey: key })
-      const previous = queryClient.getQueryData<PmSchedule[]>(key)
-      queryClient.setQueryData<PmSchedule[]>(key, old =>
+      await queryClient.cancelQueries({ queryKey: schedulesQueryKeyPrefix })
+      const previousEntries = queryClient.getQueriesData<PmSchedule[]>({ queryKey: schedulesQueryKeyPrefix })
+      queryClient.setQueriesData<PmSchedule[]>({ queryKey: schedulesQueryKeyPrefix }, old =>
         old?.map(s => (s.id === patch.id ? { ...s, ...patch } : s)))
-      return { previous }
+      return { previousEntries }
     },
     onError: (_err, _patch, context) => {
-      if (context?.previous) queryClient.setQueryData(key, context.previous)
+      context?.previousEntries.forEach(([key, data]) => queryClient.setQueryData(key, data))
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: key })
+      queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
     },
   })
 }
@@ -175,24 +186,88 @@ export function useUpdateSite() {
   })
 }
 
-export function useDeleteSchedule(month: string) {
+// All Sites reads the entire dataset once (no month filter — the route
+// already supports omitting it) rather than mirroring Calendar's per-month
+// fetch pattern: at this app's real scale (~20 sites) one unfiltered fetch
+// is simpler, and both All Sites grouping modes (By Month & Week, By Site)
+// derive from this single cached list via useMemo, so toggling between them
+// is instant with no refetch.
+export const allSchedulesQueryKey = ["pm-schedules", "all"] as const
+
+export function useAllSchedulesQuery() {
+  return useQuery({
+    queryKey: allSchedulesQueryKey,
+    queryFn:  () => fetchJson<PmSchedule[]>("/api/pm-schedules"),
+  })
+}
+
+export interface BulkStatusItem {
+  id:            string
+  currentStatus: PmScheduleStatus
+}
+
+// Backs All Sites' bulk action bar. Each row's current status is checked
+// against the target with the same isLegalStatusChange used everywhere else
+// in the app — illegal transitions are silently skipped rather than failing
+// the whole batch, and the caller gets a succeeded/skipped count to toast.
+// Loops the existing single-item PATCH endpoint (no new bulk route) —
+// consistent with how every other mutation in this app works; a batch POST
+// only exists for schedule *creation* because Postgres can insert an array
+// in one round trip, which PATCH/DELETE-per-row has no equivalent for.
+export function useBulkUpdateStatus() {
   const queryClient = useQueryClient()
-  const key = schedulesQueryKey(month)
+
+  return useMutation({
+    mutationFn: async ({ items, targetStatus }: { items: BulkStatusItem[]; targetStatus: PmScheduleStatus }) => {
+      const legal = items.filter(i => isLegalStatusChange(i.currentStatus, targetStatus))
+      await Promise.all(legal.map(i =>
+        fetchJson<PmSchedule>(`/api/pm-schedules/${i.id}`, {
+          method:  "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ status: targetStatus }),
+        })
+      ))
+      return { succeeded: legal.length, skipped: items.length - legal.length }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
+    },
+  })
+}
+
+export function useBulkDeleteSchedules() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      await Promise.all(ids.map(id => fetchJson<{ id: string }>(`/api/pm-schedules/${id}`, { method: "DELETE" })))
+      return { deleted: ids.length }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
+    },
+  })
+}
+
+// Same cross-month-safe cache targeting as useUpdateSchedule above — a
+// delete triggered via the Drawer can be for a row from any month.
+export function useDeleteSchedule() {
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (id: string) =>
       fetchJson<{ id: string }>(`/api/pm-schedules/${id}`, { method: "DELETE" }),
     onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: key })
-      const previous = queryClient.getQueryData<PmSchedule[]>(key)
-      queryClient.setQueryData<PmSchedule[]>(key, old => old?.filter(s => s.id !== id))
-      return { previous }
+      await queryClient.cancelQueries({ queryKey: schedulesQueryKeyPrefix })
+      const previousEntries = queryClient.getQueriesData<PmSchedule[]>({ queryKey: schedulesQueryKeyPrefix })
+      queryClient.setQueriesData<PmSchedule[]>({ queryKey: schedulesQueryKeyPrefix }, old => old?.filter(s => s.id !== id))
+      return { previousEntries }
     },
     onError: (_err, _id, context) => {
-      if (context?.previous) queryClient.setQueryData(key, context.previous)
+      context?.previousEntries.forEach(([key, data]) => queryClient.setQueryData(key, data))
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: key })
+      queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
     },
   })
 }

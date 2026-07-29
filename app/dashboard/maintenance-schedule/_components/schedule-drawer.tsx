@@ -18,14 +18,13 @@ import { useDeleteSchedule, useUpdateSchedule } from "../_hooks/use-pm-schedules
 // current view. Every edit goes through the same useUpdateSchedule mutation
 // the grid and board use, so status changes made here show up there
 // immediately (shared query cache).
-export function ScheduleDrawer({ schedule, month, assigneeOptions, onClose }: {
+export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
   schedule:         PmSchedule | null
-  month:            string
   assigneeOptions:  string[]
   onClose:          () => void
 }) {
-  const updateSchedule = useUpdateSchedule(month)
-  const deleteSchedule = useDeleteSchedule(month)
+  const updateSchedule = useUpdateSchedule()
+  const deleteSchedule = useDeleteSchedule()
   const [notesDraft, setNotesDraft] = React.useState<string | null>(null)
   const [unitDraft, setUnitDraft] = React.useState<string | null>(null)
 

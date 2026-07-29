@@ -9,21 +9,13 @@ import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
 import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
 import { useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
-function startOfWeek(date: Date) {
-  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
-  const day = d.getUTCDay() // 0 = Sunday
-  const diff = day === 0 ? -6 : 1 - day // shift to Monday
-  d.setUTCDate(d.getUTCDate() + diff)
-  return d
-}
-
 function fDate(iso: string) {
   return new Date(iso).toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" })
 }
 
-function Card({ schedule, month }: { schedule: PmSchedule; month: string }) {
+function Card({ schedule }: { schedule: PmSchedule }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: schedule.id })
-  const updateSchedule = useUpdateSchedule(month)
+  const updateSchedule = useUpdateSchedule()
   const style: React.CSSProperties = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 10 }
     : {}
@@ -64,7 +56,7 @@ function Card({ schedule, month }: { schedule: PmSchedule; month: string }) {
   )
 }
 
-function Column({ status, schedules, month }: { status: PmSchedule["status"]; schedules: PmSchedule[]; month: string }) {
+function Column({ status, schedules }: { status: PmSchedule["status"]; schedules: PmSchedule[] }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
   return (
     <div
@@ -76,42 +68,24 @@ function Column({ status, schedules, month }: { status: PmSchedule["status"]; sc
         <span className="text-[11px] text-muted-foreground">{schedules.length}</span>
       </div>
       <div className="flex flex-col gap-2">
-        {schedules.map(s => <Card key={s.id} schedule={s} month={month} />)}
+        {schedules.map(s => <Card key={s.id} schedule={s} />)}
       </div>
     </div>
   )
 }
 
-// "Rekap Senin" dispatch board — the current real calendar week's visits
-// (Monday-Sunday), always scoped to the already-loaded active month's data
-// (no separate fetch). If the selected month doesn't contain today, there's
-// nothing to show here — that's a deliberate consequence of the "one shared
-// query per month" strategy, not a bug: switch the month picker to the
-// current month to dispatch this week's visits.
-export function WeeklyBoardView({ schedules, month }: { schedules: PmSchedule[]; month: string }) {
-  const updateSchedule = useUpdateSchedule(month)
-
-  // Computed once per mount, not on every render — "the current week" only
-  // needs to change if this view stays mounted across a week boundary.
-  const [weekStart, weekEnd] = React.useMemo(() => {
-    const start = startOfWeek(new Date())
-    const end = new Date(start)
-    end.setUTCDate(end.getUTCDate() + 7)
-    return [start, end]
-  }, [])
-
-  const weekSchedules = React.useMemo(
-    () => schedules.filter(s => {
-      const d = new Date(s.scheduled_date)
-      return d >= weekStart && d < weekEnd
-    }),
-    [schedules, weekStart, weekEnd]
-  )
+// "Status" board (formerly "Rekap Senin") — every visit in the active
+// month, grouped into Kanban columns by status. Scoped to the whole month
+// (not just the current calendar week) so it stays populated regardless of
+// which month is selected, e.g. navigating to November 2026 still shows
+// that month's visits instead of an empty board.
+export function WeeklyBoardView({ schedules }: { schedules: PmSchedule[] }) {
+  const updateSchedule = useUpdateSchedule()
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
     if (!over) return
-    const schedule = weekSchedules.find(s => s.id === active.id)
+    const schedule = schedules.find(s => s.id === active.id)
     const targetStatus = over.id as PmSchedule["status"]
     if (!schedule || schedule.status === targetStatus) return
     if (!isLegalStatusChange(schedule.status, targetStatus)) {
@@ -121,10 +95,10 @@ export function WeeklyBoardView({ schedules, month }: { schedules: PmSchedule[];
     updateSchedule.mutate({ id: schedule.id, status: targetStatus })
   }
 
-  if (weekSchedules.length === 0) {
+  if (schedules.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-        Tidak ada kunjungan minggu ini di bulan yang dipilih. Pilih bulan berjalan untuk dispatch Senin pagi.
+        Tidak ada kunjungan di bulan yang dipilih.
       </div>
     )
   }
@@ -133,7 +107,7 @@ export function WeeklyBoardView({ schedules, month }: { schedules: PmSchedule[];
     <DndContext onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {STATUS_OPTIONS.map(status => (
-          <Column key={status} status={status} schedules={weekSchedules.filter(s => s.status === status)} month={month} />
+          <Column key={status} status={status} schedules={schedules.filter(s => s.status === status)} />
         ))}
       </div>
     </DndContext>

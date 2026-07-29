@@ -31,6 +31,16 @@ export function isPendingReport(schedule: Pick<PmSchedule, "status" | "report_su
   return schedule.status === "COMPLETED" && !schedule.report_submitted
 }
 
+// "Completed Visits" KPI — deliberately stricter than isCompleted (which
+// only checks status). A visit marked Done but whose report hasn't been
+// submitted yet is NOT "fully done" — it's still a Pending Report. Using
+// isCompleted here would double-count the same visit in both KPIs at once,
+// which is the bug this predicate fixes: Completed and Pending Reports must
+// be mutually exclusive.
+export function isFullyDone(schedule: Pick<PmSchedule, "status" | "report_submitted">): boolean {
+  return schedule.status === "COMPLETED" && schedule.report_submitted
+}
+
 export interface ScheduleKpis {
   activeSites:      number
   targetVisits:     number
@@ -47,6 +57,14 @@ export function deriveKpis(schedules: PmSchedule[]): ScheduleKpis {
     activeSites:     siteIds.size,
     targetVisits:    schedules.length,
     pendingReports:  schedules.filter(isPendingReport).length,
-    completedVisits: schedules.filter(isCompleted).length,
+    completedVisits: schedules.filter(isFullyDone).length,
   }
+}
+
+// Groups a set of schedules by which week-of-month their scheduled_date
+// falls in — shared by the Matrix Grid and the All Sites "By Month & Week"
+// view so both group identically.
+export function weekOfMonth(iso: string): number {
+  const day = new Date(iso).getUTCDate()
+  return Math.ceil(day / 7)
 }
