@@ -36,18 +36,18 @@ const GridRow = React.memo(function GridRow({
   const legalNext = getLegalNextStatuses(schedule.status)
 
   return (
-    <tr className="hover:bg-muted/30 transition-colors">
-      <td className="px-3 py-2">
+    <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800">
         <button
           type="button"
           onClick={() => onOpenDrawer(schedule.id)}
-          className="text-left text-foreground font-medium hover:underline underline-offset-2"
+          className="text-left text-foreground font-semibold hover:underline underline-offset-2"
         >
           {schedule.sites?.name ?? "—"}
         </button>
       </td>
-      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{fDate(schedule.scheduled_date)}</td>
-      <td className="px-2 py-2">
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap">{fDate(schedule.scheduled_date)}</td>
+      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
         <Select value={schedule.status} onValueChange={v => updateSchedule.mutate({ id: schedule.id, status: v as PmScheduleStatus })}>
           <SelectTrigger size="sm" className="w-full text-xs border-none bg-transparent shadow-none">
             <SelectValue>
@@ -61,14 +61,14 @@ const GridRow = React.memo(function GridRow({
           </SelectContent>
         </Select>
       </td>
-      <td className="px-2 py-2">
+      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
         <AssigneeInput
           value={schedule.assignee}
           options={assigneeOptions}
           onCommit={assignee => updateSchedule.mutate({ id: schedule.id, assignee })}
         />
       </td>
-      <td className="px-3 py-2 text-muted-foreground truncate max-w-[240px]" title={schedule.notes ?? ""}>
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground truncate max-w-[240px]" title={schedule.notes ?? ""}>
         {schedule.notes || "—"}
       </td>
     </tr>
@@ -128,30 +128,30 @@ export function MatrixGridView({ schedules, month, assigneeOptions, onOpenDrawer
   }
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <table className="w-full text-xs">
+    <div className="rounded-lg border-2 border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+      <table className="w-full text-xs border-collapse">
         <thead>
           {table.getHeaderGroups().map(headerGroup => (
-            <tr key={headerGroup.id} className="border-b border-border bg-muted/30">
+            <tr key={headerGroup.id} className="bg-slate-100 dark:bg-slate-800/70">
               {headerGroup.headers.map(header => (
-                <th key={header.id} className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">
+                <th key={header.id} className="text-left px-3 py-2.5 border border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
                   {flexRender(header.column.columnDef.header, header.getContext())}
                 </th>
               ))}
             </tr>
           ))}
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody>
           {weeks.map(([week, items]) => {
             const collapsed = collapsedWeeks.has(week)
             return (
               <React.Fragment key={week}>
-                <tr className="bg-muted/50">
-                  <td colSpan={columns.length} className="px-3 py-1.5">
+                <tr className="bg-slate-200/70 dark:bg-slate-800">
+                  <td colSpan={columns.length} className="px-3 py-1.5 border border-slate-200 dark:border-slate-800">
                     <button
                       type="button"
                       onClick={() => toggleWeek(week)}
-                      className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground uppercase tracking-wider"
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider"
                     >
                       {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       Week {week}
@@ -173,8 +173,8 @@ export function MatrixGridView({ schedules, month, assigneeOptions, onOpenDrawer
           })}
         </tbody>
         <tfoot>
-          <tr className="border-t border-border bg-muted/30">
-            <td colSpan={columns.length} className="px-3 py-2 text-[11px] text-muted-foreground">
+          <tr className="bg-slate-100 dark:bg-slate-800/70">
+            <td colSpan={columns.length} className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-[11px] font-medium text-slate-600 dark:text-slate-300">
               {schedules.length} total kunjungan ·{" "}
               {STATUS_OPTIONS.map(s => {
                 const count = schedules.filter(item => item.status === s).length

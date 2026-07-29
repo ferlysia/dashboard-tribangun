@@ -81,6 +81,25 @@ export function useUpdateSchedule(month: string) {
   })
 }
 
+// Backs the inline "+ Add New Site" flow in CreateScheduleDialog — sites
+// change rarely (5min staleTime on useSitesQuery above), so a create just
+// invalidates that one query instead of needing its own optimistic patch.
+export function useCreateSite() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (name: string) =>
+      fetchJson<Site>("/api/sites", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: sitesQueryKey })
+    },
+  })
+}
+
 export interface NewSchedule {
   site_id:        string
   scheduled_date: string
