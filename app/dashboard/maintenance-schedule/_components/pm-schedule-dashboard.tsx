@@ -111,7 +111,7 @@ export function PmScheduleDashboard() {
               <SitesOverviewView sites={sites} schedules={schedules} monthLabel={monthLabel(month)} />
             </TabsContent>
             <TabsContent value="calendar" className="mt-4">
-              <CalendarView schedules={schedules} month={month} onOpenDrawer={setSelectedId} />
+              <CalendarView anchorMonth={month} onOpenDrawer={setSelectedId} />
             </TabsContent>
           </>
         )}

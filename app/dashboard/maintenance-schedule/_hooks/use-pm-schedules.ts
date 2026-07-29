@@ -21,6 +21,12 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export const sitesQueryKey = ["sites"] as const
+// Partial key — matches every cached ["pm-schedules", month] query
+// regardless of month. Used when a mutation's effect isn't confined to the
+// currently-active month (e.g. creating a visit dated outside the month
+// currently shown), so every view relying on any month's data gets
+// invalidated, not just the one currently on screen.
+export const schedulesQueryKeyPrefix = ["pm-schedules"] as const
 export const schedulesQueryKey = (month: string) => ["pm-schedules", month] as const
 
 export function useSitesQuery() {

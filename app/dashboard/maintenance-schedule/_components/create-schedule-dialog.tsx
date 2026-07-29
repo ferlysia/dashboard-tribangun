@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSeparator } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
@@ -9,7 +10,7 @@ import { Plus, Wand2 } from "lucide-react"
 import { toast } from "sonner"
 import type { Site } from "@/types/pm-schedule"
 import { computeEvenlySpacedDates } from "@/lib/pm-schedule/recurring"
-import { useCreateBatchSchedules, useCreateSchedule, useCreateSite, type NewSchedule } from "../_hooks/use-pm-schedules"
+import { useCreateBatchSchedules, useCreateSchedule, useCreateSite, schedulesQueryKeyPrefix, type NewSchedule } from "../_hooks/use-pm-schedules"
 import { AssigneesInput } from "./assignees-input"
 
 const NEW_SITE_VALUE = "__new_site__"
@@ -28,6 +29,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, assigneeOpti
   month:            string
   assigneeOptions:  string[]
 }) {
+  const queryClient = useQueryClient()
   const createSchedule = useCreateSchedule(month)
   const createBatch = useCreateBatchSchedules(month)
   const createSite = useCreateSite()
@@ -124,8 +126,17 @@ export function CreateScheduleDialog({ open, onClose, sites, month, assigneeOpti
       unit_count: unitOverride.trim() === "" ? null : Number(unitOverride),
     }
     createSchedule.mutate(row, {
-      onSuccess: () => { toast.success("Jadwal kunjungan dibuat."); onClose() },
-      onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal membuat jadwal."),
+      onSuccess: () => {
+        // Belt-and-braces on top of useCreateSchedule's own invalidation:
+        // the visit's date can land in a different month than the one
+        // currently shown, so invalidate every cached month's query, not
+        // just the active one, to guarantee the Matrix Grid/KPI bar pick
+        // up the new row immediately.
+        queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
+        toast.success("Jadwal kunjungan dibuat.")
+        onClose()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : "Gagal membuat jadwal."),
     })
   }
 
@@ -147,8 +158,15 @@ export function CreateScheduleDialog({ open, onClose, sites, month, assigneeOpti
       unit_count: recurringUnitOverride.trim() === "" ? null : Number(recurringUnitOverride),
     }))
     createBatch.mutate(rows, {
-      onSuccess: () => { toast.success(`${rows.length} jadwal kunjungan dibuat.`); onClose() },
-      onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal membuat jadwal berulang."),
+      onSuccess: () => {
+        // A recurring batch spans many months by design — invalidate every
+        // cached month so whichever one the dashboard is currently showing
+        // (and the KPI bar) reflects the new visits immediately.
+        queryClient.invalidateQueries({ queryKey: schedulesQueryKeyPrefix })
+        toast.success(`${rows.length} jadwal kunjungan dibuat.`)
+        onClose()
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : "Gagal membuat jadwal berulang."),
     })
   }
 
