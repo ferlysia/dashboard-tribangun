@@ -56,6 +56,12 @@ export interface SchedulePatch {
   actual_unit_count?:  number | null
   notes?:              string | null
   scheduled_date?:     string
+  // Set ONLY by the drawer's "Reschedule via Customer" action — tells the
+  // API this date move is client-requested, so it should log to
+  // reschedule_history and force status to RESCHEDULED. Omitted (or false)
+  // for routine internal re-routing, which just moves scheduled_date with
+  // no audit trail and no status change. See app/api/pm-schedules/[id]/route.ts.
+  formal_reschedule?:  boolean
   report_submitted?:   boolean
 }
 

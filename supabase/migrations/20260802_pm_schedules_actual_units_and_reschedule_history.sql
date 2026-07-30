@@ -13,4 +13,4 @@ COMMENT ON COLUMN public.pm_schedules.actual_unit_count IS
 ALTER TABLE public.pm_schedules
   ADD COLUMN reschedule_history JSONB NOT NULL DEFAULT '[]'::jsonb;
 COMMENT ON COLUMN public.pm_schedules.reschedule_history IS
-  'Append-only log of every scheduled_date change: [{"from": "...", "to": "...", "at": "..."}, ...] (ISO date/timestamp strings). Logged on ANY date edit to this row, not just ones made via the RESCHEDULED status, so the original planned date is never silently lost.';
+  'Append-only log of formal, client-requested date moves only: [{"from": "...", "to": "...", "at": "..."}, ...] (ISO date/timestamp strings). Written only when the API receives formal_reschedule=true (the drawer''s "Reschedule via Customer" action), which also forces status to RESCHEDULED. Routine internal re-routing (Lead Tech re-clustering sites by distance ~1 week out) moves scheduled_date WITHOUT touching this column or the status — see app/api/pm-schedules/[id]/route.ts.';

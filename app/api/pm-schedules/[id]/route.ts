@@ -92,16 +92,31 @@ export async function PATCH(
     if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null
     if (body.scheduled_date !== undefined) {
       patch.scheduled_date = body.scheduled_date
-      // Log every date change as a reschedule-history entry, regardless of
-      // status — this is what powers the "Original: Jan 1 -> Rescheduled:
-      // Mar 7" audit trail in the UI, and a plain date correction is just as
-      // worth keeping a record of as an explicit RESCHEDULED-status move.
-      if (body.scheduled_date !== current.scheduled_date) {
+
+      // Two distinct kinds of date move, per real dispatch workflow:
+      //  - Internal re-routing (the default): ~1 week out, the Lead Tech
+      //    re-clusters/re-routes sites by distance/efficiency. This just
+      //    moves scheduled_date — no audit trail, no status change — since
+      //    it's routine ops, not something the client asked for.
+      //  - Formal reschedule (body.formal_reschedule === true, set only by
+      //    the drawer's "Reschedule via Customer" action): the client asked
+      //    to move the visit, so it's logged to reschedule_history AND the
+      //    status is forced to RESCHEDULED, producing the visible
+      //    "Original: Jan 1 -> Rescheduled: Mar 7" audit trail.
+      if (body.formal_reschedule === true && body.scheduled_date !== current.scheduled_date) {
+        if (!isLegalStatusChange(current.status, "RESCHEDULED")) {
+          return NextResponse.json(
+            { error: `Tidak dapat me-reschedule dari status ${current.status}` },
+            { status: 400 }
+          )
+        }
         const history = Array.isArray(current.reschedule_history) ? current.reschedule_history : []
         patch.reschedule_history = [
           ...history,
           { from: current.scheduled_date, to: body.scheduled_date, at: new Date().toISOString() },
         ]
+        patch.status = "RESCHEDULED"
+        patch.completed_at = null
       }
     }
     if (body.report_submitted !== undefined) patch.report_submitted = Boolean(body.report_submitted)

@@ -34,9 +34,10 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
   const [notesDraft, setNotesDraft] = React.useState<string | null>(null)
   const [unitDraft, setUnitDraft] = React.useState<string | null>(null)
   const [actualDraft, setActualDraft] = React.useState<string | null>(null)
+  const [dateDraft, setDateDraft] = React.useState<string | null>(null)
   const [followUpRemainder, setFollowUpRemainder] = React.useState<number | null>(null)
 
-  React.useEffect(() => { setNotesDraft(null); setUnitDraft(null); setActualDraft(null) }, [schedule?.id])
+  React.useEffect(() => { setNotesDraft(null); setUnitDraft(null); setActualDraft(null); setDateDraft(null) }, [schedule?.id])
 
   if (!schedule) return null
 
@@ -45,6 +46,8 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
   const unitValue = unitDraft ?? (schedule.unit_count != null ? String(schedule.unit_count) : "")
   const target = effectiveUnitCount(schedule, schedule.sites)
   const actualValue = actualDraft ?? (schedule.actual_unit_count != null ? String(schedule.actual_unit_count) : String(target))
+  const dateValue = dateDraft ?? schedule.scheduled_date
+  const dateChanged = dateValue !== "" && dateValue !== schedule.scheduled_date
 
   const commitStatus = (status: PmScheduleStatus) => {
     updateSchedule.mutate({ id: schedule.id, status })
@@ -99,6 +102,36 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
     )
   }
 
+  // Internal re-routing — the Lead Tech re-clustering sites by
+  // distance/efficiency ~1 week out. Just moves the visit on the
+  // Calendar/Matrix; no audit trail, no status change, since the client
+  // never asked for this.
+  const handleInternalDateChange = () => {
+    if (!dateChanged) return
+    updateSchedule.mutate(
+      { id: schedule.id, scheduled_date: dateValue },
+      {
+        onSuccess: () => { toast.success("Tanggal diperbarui."); setDateDraft(null) },
+        onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal mengubah tanggal."),
+      }
+    )
+  }
+
+  // Formal reschedule — only when the client/customer requested the move.
+  // Logs to reschedule_history and forces status to RESCHEDULED (see
+  // app/api/pm-schedules/[id]/route.ts), producing the visible audit trail.
+  const handleCustomerReschedule = () => {
+    if (!dateChanged) return
+    if (!window.confirm(`Reschedule kunjungan ini dari ${fDateLong(schedule.scheduled_date)} ke ${fDateLong(dateValue)} atas permintaan customer? Status akan berubah ke Rescheduled dan tercatat di riwayat.`)) return
+    updateSchedule.mutate(
+      { id: schedule.id, scheduled_date: dateValue, formal_reschedule: true },
+      {
+        onSuccess: () => { toast.success("Jadwal di-reschedule dan tercatat di riwayat."); setDateDraft(null) },
+        onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal me-reschedule jadwal."),
+      }
+    )
+  }
+
   const handleDelete = () => {
     if (!window.confirm(`Hapus jadwal kunjungan ${schedule.sites?.name ?? ""}?`)) return
     deleteSchedule.mutate(schedule.id, {
@@ -112,9 +145,7 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
       <SheetContent className="w-full sm:max-w-md p-0 flex flex-col overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{schedule.sites?.name ?? "Site"}</SheetTitle>
-          <SheetDescription>
-            Kunjungan PM terjadwal {new Date(schedule.scheduled_date).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}
-          </SheetDescription>
+          <SheetDescription>Kunjungan PM</SheetDescription>
           {schedule.reschedule_history.length > 0 && (
             <div className="mt-1 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
               <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-300 mb-1">Riwayat Reschedule</p>
@@ -133,6 +164,36 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4">
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1.5 block">Tanggal Kunjungan</Label>
+            <input
+              type="date"
+              value={dateValue}
+              onChange={e => setDateDraft(e.target.value)}
+              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
+            />
+            {dateChanged && (
+              <div className="flex flex-col gap-1.5 mt-2">
+                <Button type="button" size="sm" variant="outline" className="text-xs justify-start h-auto py-1.5" onClick={handleInternalDateChange}>
+                  <span className="flex flex-col items-start">
+                    <span>Ubah Tanggal Aktual</span>
+                    <span className="font-normal text-[10px] text-muted-foreground">Re-routing internal — tanpa reschedule, tanpa riwayat</span>
+                  </span>
+                </Button>
+                <Button
+                  type="button" size="sm" variant="outline"
+                  className="text-xs justify-start h-auto py-1.5 border-amber-400 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                  onClick={handleCustomerReschedule}
+                >
+                  <span className="flex flex-col items-start">
+                    <span>Reschedule via Customer</span>
+                    <span className="font-normal text-[10px] opacity-80">Ubah status ke Rescheduled &amp; catat ke riwayat</span>
+                  </span>
+                </Button>
+              </div>
+            )}
+          </div>
+
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">Status</Label>
             <div className="flex items-center gap-2 mb-2">
