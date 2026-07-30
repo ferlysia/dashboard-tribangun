@@ -1,21 +1,41 @@
 "use client"
 
 import * as React from "react"
-import { FileText } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { PmSchedule, PmScheduleStatus } from "@/types/pm-schedule"
 import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
-import { AssigneesInput } from "./assignees-input"
+import { AssigneeCell } from "./assignee-cell"
+import { UnitCell } from "./unit-cell"
+import { NotesCell } from "./notes-cell"
 import { getLegalNextStatuses } from "@/lib/pm-schedule/status-rules"
-import { effectiveUnitCount } from "@/lib/pm-schedule/recurring"
 import { useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
 function fDate(iso: string) {
   return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })
 }
 
-export const SCHEDULE_TABLE_COLUMN_LABELS = ["Site", "Tanggal", "Status", "Assignee", "Unit", "Laporan", "Catatan"]
+// Compact "original -> new" audit trail for a rescheduled visit — every
+// scheduled_date change is logged server-side (see the 20260802 migration
+// and app/api/pm-schedules/[id]/route.ts), so the very first entry's `from`
+// is the visit's original planned date no matter how many times it's moved
+// since. Renders nothing when a visit has never been rescheduled.
+function DateCell({ schedule }: { schedule: PmSchedule }) {
+  const history = schedule.reschedule_history
+  if (!history || history.length === 0) {
+    return <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap">{fDate(schedule.scheduled_date)}</td>
+  }
+  const original = history[0].from
+  const tooltip = history.map(h => `${fDate(h.from)} -> ${fDate(h.to)}`).join("\n")
+  return (
+    <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap" title={tooltip}>
+      <span className="line-through opacity-60 text-[10px] mr-1">{fDate(original)}</span>
+      <span className="text-foreground font-medium">{fDate(schedule.scheduled_date)}</span>
+    </td>
+  )
+}
+
+export const SCHEDULE_TABLE_COLUMN_LABELS = ["Site", "Tanggal", "Status", "Assignee", "Unit", "Reports", "Catatan"]
 
 // One inline-editable row, shared by the Matrix Grid and the All Sites view
 // (both grouping modes) — status/assignee/unit/report edits go straight
@@ -35,8 +55,6 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
 }) {
   const updateSchedule = useUpdateSchedule()
   const legalNext = getLegalNextStatuses(schedule.status)
-  const unitCount = effectiveUnitCount(schedule, schedule.sites)
-  const isOverridden = schedule.unit_count != null
 
   return (
     <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -57,7 +75,7 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
           {schedule.sites?.name ?? "—"}
         </button>
       </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap">{fDate(schedule.scheduled_date)}</td>
+      <DateCell schedule={schedule} />
       <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
         <Select value={schedule.status} onValueChange={v => updateSchedule.mutate({ id: schedule.id, status: v as PmScheduleStatus })}>
           <SelectTrigger size="sm" className="w-full text-xs border-none bg-transparent shadow-none">
@@ -73,33 +91,24 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
         </Select>
       </td>
       <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
-        <AssigneesInput
+        <AssigneeCell
           value={schedule.assignees}
           options={assigneeOptions}
           onChange={assignees => updateSchedule.mutate({ id: schedule.id, assignees })}
         />
       </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap" title={isOverridden ? `Override: ${schedule.unit_count} (default site: ${schedule.sites?.unit_count ?? 0})` : "Mengikuti default site"}>
-        {isOverridden ? `${schedule.unit_count}/${schedule.sites?.unit_count ?? 0}` : unitCount}
-      </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-center">
+      <UnitCell schedule={schedule} />
+      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-center bg-slate-50 dark:bg-slate-900/40">
         <Checkbox
           checked={schedule.report_submitted}
           disabled={schedule.status !== "COMPLETED"}
           onCheckedChange={checked => updateSchedule.mutate({ id: schedule.id, report_submitted: checked === true })}
           title={schedule.status !== "COMPLETED" ? "Hanya berlaku setelah status Done" : "Laporan sudah disubmit"}
+          className="border-2 border-slate-500 dark:border-slate-400 bg-white dark:bg-slate-900 shadow-sm"
         />
       </td>
       <td className="px-3 py-2 border border-slate-200 dark:border-slate-800">
-        <button
-          type="button"
-          onClick={() => onOpenDrawer(schedule.id)}
-          title={schedule.notes ?? "Tambah catatan"}
-          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors truncate max-w-[200px]"
-        >
-          <FileText className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{schedule.notes || "Catatan"}</span>
-        </button>
+        <NotesCell schedule={schedule} />
       </td>
     </tr>
   )

@@ -49,13 +49,14 @@ export function useSchedulesQuery(month: string) {
 }
 
 export interface SchedulePatch {
-  id:                string
-  status?:           PmScheduleStatus
-  assignees?:        string[]
-  unit_count?:       number | null
-  notes?:            string | null
-  scheduled_date?:   string
-  report_submitted?: boolean
+  id:                  string
+  status?:             PmScheduleStatus
+  assignees?:          string[]
+  unit_count?:         number | null
+  actual_unit_count?:  number | null
+  notes?:              string | null
+  scheduled_date?:     string
+  report_submitted?:   boolean
 }
 
 // One mutation hook, reused identically by the grid's inline cells, the

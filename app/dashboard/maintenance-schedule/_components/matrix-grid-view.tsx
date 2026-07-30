@@ -19,7 +19,7 @@ const columns: ColumnDef<PmSchedule>[] = [
   { id: "status",   header: "Status" },
   { id: "assignee", header: "Assignee" },
   { id: "unit",     header: "Unit" },
-  { id: "report",   header: "Laporan" },
+  { id: "report",   header: "Reports" },
   { id: "notes",    header: "Catatan" },
 ]
 

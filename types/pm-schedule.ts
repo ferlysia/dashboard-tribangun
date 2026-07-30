@@ -24,9 +24,18 @@ export interface PmSchedule {
   // Per-visit override of sites.unit_count. null = inherit the site's
   // current total. See lib/pm-schedule/recurring.ts#effectiveUnitCount.
   unit_count:      number | null
+  // Units actually completed. null until the visit is marked COMPLETED, at
+  // which point the API auto-fills it to the target unless the client
+  // explicitly supplies a value in the same request — admin can edit it
+  // afterward for partial completion (e.g. 4 of 8 done).
+  actual_unit_count: number | null
   notes:           string | null
   report_submitted: boolean
   completed_at:    string | null
+  // Append-only log of every scheduled_date change, oldest first. Logged on
+  // any date edit, not just ones made via the RESCHEDULED status — see the
+  // 20260802 migration.
+  reschedule_history: { from: string; to: string; at: string }[]
   created_at:      string
   updated_at:      string
   // Embedded via PostgREST select=*,sites(*) on the list endpoint.

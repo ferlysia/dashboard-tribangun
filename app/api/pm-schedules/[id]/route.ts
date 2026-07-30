@@ -26,18 +26,22 @@ export async function PATCH(
 
     const patch: Record<string, unknown> = {}
 
+    // Fetched unconditionally (not just when `status` is patched) — the
+    // reschedule-history diff needs the current scheduled_date regardless
+    // of what else is being changed, and the actual_unit_count auto-fill
+    // needs the current unit_count/site default to compute the target.
+    const currentRes = await fetch(
+      `${supabaseConfig.url}/rest/v1/pm_schedules?id=eq.${id}&select=status,scheduled_date,unit_count,reschedule_history,sites(unit_count)`,
+      { headers: headers() }
+    )
+    if (!currentRes.ok) throw new Error(await currentRes.text())
+    const [current] = await currentRes.json()
+    if (!current) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
+
     if (body.status !== undefined) {
       if (!LEGAL_STATUSES.includes(body.status)) {
         return NextResponse.json({ error: "Invalid status" }, { status: 400 })
       }
-      const currentRes = await fetch(
-        `${supabaseConfig.url}/rest/v1/pm_schedules?id=eq.${id}&select=status`,
-        { headers: headers() }
-      )
-      if (!currentRes.ok) throw new Error(await currentRes.text())
-      const [current] = await currentRes.json()
-      if (!current) return NextResponse.json({ error: "Schedule not found" }, { status: 404 })
-
       if (!isLegalStatusChange(current.status, body.status)) {
         return NextResponse.json(
           { error: `Tidak dapat mengubah status dari ${current.status} ke ${body.status}` },
@@ -46,6 +50,15 @@ export async function PATCH(
       }
       patch.status = body.status
       patch.completed_at = body.status === "COMPLETED" ? new Date().toISOString() : null
+
+      // Auto-fill actual completed units to the target when a visit is
+      // freshly marked Done — unless the caller explicitly supplied its own
+      // actual_unit_count in this same request (handled below), in which
+      // case that value wins instead.
+      if (body.status === "COMPLETED" && body.actual_unit_count === undefined) {
+        const target = body.unit_count ?? current.unit_count ?? current.sites?.unit_count ?? 0
+        patch.actual_unit_count = target
+      }
     }
 
     if (body.assignees !== undefined) {
@@ -65,8 +78,32 @@ export async function PATCH(
         patch.unit_count = null
       }
     }
+    if (body.actual_unit_count !== undefined) {
+      if (body.actual_unit_count !== null) {
+        const n = Number(body.actual_unit_count)
+        if (!Number.isInteger(n) || n < 0) {
+          return NextResponse.json({ error: "actual_unit_count harus bilangan bulat >= 0" }, { status: 400 })
+        }
+        patch.actual_unit_count = n
+      } else {
+        patch.actual_unit_count = null
+      }
+    }
     if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null
-    if (body.scheduled_date !== undefined) patch.scheduled_date = body.scheduled_date
+    if (body.scheduled_date !== undefined) {
+      patch.scheduled_date = body.scheduled_date
+      // Log every date change as a reschedule-history entry, regardless of
+      // status — this is what powers the "Original: Jan 1 -> Rescheduled:
+      // Mar 7" audit trail in the UI, and a plain date correction is just as
+      // worth keeping a record of as an explicit RESCHEDULED-status move.
+      if (body.scheduled_date !== current.scheduled_date) {
+        const history = Array.isArray(current.reschedule_history) ? current.reschedule_history : []
+        patch.reschedule_history = [
+          ...history,
+          { from: current.scheduled_date, to: body.scheduled_date, at: new Date().toISOString() },
+        ]
+      }
+    }
     if (body.report_submitted !== undefined) patch.report_submitted = Boolean(body.report_submitted)
 
     if (Object.keys(patch).length === 0) {
