@@ -101,45 +101,65 @@ type GroupMode = "monthWeek" | "site"
 // One collapsible group (a week within a month, or a site's whole history)
 // — shared table shell around ScheduleTableRow, with the bulk-select
 // checkbox column wired to the parent's selection state.
-function GroupTable({ items, selectedIds, onToggleSelect, onToggleSelectGroup, assigneeOptions, onOpenDrawer }: {
+function GroupTable({ items, selectedIds, onToggleSelect, onToggleSelectGroup, assigneeOptions, onOpenDrawer, showSn }: {
   items:                PmSchedule[]
   selectedIds:          Set<string>
   onToggleSelect:       (id: string, checked: boolean) => void
   onToggleSelectGroup:  (ids: string[], checked: boolean) => void
   assigneeOptions:      string[]
   onOpenDrawer:         (id: string) => void
+  showSn?:              boolean
 }) {
   const allSelected = items.length > 0 && items.every(i => selectedIds.has(i.id))
   return (
-    <table className="w-full text-xs border-collapse">
-      <thead>
-        <tr className="bg-slate-100 dark:bg-slate-800/70">
-          <th className="w-8 px-3 py-2 border border-slate-200 dark:border-slate-800">
-            <Checkbox
-              checked={allSelected}
-              onCheckedChange={checked => onToggleSelectGroup(items.map(i => i.id), checked === true)}
-            />
-          </th>
-          {SCHEDULE_TABLE_COLUMN_LABELS.map(label => (
-            <th key={label} className="text-left px-3 py-2 border border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
-              {label}
+    <div className="overflow-x-auto">
+      {/* table-fixed + an explicit colgroup — every group renders as its own
+          separate <table>, so without hard-coded column widths each one
+          auto-sizes independently off its own content and drifts out of
+          alignment with its neighbors (the reported "berantakan" bug).
+          A colgroup with literal widths makes every instance identical
+          regardless of content. */}
+      <table className="w-full min-w-[860px] text-xs border-collapse table-fixed [&_td]:align-top">
+        <colgroup>
+          <col className="w-10" />  {/* checkbox */}
+          <col className="w-44" />  {/* Site */}
+          <col className="w-24" />  {/* Tanggal */}
+          <col className="w-36" />  {/* Status */}
+          <col className="w-40" />  {/* Assignee */}
+          <col className="w-28" />  {/* Unit */}
+          <col className="w-20" />  {/* Reports */}
+          <col />                   {/* Catatan — flexible remainder */}
+        </colgroup>
+        <thead>
+          <tr className="bg-slate-100 dark:bg-slate-800/70">
+            <th className="px-3 py-2 border border-slate-200 dark:border-slate-800">
+              <Checkbox
+                checked={allSelected}
+                onCheckedChange={checked => onToggleSelectGroup(items.map(i => i.id), checked === true)}
+              />
             </th>
+            {SCHEDULE_TABLE_COLUMN_LABELS.map(label => (
+              <th key={label} className="text-left px-3 py-2 border border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider truncate">
+                {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(schedule => (
+            <ScheduleTableRow
+              key={schedule.id}
+              schedule={schedule}
+              assigneeOptions={assigneeOptions}
+              onOpenDrawer={onOpenDrawer}
+              selected={selectedIds.has(schedule.id)}
+              onToggleSelect={onToggleSelect}
+              showSn={showSn}
+            />
           ))}
-        </tr>
-      </thead>
-      <tbody>
-        {items.map(schedule => (
-          <ScheduleTableRow
-            key={schedule.id}
-            schedule={schedule}
-            assigneeOptions={assigneeOptions}
-            onOpenDrawer={onOpenDrawer}
-            selected={selectedIds.has(schedule.id)}
-            onToggleSelect={onToggleSelect}
-          />
-        ))}
-      </tbody>
-    </table>
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -183,6 +203,19 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
   const [groupMode, setGroupMode] = React.useState<GroupMode>("monthWeek")
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus] = React.useState<string>("")
+  const [search, setSearch] = React.useState("")
+
+  // Pure client-side filter over the already-fetched React Query data — no
+  // refetch, matches by Site Name OR SN. Both grouping modes below derive
+  // from this filtered set, so the search covers both All Sites tabs.
+  const filteredSchedules = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return schedules
+    return schedules.filter(s =>
+      (s.sites?.name ?? "").toLowerCase().includes(q) ||
+      (s.sn ?? "").toLowerCase().includes(q)
+    )
+  }, [schedules, search])
 
   const bulkUpdateStatus = useBulkUpdateStatus()
   const bulkDelete = useBulkDeleteSchedules()
@@ -237,7 +270,7 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
 
   const monthWeekGroups = React.useMemo(() => {
     const byMonth = new Map<string, PmSchedule[]>()
-    for (const s of schedules) {
+    for (const s of filteredSchedules) {
       if (!byMonth.has(s.scheduled_month)) byMonth.set(s.scheduled_month, [])
       byMonth.get(s.scheduled_month)!.push(s)
     }
@@ -255,22 +288,25 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
           weeks: Array.from(byWeek.entries()).sort(([a], [b]) => a - b),
         }
       })
-  }, [schedules])
+  }, [filteredSchedules])
 
   const siteGroups = React.useMemo(() => {
     const bySite = new Map<string, PmSchedule[]>()
-    for (const s of schedules) {
+    for (const s of filteredSchedules) {
       if (!bySite.has(s.site_id)) bySite.set(s.site_id, [])
       bySite.get(s.site_id)!.push(s)
     }
+    const searching = search.trim() !== ""
     return sites
       .map(site => {
         const visits = (bySite.get(site.id) ?? []).slice().sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
         const done = visits.filter(isFullyDone).length
         return { site, visits, done }
       })
-      .filter(r => r.visits.length > 0 || r.site.is_active)
-  }, [schedules, sites])
+      // While searching, only show sites with a matching visit — an empty
+      // "active site" row during a search is just noise, not a result.
+      .filter(r => r.visits.length > 0 || (!searching && r.site.is_active))
+  }, [filteredSchedules, sites, search])
 
   if (isLoading) {
     return (
@@ -282,6 +318,14 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
 
   return (
     <div className="flex flex-col gap-3">
+      <input
+        type="text"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Cari site atau SN..."
+        className="w-full max-w-sm rounded-md border border-slate-300 dark:border-slate-700 bg-background text-xs text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/40"
+      />
+
       <div className="flex items-center gap-1 rounded-lg border border-slate-300 dark:border-slate-700 p-1 w-fit">
         <button
           type="button"
@@ -326,6 +370,10 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
         <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
           Belum ada jadwal kunjungan sama sekali.
         </div>
+      ) : filteredSchedules.length === 0 ? (
+        <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          Tidak ada jadwal yang cocok dengan pencarian &quot;{search}&quot;.
+        </div>
       ) : groupMode === "monthWeek" ? (
         <div className="flex flex-col gap-3">
           {monthWeekGroups.map(({ month, weeks }) => (
@@ -368,6 +416,7 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
                 onToggleSelectGroup={toggleSelectGroup}
                 assigneeOptions={assigneeOptions}
                 onOpenDrawer={onOpenDrawer}
+                showSn
               />
             </CollapsibleSection>
           ))}

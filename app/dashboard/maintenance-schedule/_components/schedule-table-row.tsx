@@ -45,13 +45,16 @@ export const SCHEDULE_TABLE_COLUMN_LABELS = ["Site", "Tanggal", "Status", "Assig
 // The leading select checkbox is optional — only passed by All Sites'
 // bulk-action flow; Matrix Grid omits it and the column doesn't render.
 export const ScheduleTableRow = React.memo(function ScheduleTableRow({
-  schedule, assigneeOptions, onOpenDrawer, selected, onToggleSelect,
+  schedule, assigneeOptions, onOpenDrawer, selected, onToggleSelect, showSn,
 }: {
   schedule:         PmSchedule
   assigneeOptions:  string[]
   onOpenDrawer:     (id: string) => void
   selected?:        boolean
   onToggleSelect?:  (id: string, checked: boolean) => void
+  // Never a separate column — only All Sites' "By Site" grouping passes
+  // this, rendering SN inline next to the site name for that one context.
+  showSn?:          boolean
 }) {
   const updateSchedule = useUpdateSchedule()
   const legalNext = getLegalNextStatuses(schedule.status)
@@ -74,6 +77,11 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
         >
           {schedule.sites?.name ?? "—"}
         </button>
+        {showSn && schedule.sn && (
+          <span className="block text-[10px] font-normal text-muted-foreground truncate" title={schedule.sn}>
+            SN: {schedule.sn}
+          </span>
+        )}
       </td>
       <DateCell schedule={schedule} />
       <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">

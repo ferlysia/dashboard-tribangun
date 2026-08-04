@@ -56,6 +56,7 @@ export interface SchedulePatch {
   unit_types?:         UnitTypeEntry[] | null
   actual_unit_count?:  number | null
   notes?:              string | null
+  sn?:                 string | null
   scheduled_date?:     string
   // Set ONLY by the drawer's "Reschedule via Customer" action — tells the
   // API this date move is client-requested, so it should log to
@@ -137,6 +138,7 @@ export interface NewSchedule {
   unit_count?:    number | null
   unit_types?:    UnitTypeEntry[] | null
   notes?:         string | null
+  sn?:            string | null
 }
 
 export function useCreateSchedule(month: string, region: Region) {

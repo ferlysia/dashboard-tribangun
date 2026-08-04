@@ -49,6 +49,10 @@ export interface PmSchedule {
   // afterward for partial completion (e.g. 4 of 8 done).
   actual_unit_count: number | null
   notes:           string | null
+  // Optional serial number of the specific unit serviced on this visit —
+  // set via the "Jadwalkan Kunjungan" form, never shown as its own column
+  // (only surfaced next to the site name in All Sites' "By Site" view).
+  sn:              string | null
   report_submitted: boolean
   completed_at:    string | null
   // Append-only log of every scheduled_date change, oldest first. Logged on
