@@ -106,6 +106,39 @@ function fDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })
 }
 
+type SlaInfo = { label: string; tone: "overdue" | "warning" | "ok" | "muted" }
+
+const SLA_TONE_CLASS: Record<SlaInfo["tone"], string> = {
+  overdue: "bg-red-50 text-red-600 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800",
+  warning: "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800",
+  ok:      "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800",
+  muted:   "bg-muted text-muted-foreground border-border",
+}
+
+// 2-day sourcing SLA: target = permintaan_tanggal + 2 days. Resolved once the
+// PR's derived status leaves WAITING_PAYMENT (every item has either gone
+// STOK_INTERNAL or been marked PURCHASED — see deriveOverallStatus).
+function computeSourcingSla(pr: PurchaseRequestRecord): SlaInfo {
+  if (pr.status === "DRAFT" || pr.status === "REJECTED") {
+    return { label: "—", tone: "muted" }
+  }
+  if (pr.status !== "WAITING_PAYMENT") {
+    return { label: "Updated", tone: "ok" }
+  }
+
+  // Date-only, local-midnight math — permintaan_tanggal is a bare DATE
+  // column (e.g. "2026-08-02"), avoid UTC-parse/time-of-day drift.
+  const [y, m, d] = pr.permintaan_tanggal.split("-").map(Number)
+  const target = new Date(y, m - 1, d + 2)
+  const today = new Date()
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const diffDays = Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
+
+  if (diffDays > 0) return { label: `${diffDays} hari lagi menjelang update`, tone: "warning" }
+  if (diffDays === 0) return { label: "Jatuh tempo hari ini", tone: "overdue" }
+  return { label: `Lewat ${Math.abs(diffDays)} hari update purchasing/warehouse`, tone: "overdue" }
+}
+
 // Server errors (crashes, platform timeouts, oversized payloads) sometimes
 // come back as plain text/HTML instead of JSON — parsing that with res.json()
 // throws a confusing "Unexpected token" error. This always resolves to
@@ -1832,7 +1865,7 @@ export default function PurchasingRequestPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
-                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status"].map((col, i) => (
+                        {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status", "SLA"].map((col, i) => (
                           <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
@@ -1840,29 +1873,37 @@ export default function PurchasingRequestPage() {
                     <tbody className="divide-y divide-border">
                       {filtered.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                          <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
                             Tidak ada PR yang cocok dengan pencarian.
                           </td>
                         </tr>
                       ) : (
-                        filtered.map(pr => (
-                          <tr key={pr.id} onClick={() => openDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
-                            <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{monthNameId(pr.permintaan_tanggal)}</td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{quarterLabel(pr.permintaan_tanggal)}</td>
-                            <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
-                            <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
-                            <td className="px-4 py-3 w-full">
-                              <ItemNamesPreview items={pr.items} />
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
-                                {STATUS_CFG[pr.status].label}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
+                        filtered.map(pr => {
+                          const sla = computeSourcingSla(pr)
+                          return (
+                            <tr key={pr.id} onClick={() => openDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
+                              <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{monthNameId(pr.permintaan_tanggal)}</td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{quarterLabel(pr.permintaan_tanggal)}</td>
+                              <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
+                              <td className="px-4 py-3 w-full">
+                                <ItemNamesPreview items={pr.items} />
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
+                                  {STATUS_CFG[pr.status].label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${SLA_TONE_CLASS[sla.tone]}`}>
+                                  {sla.label}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })
                       )}
                     </tbody>
                   </table>
