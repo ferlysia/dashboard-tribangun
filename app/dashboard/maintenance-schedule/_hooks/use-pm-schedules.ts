@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { PmSchedule, PmScheduleStatus, Region, Site } from "@/types/pm-schedule"
+import type { PmSchedule, PmScheduleStatus, Region, Site, UnitTypeEntry } from "@/types/pm-schedule"
 import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
 
 async function safeJson(res: Response) {
@@ -53,6 +53,7 @@ export interface SchedulePatch {
   status?:             PmScheduleStatus
   assignees?:          string[]
   unit_count?:         number | null
+  unit_types?:         UnitTypeEntry[] | null
   actual_unit_count?:  number | null
   notes?:              string | null
   scheduled_date?:     string
@@ -134,6 +135,7 @@ export interface NewSchedule {
   // and the migration comment on pm_schedules.assignees).
   assignees?:     string[]
   unit_count?:    number | null
+  unit_types?:    UnitTypeEntry[] | null
   notes?:         string | null
 }
 
@@ -181,7 +183,7 @@ export function useUpdateSite() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (patch: { id: string; unit_count?: number; name?: string; is_active?: boolean }) =>
+    mutationFn: (patch: { id: string; unit_count?: number; unit_types?: UnitTypeEntry[]; name?: string; is_active?: boolean }) =>
       fetchJson<Site>(`/api/sites/${patch.id}`, {
         method:  "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -191,6 +193,22 @@ export function useUpdateSite() {
       // Partial key — the site's region isn't known here, so invalidate
       // every region-scoped ["sites", region] query rather than just one.
       queryClient.invalidateQueries({ queryKey: ["sites"] })
+    },
+  })
+}
+
+// Backs the "Delete Site" button in All Sites — the API 400s with a clear
+// message if the site still has any schedules (FK is ON DELETE RESTRICT by
+// design, so a site with real history can't be silently orphaned). Removes
+// the site straight out of every cached ["sites", region] list so the "By
+// Site" grouping drops its section immediately, no hard refresh needed.
+export function useDeleteSite() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: string) => fetchJson<{ id: string }>(`/api/sites/${id}`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      queryClient.setQueriesData<Site[]>({ queryKey: ["sites"] }, old => old?.filter(s => s.id !== id))
     },
   })
 }

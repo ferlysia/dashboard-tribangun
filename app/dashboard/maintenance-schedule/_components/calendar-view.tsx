@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import type { Region } from "@/types/pm-schedule"
+import { effectiveUnitCount, effectiveUnitTypes, formatUnitTypes } from "@/lib/pm-schedule/recurring"
 import { useSchedulesQuery } from "../_hooks/use-pm-schedules"
 import { STATUS_CFG } from "./status-badge"
 
@@ -96,7 +97,7 @@ const MonthSection = React.memo(function MonthSection({ month, region, onOpenDra
                       title={s.sites?.name ?? ""}
                       className={`text-[10px] px-1.5 py-0.5 rounded truncate text-left ${STATUS_CFG[s.status].badge}`}
                     >
-                      {s.sites?.name ?? "—"}
+                      {s.sites?.name ?? "—"} — {formatUnitTypes(effectiveUnitTypes(s, s.sites), effectiveUnitCount(s, s.sites))}
                     </button>
                   ))}
                   {items.length > 3 && (

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
+import { isValidUnitTypes } from "@/lib/pm-schedule/recurring"
 
 function headers() {
   return {
@@ -28,6 +29,12 @@ export async function PATCH(
       }
       patch.unit_count = n
     }
+    if (body.unit_types !== undefined) {
+      if (!isValidUnitTypes(body.unit_types)) {
+        return NextResponse.json({ error: "unit_types tidak valid" }, { status: 400 })
+      }
+      patch.unit_types = body.unit_types
+    }
     if (body.name !== undefined) {
       const name = String(body.name ?? "").trim()
       if (!name) return NextResponse.json({ error: "name tidak boleh kosong" }, { status: 400 })
@@ -50,6 +57,41 @@ export async function PATCH(
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update site" },
+      { status: 500 }
+    )
+  }
+}
+
+// Deliberately no cascade — pm_schedules.site_id is ON DELETE RESTRICT, so
+// Postgres itself refuses to delete a site with any schedule history
+// (23503 foreign_key_violation). We just surface that as a clear 400
+// instead of a raw Postgres error string.
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const res = await fetch(
+      `${supabaseConfig.url}/rest/v1/sites?id=eq.${id}`,
+      { method: "DELETE", headers: { ...headers(), Prefer: "return=representation" } }
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      if (text.includes("23503") || text.toLowerCase().includes("foreign key")) {
+        return NextResponse.json(
+          { error: "Site ini masih punya jadwal kunjungan — hapus atau pindahkan jadwalnya dulu sebelum menghapus site." },
+          { status: 400 }
+        )
+      }
+      throw new Error(text)
+    }
+    const rows = await res.json()
+    if (rows.length === 0) return NextResponse.json({ error: "Site not found" }, { status: 404 })
+    return NextResponse.json({ data: { id } })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete site" },
       { status: 500 }
     )
   }

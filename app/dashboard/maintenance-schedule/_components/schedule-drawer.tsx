@@ -8,12 +8,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Trash2 } from "lucide-react"
 import { toast } from "sonner"
-import type { PmSchedule, PmScheduleStatus } from "@/types/pm-schedule"
+import type { PmSchedule, PmScheduleStatus, UnitTypeEntry } from "@/types/pm-schedule"
 import { STATUS_CFG, STATUS_OPTIONS, StatusBadge } from "./status-badge"
 import { AssigneesInput } from "./assignees-input"
+import { UnitTypesEditor } from "./unit-types-editor"
 import { FollowUpVisitDialog } from "./follow-up-visit-dialog"
 import { getLegalNextStatuses } from "@/lib/pm-schedule/status-rules"
-import { effectiveUnitCount } from "@/lib/pm-schedule/recurring"
+import { effectiveUnitCount, effectiveUnitTypes } from "@/lib/pm-schedule/recurring"
 import { useDeleteSchedule, useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
 function fDateLong(iso: string) {
@@ -32,19 +33,21 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
   const updateSchedule = useUpdateSchedule()
   const deleteSchedule = useDeleteSchedule()
   const [notesDraft, setNotesDraft] = React.useState<string | null>(null)
-  const [unitDraft, setUnitDraft] = React.useState<string | null>(null)
+  const [unitTypesDraft, setUnitTypesDraft] = React.useState<UnitTypeEntry[] | null>(null)
   const [actualDraft, setActualDraft] = React.useState<string | null>(null)
   const [dateDraft, setDateDraft] = React.useState<string | null>(null)
   const [followUpRemainder, setFollowUpRemainder] = React.useState<number | null>(null)
 
-  React.useEffect(() => { setNotesDraft(null); setUnitDraft(null); setActualDraft(null); setDateDraft(null) }, [schedule?.id])
+  React.useEffect(() => { setNotesDraft(null); setUnitTypesDraft(null); setActualDraft(null); setDateDraft(null) }, [schedule?.id])
 
   if (!schedule) return null
 
   const legalNext = getLegalNextStatuses(schedule.status)
   const notesValue = notesDraft ?? schedule.notes ?? ""
-  const unitValue = unitDraft ?? (schedule.unit_count != null ? String(schedule.unit_count) : "")
+  const unitTypesValue = unitTypesDraft ?? (schedule.unit_types ?? [])
+  const unitTypesChanged = JSON.stringify(unitTypesValue) !== JSON.stringify(schedule.unit_types ?? [])
   const target = effectiveUnitCount(schedule, schedule.sites)
+  const siteDefaultTypes = effectiveUnitTypes({ unit_types: null }, schedule.sites)
   const actualValue = actualDraft ?? (schedule.actual_unit_count != null ? String(schedule.actual_unit_count) : String(target))
   const dateValue = dateDraft ?? schedule.scheduled_date
   const dateChanged = dateValue !== "" && dateValue !== schedule.scheduled_date
@@ -74,16 +77,15 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
     )
   }
 
-  const commitUnitBlur = () => {
-    const trimmed = unitValue.trim()
-    const next = trimmed === "" ? null : Number(trimmed)
-    if (next === schedule.unit_count) return
-    if (next !== null && (!Number.isInteger(next) || next < 0)) {
-      toast.error("Unit count harus bilangan bulat >= 0")
-      setUnitDraft(schedule.unit_count != null ? String(schedule.unit_count) : "")
-      return
-    }
-    updateSchedule.mutate({ id: schedule.id, unit_count: next })
+  const commitUnitTypes = () => {
+    if (!unitTypesChanged) return
+    updateSchedule.mutate(
+      { id: schedule.id, unit_types: unitTypesValue.length > 0 ? unitTypesValue : null },
+      {
+        onSuccess: () => { toast.success("Breakdown unit disimpan."); setUnitTypesDraft(null) },
+        onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal menyimpan breakdown unit."),
+      }
+    )
   }
 
   const commitActualBlur = () => {
@@ -223,18 +225,26 @@ export function ScheduleDrawer({ schedule, assigneeOptions, onClose }: {
 
           <div>
             <Label className="text-xs text-muted-foreground mb-1.5 block">
-              Unit Count Override
-              <span className="font-normal normal-case text-muted-foreground/70"> (default site: {schedule.sites?.unit_count ?? 0})</span>
+              Breakdown Unit
+              <span className="font-normal normal-case text-muted-foreground/70">
+                {" "}(default site: {siteDefaultTypes.length > 0
+                  ? siteDefaultTypes.map(t => `${t.qty} ${t.type}`).join(", ")
+                  : `${schedule.sites?.unit_count ?? 0} unit`})
+              </span>
             </Label>
-            <input
-              type="number"
-              min={0}
-              value={unitValue}
-              onChange={e => setUnitDraft(e.target.value)}
-              onBlur={commitUnitBlur}
-              placeholder={String(schedule.sites?.unit_count ?? 0)}
-              className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-            />
+            {unitTypesValue.length === 0 && (
+              <p className="text-[11px] text-muted-foreground mb-1.5">
+                Belum ada breakdown khusus — mengikuti default site ({target} unit). Tambah tipe untuk membuat rincian (mis. split menjadi upflow/downflow).
+              </p>
+            )}
+            <UnitTypesEditor value={unitTypesValue} onChange={setUnitTypesDraft} />
+            {unitTypesChanged && (
+              <div className="flex justify-end mt-1.5">
+                <Button type="button" size="sm" variant="outline" className="text-xs" onClick={commitUnitTypes}>
+                  Simpan Breakdown
+                </Button>
+              </div>
+            )}
           </div>
 
           {schedule.status === "COMPLETED" && (

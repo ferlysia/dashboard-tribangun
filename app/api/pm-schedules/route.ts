@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
+import { isValidUnitTypes } from "@/lib/pm-schedule/recurring"
 
 function headers() {
   return {
@@ -55,6 +56,9 @@ export async function POST(request: Request) {
       if (!row.site_id || !row.scheduled_date) {
         return NextResponse.json({ error: "site_id and scheduled_date are required" }, { status: 400 })
       }
+      if (row.unit_types !== undefined && row.unit_types !== null && !isValidUnitTypes(row.unit_types)) {
+        return NextResponse.json({ error: "unit_types tidak valid" }, { status: 400 })
+      }
     }
 
     const payload = rows.map(row => ({
@@ -66,6 +70,7 @@ export async function POST(request: Request) {
       // dynamically ~1 week before the visit, not at scheduling time).
       assignees:      Array.isArray(row.assignees) ? row.assignees : [],
       unit_count:     row.unit_count ?? null,
+      unit_types:     row.unit_types ?? null,
       notes:          row.notes ?? null,
     }))
 

@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Plus, Wand2 } from "lucide-react"
 import { toast } from "sonner"
-import type { Region, Site } from "@/types/pm-schedule"
+import type { Region, Site, UnitTypeEntry } from "@/types/pm-schedule"
 import { computeEvenlySpacedDates } from "@/lib/pm-schedule/recurring"
 import { useCreateBatchSchedules, useCreateSchedule, useCreateSite, schedulesQueryKeyPrefix, type NewSchedule } from "../_hooks/use-pm-schedules"
 import { AssigneesInput } from "./assignees-input"
+import { UnitTypesEditor } from "./unit-types-editor"
 
 const NEW_SITE_VALUE = "__new_site__"
 const inputCls = "w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/40"
@@ -44,7 +45,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
   // may already know its technician), unit override optional.
   const [date, setDate] = React.useState("")
   const [assignees, setAssignees] = React.useState<string[]>([])
-  const [unitOverride, setUnitOverride] = React.useState("")
+  const [unitTypesOverride, setUnitTypesOverride] = React.useState<UnitTypeEntry[]>([])
 
   // Recurring-generator fields. No assignees field at all in this mode —
   // every generated visit is created Unassigned (see lib/pm-schedule/recurring.ts).
@@ -53,7 +54,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
   const [totalVisits, setTotalVisits] = React.useState(4)
   const [startDate, setStartDate] = React.useState(todayISO)
   const [visitDates, setVisitDates] = React.useState<string[]>(Array(4).fill(""))
-  const [recurringUnitOverride, setRecurringUnitOverride] = React.useState("")
+  const [recurringUnitTypesOverride, setRecurringUnitTypesOverride] = React.useState<UnitTypeEntry[]>([])
 
   const durationMonths = durationPreset === "custom" ? Number(customMonths) || 0 : Number(durationPreset)
 
@@ -61,9 +62,9 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
     if (!open) return
     setMode("single")
     setSiteId(""); setAddingSite(false); setNewSiteName("")
-    setDate(""); setAssignees([]); setUnitOverride("")
+    setDate(""); setAssignees([]); setUnitTypesOverride([])
     setDurationPreset("12"); setCustomMonths("12"); setTotalVisits(4)
-    setStartDate(todayISO()); setVisitDates(Array(4).fill("")); setRecurringUnitOverride("")
+    setStartDate(todayISO()); setVisitDates(Array(4).fill("")); setRecurringUnitTypesOverride([])
   }, [open])
 
   // Resize the visit-date rows when totalVisits changes — keeps whatever
@@ -124,7 +125,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
       site_id: siteId,
       scheduled_date: date,
       assignees,
-      unit_count: unitOverride.trim() === "" ? null : Number(unitOverride),
+      unit_types: unitTypesOverride.length > 0 ? unitTypesOverride : null,
     }
     createSchedule.mutate(row, {
       onSuccess: () => {
@@ -156,7 +157,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
       // Never pre-assigned — see the dispatch-timing note in
       // lib/pm-schedule/recurring.ts.
       assignees: [],
-      unit_count: recurringUnitOverride.trim() === "" ? null : Number(recurringUnitOverride),
+      unit_types: recurringUnitTypesOverride.length > 0 ? recurringUnitTypesOverride : null,
     }))
     createBatch.mutate(rows, {
       onSuccess: () => {
@@ -257,14 +258,9 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
               </div>
               <div>
                 <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  Unit Count Override <span className="font-normal normal-case text-muted-foreground/70">(opsional)</span>
+                  Breakdown Unit <span className="font-normal normal-case text-muted-foreground/70">(opsional — kosongkan untuk ikuti default site)</span>
                 </Label>
-                <input
-                  type="number" min={0} value={unitOverride}
-                  onChange={e => setUnitOverride(e.target.value)}
-                  placeholder="Ikuti default site"
-                  className={inputCls}
-                />
+                <UnitTypesEditor value={unitTypesOverride} onChange={setUnitTypesOverride} />
               </div>
             </>
           ) : (
@@ -314,14 +310,9 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
 
               <div>
                 <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  Unit Count Override <span className="font-normal normal-case text-muted-foreground/70">(opsional, berlaku untuk semua kunjungan)</span>
+                  Breakdown Unit <span className="font-normal normal-case text-muted-foreground/70">(opsional, berlaku untuk semua kunjungan)</span>
                 </Label>
-                <input
-                  type="number" min={0} value={recurringUnitOverride}
-                  onChange={e => setRecurringUnitOverride(e.target.value)}
-                  placeholder="Ikuti default site"
-                  className={inputCls}
-                />
+                <UnitTypesEditor value={recurringUnitTypesOverride} onChange={setRecurringUnitTypesOverride} />
               </div>
 
               <div className="flex items-center justify-between">

@@ -1,13 +1,47 @@
-import type { PmSchedule, Site } from "@/types/pm-schedule"
+import type { PmSchedule, Site, UnitTypeEntry } from "@/types/pm-schedule"
+
+// Hybrid unit_types resolution: a visit's own breakdown wins if non-empty,
+// otherwise fall back to the site's master breakdown. Both empty means the
+// site/visit hasn't been migrated to the type breakdown yet — callers fall
+// back to the plain unit_count in that case (see effectiveUnitCount/
+// formatUnitTypes below).
+export function effectiveUnitTypes(
+  schedule: Pick<PmSchedule, "unit_types">,
+  site: Pick<Site, "unit_types"> | null | undefined
+): UnitTypeEntry[] {
+  if (schedule.unit_types && schedule.unit_types.length > 0) return schedule.unit_types
+  if (site?.unit_types && site.unit_types.length > 0) return site.unit_types
+  return []
+}
 
 // Hybrid unit_count resolution: a visit's own override wins if set,
 // otherwise fall back to the site's current master total. See the
 // 20260801_pm_schedules_recurring.sql migration for the full rationale.
+// Prefers summing the type breakdown when one is set, so the target used
+// for actual-completion math stays consistent with whatever the drawer
+// shows.
 export function effectiveUnitCount(
-  schedule: Pick<PmSchedule, "unit_count">,
-  site: Pick<Site, "unit_count"> | null | undefined
+  schedule: Pick<PmSchedule, "unit_count" | "unit_types">,
+  site: Pick<Site, "unit_count" | "unit_types"> | null | undefined
 ): number {
+  const types = effectiveUnitTypes(schedule, site)
+  if (types.length > 0) return types.reduce((sum, t) => sum + t.qty, 0)
   return schedule.unit_count ?? site?.unit_count ?? 0
+}
+
+// "5 PAC, 3 UPS" — falls back to a plain number for sites/visits that
+// haven't been given a type breakdown yet.
+export function formatUnitTypes(types: UnitTypeEntry[], fallbackCount: number): string {
+  if (types.length === 0) return `${fallbackCount} unit`
+  return types.map(t => `${t.qty} ${t.type}`).join(", ")
+}
+
+export function isValidUnitTypes(value: unknown): value is UnitTypeEntry[] {
+  return Array.isArray(value) && value.every(
+    t => t && typeof t === "object" &&
+      typeof (t as UnitTypeEntry).type === "string" && (t as UnitTypeEntry).type.trim() !== "" &&
+      Number.isInteger((t as UnitTypeEntry).qty) && (t as UnitTypeEntry).qty >= 0
+  )
 }
 
 // Pure date math for the recurring generator's smart defaults — spreads

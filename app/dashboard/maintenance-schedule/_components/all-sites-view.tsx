@@ -8,52 +8,80 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { PmSchedule, Region, Site } from "@/types/pm-schedule"
 import { isFullyDone, weekOfMonth } from "@/lib/pm-schedule/status-rules"
+import { formatUnitTypes } from "@/lib/pm-schedule/recurring"
 import { STATUS_CFG, STATUS_OPTIONS } from "./status-badge"
 import { ScheduleTableRow, SCHEDULE_TABLE_COLUMN_LABELS } from "./schedule-table-row"
-import { useAllSchedulesQuery, useBulkDeleteSchedules, useBulkUpdateStatus, useUpdateSite } from "../_hooks/use-pm-schedules"
+import { UnitTypesEditor } from "./unit-types-editor"
+import { useAllSchedulesQuery, useBulkDeleteSchedules, useBulkUpdateStatus, useDeleteSite, useUpdateSite } from "../_hooks/use-pm-schedules"
 
-// Click-to-edit unit_count — the "master total, editable anytime" surface
-// (e.g. when Sales upsells more units at a site). Per-visit overrides live
-// on the schedule itself (see schedule-drawer.tsx), not here.
+// Click-to-edit unit breakdown — the "master total, editable anytime"
+// surface (e.g. when Sales upsells more units at a site). Per-visit
+// overrides live on the schedule itself (see schedule-drawer.tsx), not
+// here. Expands into the same add/remove-row editor used everywhere else,
+// with an explicit Save (multi-row edits don't fit a single onBlur commit).
 function UnitCountEditor({ site }: { site: Site }) {
   const updateSite = useUpdateSite()
   const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState(String(site.unit_count))
+  const [draft, setDraft] = React.useState(site.unit_types)
+
+  const startEdit = () => { setDraft(site.unit_types); setEditing(true) }
 
   const commit = () => {
     setEditing(false)
-    const n = Number(draft)
-    if (!Number.isInteger(n) || n < 0 || n === site.unit_count) {
-      setDraft(String(site.unit_count))
-      return
-    }
-    updateSite.mutate({ id: site.id, unit_count: n })
+    if (JSON.stringify(draft) === JSON.stringify(site.unit_types)) return
+    updateSite.mutate({ id: site.id, unit_types: draft })
   }
 
   if (editing) {
     return (
-      <input
-        type="number"
-        min={0}
-        autoFocus
-        value={draft}
-        onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(String(site.unit_count)); setEditing(false) } }}
-        onClick={e => e.stopPropagation()}
-        className="w-16 rounded-md border border-slate-300 dark:border-slate-700 bg-background text-xs text-foreground px-1.5 py-0.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
-      />
+      <div onClick={e => e.stopPropagation()} className="inline-flex flex-col gap-1.5">
+        <UnitTypesEditor value={draft} onChange={setDraft} />
+        <div className="flex items-center gap-1.5">
+          <Button type="button" size="sm" variant="outline" className="text-xs h-6" onClick={commit}>Simpan</Button>
+          <Button type="button" size="sm" variant="ghost" className="text-xs h-6" onClick={() => setEditing(false)}>Batal</Button>
+        </div>
+      </div>
     )
   }
 
   return (
     <button
       type="button"
-      onClick={e => { e.stopPropagation(); setDraft(String(site.unit_count)); setEditing(true) }}
+      onClick={e => { e.stopPropagation(); startEdit() }}
       className="inline-flex items-center gap-1 text-[11px] font-normal normal-case text-muted-foreground hover:text-primary transition-colors"
-      title="Klik untuk ubah total unit"
+      title="Klik untuk ubah breakdown unit"
     >
-      {site.unit_count} unit <Pencil className="h-2.5 w-2.5 opacity-50" />
+      {formatUnitTypes(site.unit_types, site.unit_count)} <Pencil className="h-2.5 w-2.5 opacity-50" />
+    </button>
+  )
+}
+
+// Safe delete for a mistakenly-created site — the API rejects (400, clear
+// message) if any schedule still references it (FK is ON DELETE RESTRICT),
+// so this can never silently orphan real visit history. On success the
+// site drops out of the cached list immediately (see useDeleteSite), which
+// removes its "By Site" section with no refresh needed.
+function DeleteSiteButton({ site, visitCount }: { site: Site; visitCount: number }) {
+  const deleteSite = useDeleteSite()
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm(`Hapus site "${site.name}"? Tindakan ini tidak bisa dibatalkan.`)) return
+    deleteSite.mutate(site.id, {
+      onSuccess: () => toast.success(`Site "${site.name}" dihapus.`),
+      onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal menghapus site."),
+    })
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={deleteSite.isPending}
+      title={visitCount > 0 ? "Site ini masih punya jadwal — hapus/pindahkan jadwalnya dulu" : "Hapus site"}
+      className="inline-flex items-center gap-1 text-[11px] font-normal normal-case text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-50"
+    >
+      <Trash2 className="h-2.5 w-2.5" /> Hapus Site
     </button>
   )
 }
@@ -329,6 +357,7 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
                 <span className="inline-flex items-center gap-2">
                   {done}/{visits.length} Visits Done | {visits.length - done} Remaining
                   <UnitCountEditor site={site} />
+                  <DeleteSiteButton site={site} visitCount={visits.length} />
                 </span>
               }
             >

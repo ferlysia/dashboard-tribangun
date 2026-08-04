@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
+import { isValidUnitTypes } from "@/lib/pm-schedule/recurring"
 
 function headers() {
   return {
@@ -41,10 +42,18 @@ export async function POST(request: Request) {
     }
     const region = body.region === "CIKARANG" ? "CIKARANG" : "JABO"
 
+    let unit_types: unknown[] = []
+    if (body.unit_types !== undefined) {
+      if (!isValidUnitTypes(body.unit_types)) {
+        return NextResponse.json({ error: "unit_types tidak valid" }, { status: 400 })
+      }
+      unit_types = body.unit_types
+    }
+
     const res = await fetch(`${supabaseConfig.url}/rest/v1/sites`, {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=representation" },
-      body:    JSON.stringify({ name, region }),
+      body:    JSON.stringify({ name, region, unit_types }),
     })
     if (!res.ok) throw new Error(await res.text())
     const [data] = await res.json()

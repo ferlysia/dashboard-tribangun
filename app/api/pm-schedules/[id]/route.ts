@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
 import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
+import { effectiveUnitCount, isValidUnitTypes } from "@/lib/pm-schedule/recurring"
 import type { PmScheduleStatus } from "@/types/pm-schedule"
 
 function headers() {
@@ -31,7 +32,7 @@ export async function PATCH(
     // of what else is being changed, and the actual_unit_count auto-fill
     // needs the current unit_count/site default to compute the target.
     const currentRes = await fetch(
-      `${supabaseConfig.url}/rest/v1/pm_schedules?id=eq.${id}&select=status,scheduled_date,unit_count,reschedule_history,sites(unit_count)`,
+      `${supabaseConfig.url}/rest/v1/pm_schedules?id=eq.${id}&select=status,scheduled_date,unit_count,unit_types,reschedule_history,sites(unit_count,unit_types)`,
       { headers: headers() }
     )
     if (!currentRes.ok) throw new Error(await currentRes.text())
@@ -56,7 +57,13 @@ export async function PATCH(
       // actual_unit_count in this same request (handled below), in which
       // case that value wins instead.
       if (body.status === "COMPLETED" && body.actual_unit_count === undefined) {
-        const target = body.unit_count ?? current.unit_count ?? current.sites?.unit_count ?? 0
+        const target = effectiveUnitCount(
+          {
+            unit_count: body.unit_count !== undefined ? body.unit_count : current.unit_count,
+            unit_types: body.unit_types !== undefined ? body.unit_types : current.unit_types,
+          },
+          current.sites
+        )
         patch.actual_unit_count = target
       }
     }
@@ -76,6 +83,16 @@ export async function PATCH(
         patch.unit_count = n
       } else {
         patch.unit_count = null
+      }
+    }
+    if (body.unit_types !== undefined) {
+      if (body.unit_types !== null) {
+        if (!isValidUnitTypes(body.unit_types)) {
+          return NextResponse.json({ error: "unit_types tidak valid" }, { status: 400 })
+        }
+        patch.unit_types = body.unit_types
+      } else {
+        patch.unit_types = null
       }
     }
     if (body.actual_unit_count !== undefined) {

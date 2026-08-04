@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import type { PmSchedule } from "@/types/pm-schedule"
-import { effectiveUnitCount } from "@/lib/pm-schedule/recurring"
+import { effectiveUnitCount, effectiveUnitTypes, formatUnitTypes } from "@/lib/pm-schedule/recurring"
 import { useUpdateSchedule } from "../_hooks/use-pm-schedules"
 import { FollowUpVisitDialog } from "./follow-up-visit-dialog"
 
@@ -16,7 +16,8 @@ import { FollowUpVisitDialog } from "./follow-up-visit-dialog"
 export function UnitCell({ schedule }: { schedule: PmSchedule }) {
   const updateSchedule = useUpdateSchedule()
   const target = effectiveUnitCount(schedule, schedule.sites)
-  const isOverridden = schedule.unit_count != null
+  const types = effectiveUnitTypes(schedule, schedule.sites)
+  const isOverridden = schedule.unit_count != null || (schedule.unit_types?.length ?? 0) > 0
   const isDone = schedule.status === "COMPLETED"
 
   const [editing, setEditing] = React.useState(false)
@@ -24,13 +25,13 @@ export function UnitCell({ schedule }: { schedule: PmSchedule }) {
   const [followUpRemainder, setFollowUpRemainder] = React.useState<number | null>(null)
 
   const title = isOverridden
-    ? `Override: ${schedule.unit_count} (default site: ${schedule.sites?.unit_count ?? 0})`
+    ? `Override: ${formatUnitTypes(types, target)} (default site: ${target})`
     : "Mengikuti default site"
 
   if (!isDone) {
     return (
       <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap" title={title}>
-        {target}
+        {formatUnitTypes(types, target)}
       </td>
     )
   }
