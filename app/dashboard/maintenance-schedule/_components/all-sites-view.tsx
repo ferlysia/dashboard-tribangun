@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { PmSchedule, Region, Site } from "@/types/pm-schedule"
 import { isFullyDone, weekOfMonth } from "@/lib/pm-schedule/status-rules"
-import { formatUnitTypes } from "@/lib/pm-schedule/recurring"
+import { effectiveUnitTypes, flattenUnitSns, formatUnitTypes } from "@/lib/pm-schedule/recurring"
 import { STATUS_CFG, STATUS_OPTIONS } from "./status-badge"
 import { ScheduleTableRow, SCHEDULE_TABLE_COLUMN_LABELS } from "./schedule-table-row"
 import { UnitTypesEditor } from "./unit-types-editor"
@@ -117,18 +117,23 @@ function GroupTable({ items, selectedIds, onToggleSelect, onToggleSelectGroup, a
           separate <table>, so without hard-coded column widths each one
           auto-sizes independently off its own content and drifts out of
           alignment with its neighbors (the reported "berantakan" bug).
-          A colgroup with literal widths makes every instance identical
-          regardless of content. */}
-      <table className="w-full min-w-[860px] text-xs border-collapse table-fixed [&_td]:align-top">
+          Percentage widths (rather than arbitrary px) keep every instance
+          identical regardless of content AND scale cleanly with the
+          container — Site/Assignee get more room since they carry the
+          densest content (site name + SN, assignee chips). Headers use
+          whitespace-nowrap, never truncate — width is guarded by the
+          table's min-width below, which triggers horizontal scroll on
+          narrow viewports instead of clipping a label. */}
+      <table className="w-full min-w-[960px] text-xs border-collapse table-fixed [&_td]:align-top">
         <colgroup>
-          <col className="w-10" />  {/* checkbox */}
-          <col className="w-44" />  {/* Site */}
-          <col className="w-24" />  {/* Tanggal */}
-          <col className="w-36" />  {/* Status */}
-          <col className="w-40" />  {/* Assignee */}
-          <col className="w-28" />  {/* Unit */}
-          <col className="w-20" />  {/* Reports */}
-          <col />                   {/* Catatan — flexible remainder */}
+          <col className="w-[3%]" />   {/* checkbox */}
+          <col className="w-[20%]" />  {/* Site */}
+          <col className="w-[9%]" />   {/* Tanggal */}
+          <col className="w-[12%]" />  {/* Status */}
+          <col className="w-[18%]" />  {/* Assignee */}
+          <col className="w-[12%]" />  {/* Unit */}
+          <col className="w-[8%]" />   {/* Reports */}
+          <col />                      {/* Catatan — flexible remainder (~18%) */}
         </colgroup>
         <thead>
           <tr className="bg-slate-100 dark:bg-slate-800/70">
@@ -139,7 +144,7 @@ function GroupTable({ items, selectedIds, onToggleSelect, onToggleSelectGroup, a
               />
             </th>
             {SCHEDULE_TABLE_COLUMN_LABELS.map(label => (
-              <th key={label} className="text-left px-3 py-2 border border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider truncate">
+              <th key={label} className="text-left px-3 py-2 border border-slate-200 dark:border-slate-800 font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider whitespace-nowrap">
                 {label}
               </th>
             ))}
@@ -206,15 +211,17 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
   const [search, setSearch] = React.useState("")
 
   // Pure client-side filter over the already-fetched React Query data — no
-  // refetch, matches by Site Name OR SN. Both grouping modes below derive
-  // from this filtered set, so the search covers both All Sites tabs.
+  // refetch, matches by Site Name OR any per-unit SN. Both grouping modes
+  // below derive from this filtered set, so the search covers both All
+  // Sites tabs.
   const filteredSchedules = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return schedules
-    return schedules.filter(s =>
-      (s.sites?.name ?? "").toLowerCase().includes(q) ||
-      (s.sn ?? "").toLowerCase().includes(q)
-    )
+    return schedules.filter(s => {
+      if ((s.sites?.name ?? "").toLowerCase().includes(q)) return true
+      const sns = flattenUnitSns(effectiveUnitTypes(s, s.sites))
+      return sns.some(sn => sn.toLowerCase().includes(q))
+    })
   }, [schedules, search])
 
   const bulkUpdateStatus = useBulkUpdateStatus()

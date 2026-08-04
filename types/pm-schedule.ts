@@ -6,9 +6,16 @@ export type Region = "JABO" | "CIKARANG"
 // {type:"UPS",qty:1}] — `type` is user-typed, not an enum. See
 // lib/pm-schedule/recurring.ts#effectiveUnitTypes for the site/visit
 // fallback resolution, mirroring unit_count's inherit pattern.
+//
+// `sns` holds the serial number of each individual unit of this type —
+// index i is unit i's SN, so its length tracks `qty` (padded with ""/null
+// for units not yet serialized; see unit-types-editor.tsx). A single visit
+// can service multiple units of the same type, so SN is per-unit, not
+// per-visit — there is deliberately no visit-level `sn` field.
 export interface UnitTypeEntry {
   type: string
   qty:  number
+  sns?: (string | null)[]
 }
 
 export interface Site {
@@ -49,10 +56,6 @@ export interface PmSchedule {
   // afterward for partial completion (e.g. 4 of 8 done).
   actual_unit_count: number | null
   notes:           string | null
-  // Optional serial number of the specific unit serviced on this visit —
-  // set via the "Jadwalkan Kunjungan" form, never shown as its own column
-  // (only surfaced next to the site name in All Sites' "By Site" view).
-  sn:              string | null
   report_submitted: boolean
   completed_at:    string | null
   // Append-only log of every scheduled_date change, oldest first. Logged on

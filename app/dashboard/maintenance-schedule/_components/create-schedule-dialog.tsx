@@ -46,7 +46,6 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
   const [date, setDate] = React.useState("")
   const [assignees, setAssignees] = React.useState<string[]>([])
   const [unitTypesOverride, setUnitTypesOverride] = React.useState<UnitTypeEntry[]>([])
-  const [sn, setSn] = React.useState("")
 
   // Recurring-generator fields. No assignees field at all in this mode —
   // every generated visit is created Unassigned (see lib/pm-schedule/recurring.ts).
@@ -63,7 +62,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
     if (!open) return
     setMode("single")
     setSiteId(""); setAddingSite(false); setNewSiteName("")
-    setDate(""); setAssignees([]); setUnitTypesOverride([]); setSn("")
+    setDate(""); setAssignees([]); setUnitTypesOverride([])
     setDurationPreset("12"); setCustomMonths("12"); setTotalVisits(4)
     setStartDate(todayISO()); setVisitDates(Array(4).fill("")); setRecurringUnitTypesOverride([])
   }, [open])
@@ -127,7 +126,6 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
       scheduled_date: date,
       assignees,
       unit_types: unitTypesOverride.length > 0 ? unitTypesOverride : null,
-      sn: sn.trim() || null,
     }
     createSchedule.mutate(row, {
       onSuccess: () => {
@@ -263,12 +261,6 @@ export function CreateScheduleDialog({ open, onClose, sites, month, region, assi
                   Breakdown Unit <span className="font-normal normal-case text-muted-foreground/70">(opsional — kosongkan untuk ikuti default site)</span>
                 </Label>
                 <UnitTypesEditor value={unitTypesOverride} onChange={setUnitTypesOverride} />
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                  SN (Serial Number) <span className="font-normal normal-case text-muted-foreground/70">(opsional)</span>
-                </Label>
-                <input type="text" value={sn} onChange={e => setSn(e.target.value)} placeholder="mis. SN-AC-00123" className={inputCls} />
               </div>
             </>
           ) : (

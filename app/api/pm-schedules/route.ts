@@ -72,7 +72,6 @@ export async function POST(request: Request) {
       unit_count:     row.unit_count ?? null,
       unit_types:     row.unit_types ?? null,
       notes:          row.notes ?? null,
-      sn:             row.sn ? String(row.sn).trim() || null : null,
     }))
 
     const res = await fetch(`${supabaseConfig.url}/rest/v1/pm_schedules?select=*,sites(*)`, {

@@ -37,11 +37,23 @@ export function formatUnitTypes(types: UnitTypeEntry[], fallbackCount: number): 
 }
 
 export function isValidUnitTypes(value: unknown): value is UnitTypeEntry[] {
-  return Array.isArray(value) && value.every(
-    t => t && typeof t === "object" &&
-      typeof (t as UnitTypeEntry).type === "string" && (t as UnitTypeEntry).type.trim() !== "" &&
-      Number.isInteger((t as UnitTypeEntry).qty) && (t as UnitTypeEntry).qty >= 0
-  )
+  return Array.isArray(value) && value.every(t => {
+    if (!t || typeof t !== "object") return false
+    const entry = t as UnitTypeEntry
+    if (typeof entry.type !== "string" || entry.type.trim() === "") return false
+    if (!Number.isInteger(entry.qty) || entry.qty < 0) return false
+    // sns is optional and intentionally not length-locked to qty — partial
+    // capture is normal (a unit's SN may not be known yet when scheduling).
+    if (entry.sns !== undefined && !(Array.isArray(entry.sns) && entry.sns.every(s => s === null || typeof s === "string"))) return false
+    return true
+  })
+}
+
+// Every non-empty SN across every type entry, flattened — used to display
+// a visit's serials in All Sites' "By Site" view and to power the SN
+// search filter, without callers needing to know the nested shape.
+export function flattenUnitSns(types: UnitTypeEntry[]): string[] {
+  return types.flatMap(t => (t.sns ?? []).filter((s): s is string => !!s && s.trim() !== ""))
 }
 
 // Pure date math for the recurring generator's smart defaults — spreads

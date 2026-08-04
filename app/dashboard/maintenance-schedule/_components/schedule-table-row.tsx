@@ -9,6 +9,7 @@ import { AssigneeCell } from "./assignee-cell"
 import { UnitCell } from "./unit-cell"
 import { NotesCell } from "./notes-cell"
 import { getLegalNextStatuses } from "@/lib/pm-schedule/status-rules"
+import { effectiveUnitTypes, flattenUnitSns } from "@/lib/pm-schedule/recurring"
 import { useUpdateSchedule } from "../_hooks/use-pm-schedules"
 
 function fDate(iso: string) {
@@ -58,6 +59,7 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
 }) {
   const updateSchedule = useUpdateSchedule()
   const legalNext = getLegalNextStatuses(schedule.status)
+  const sns = showSn ? flattenUnitSns(effectiveUnitTypes(schedule, schedule.sites)) : []
 
   return (
     <tr className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -77,9 +79,9 @@ export const ScheduleTableRow = React.memo(function ScheduleTableRow({
         >
           {schedule.sites?.name ?? "—"}
         </button>
-        {showSn && schedule.sn && (
-          <span className="block text-[10px] font-normal text-muted-foreground truncate" title={schedule.sn}>
-            SN: {schedule.sn}
+        {sns.length > 0 && (
+          <span className="block text-[10px] font-normal text-muted-foreground truncate" title={sns.join(", ")}>
+            SN: {sns.join(", ")}
           </span>
         )}
       </td>

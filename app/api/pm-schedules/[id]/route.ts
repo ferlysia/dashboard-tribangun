@@ -107,7 +107,6 @@ export async function PATCH(
       }
     }
     if (body.notes !== undefined) patch.notes = String(body.notes ?? "").trim() || null
-    if (body.sn !== undefined) patch.sn = body.sn ? String(body.sn).trim() || null : null
     if (body.scheduled_date !== undefined) {
       patch.scheduled_date = body.scheduled_date
 
