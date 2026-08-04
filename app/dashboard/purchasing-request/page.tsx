@@ -134,7 +134,7 @@ function computeSourcingSla(pr: PurchaseRequestRecord): SlaInfo {
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const diffDays = Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
 
-  if (diffDays > 0) return { label: `${diffDays} hari lagi menjelang update`, tone: "warning" }
+  if (diffDays > 0) return { label: `${diffDays} hari lagi menjelang Due Date`, tone: "warning" }
   if (diffDays === 0) return { label: "Jatuh tempo hari ini", tone: "overdue" }
   return { label: `Lewat ${Math.abs(diffDays)} hari update purchasing/warehouse`, tone: "overdue" }
 }
