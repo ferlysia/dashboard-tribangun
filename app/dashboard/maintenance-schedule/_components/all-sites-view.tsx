@@ -143,7 +143,7 @@ function GroupTable({ items, selectedIds, onToggleSelect, onToggleSelectGroup, a
   )
 }
 
-function CollapsibleSection({ title, subtitle, defaultOpen = true, children }: {
+export function CollapsibleSection({ title, subtitle, defaultOpen = true, children }: {
   title:        React.ReactNode
   subtitle?:    React.ReactNode
   defaultOpen?: boolean
