@@ -754,7 +754,7 @@ function PRFormDialog({ open, onClose, onSaved }: {
         }),
       })
       const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.error)
+      if (!res.ok || !data?.data?.pr_no) throw new Error(data?.error || "Gagal membuat PR: respons server tidak valid.")
       toast.success(`PR ${data.data.pr_no} berhasil dibuat.`)
       onSaved()
       onClose()
