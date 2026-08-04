@@ -1,5 +1,7 @@
 export type PmScheduleStatus = "PLANNED" | "ANNOUNCED" | "IN_PROGRESS" | "COMPLETED" | "RESCHEDULED"
 
+export type Region = "JABO" | "CIKARANG"
+
 export interface Site {
   id:         string
   name:       string
@@ -8,6 +10,7 @@ export interface Site {
   // Sales upsells more units). Falls through as the default for any visit
   // that has no per-visit override (see PmSchedule.unit_count).
   unit_count: number
+  region:     Region
   created_at: string
 }
 

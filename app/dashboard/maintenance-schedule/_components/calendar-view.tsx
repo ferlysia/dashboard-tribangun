@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import type { Region } from "@/types/pm-schedule"
 import { useSchedulesQuery } from "../_hooks/use-pm-schedules"
 import { STATUS_CFG } from "./status-badge"
 
@@ -34,11 +35,12 @@ const EMPTY_SCHEDULES: never[] = []
 // useSchedulesQuery cache everything else in the dashboard uses, so a month
 // that's already loaded elsewhere (e.g. the Matrix Grid's active month) is
 // reused instantly instead of re-fetched.
-const MonthSection = React.memo(function MonthSection({ month, onOpenDrawer }: {
+const MonthSection = React.memo(function MonthSection({ month, region, onOpenDrawer }: {
   month:        string
+  region:       Region
   onOpenDrawer: (id: string) => void
 }) {
-  const { data, isLoading } = useSchedulesQuery(month)
+  const { data, isLoading } = useSchedulesQuery(month, region)
   const schedules = data ?? EMPTY_SCHEDULES
 
   const byDay = React.useMemo(() => {
@@ -120,8 +122,9 @@ const LOAD_MORE_MONTHS = 6
 // scrolling here is otherwise independent of that shared single-month
 // state, since a continuous calendar inherently needs a range, not one
 // month at a time.
-export function CalendarView({ anchorMonth, onOpenDrawer }: {
+export function CalendarView({ anchorMonth, region, onOpenDrawer }: {
   anchorMonth:  string
+  region:       Region
   onOpenDrawer: (id: string) => void
 }) {
   const [monthCount, setMonthCount] = React.useState(INITIAL_MONTHS_AHEAD)
@@ -157,7 +160,7 @@ export function CalendarView({ anchorMonth, onOpenDrawer }: {
       </div>
       <div className="max-h-[75vh] overflow-y-auto">
         {months.map(month => (
-          <MonthSection key={month} month={month} onOpenDrawer={onOpenDrawer} />
+          <MonthSection key={month} month={month} region={region} onOpenDrawer={onOpenDrawer} />
         ))}
         <div ref={sentinelRef} className="h-10 flex items-center justify-center text-[11px] text-muted-foreground">
           Memuat bulan berikutnya...

@@ -26,7 +26,7 @@ export function FollowUpVisitDialog({ schedule, remainder, onClose }: {
   onClose:    () => void
 }) {
   const queryClient = useQueryClient()
-  const createSchedule = useCreateSchedule(schedule.scheduled_month)
+  const createSchedule = useCreateSchedule(schedule.scheduled_month, schedule.sites?.region ?? "JABO")
   const [date, setDate] = React.useState("")
 
   const handleCreate = () => {

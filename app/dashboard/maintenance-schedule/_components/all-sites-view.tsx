@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Trash2, Pencil } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { PmSchedule, Site } from "@/types/pm-schedule"
+import type { PmSchedule, Region, Site } from "@/types/pm-schedule"
 import { isFullyDone, weekOfMonth } from "@/lib/pm-schedule/status-rules"
 import { STATUS_CFG, STATUS_OPTIONS } from "./status-badge"
 import { ScheduleTableRow, SCHEDULE_TABLE_COLUMN_LABELS } from "./schedule-table-row"
@@ -143,12 +143,13 @@ function CollapsibleSection({ title, subtitle, defaultOpen = true, children }: {
 // useMemo hooks below.
 const EMPTY_SCHEDULES: never[] = []
 
-export function AllSitesView({ sites, assigneeOptions, onOpenDrawer }: {
+export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
   sites:            Site[]
+  region:           Region
   assigneeOptions:  string[]
   onOpenDrawer:     (id: string) => void
 }) {
-  const { data, isLoading } = useAllSchedulesQuery()
+  const { data, isLoading } = useAllSchedulesQuery(region)
   const schedules = data ?? EMPTY_SCHEDULES
 
   const [groupMode, setGroupMode] = React.useState<GroupMode>("monthWeek")

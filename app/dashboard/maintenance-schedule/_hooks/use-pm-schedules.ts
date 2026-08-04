@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { PmSchedule, PmScheduleStatus, Site } from "@/types/pm-schedule"
+import type { PmSchedule, PmScheduleStatus, Region, Site } from "@/types/pm-schedule"
 import { isLegalStatusChange } from "@/lib/pm-schedule/status-rules"
 
 async function safeJson(res: Response) {
@@ -21,30 +21,30 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return body.data as T
 }
 
-export const sitesQueryKey = ["sites"] as const
-// Partial key — matches every cached ["pm-schedules", month] query
-// regardless of month. Used when a mutation's effect isn't confined to the
-// currently-active month (e.g. creating a visit dated outside the month
-// currently shown), so every view relying on any month's data gets
+export const sitesQueryKey = (region: Region) => ["sites", region] as const
+// Partial key — matches every cached ["pm-schedules", month, region] query
+// regardless of month/region. Used when a mutation's effect isn't confined
+// to the currently-active month (e.g. creating a visit dated outside the
+// month currently shown), so every view relying on any month's data gets
 // invalidated, not just the one currently on screen.
 export const schedulesQueryKeyPrefix = ["pm-schedules"] as const
-export const schedulesQueryKey = (month: string) => ["pm-schedules", month] as const
+export const schedulesQueryKey = (month: string, region: Region) => ["pm-schedules", month, region] as const
 
-export function useSitesQuery() {
+export function useSitesQuery(region: Region) {
   return useQuery({
-    queryKey: sitesQueryKey,
-    queryFn:  () => fetchJson<Site[]>("/api/sites"),
+    queryKey: sitesQueryKey(region),
+    queryFn:  () => fetchJson<Site[]>(`/api/sites?region=${region}`),
     staleTime: 5 * 60_000, // sites change rarely
   })
 }
 
 // The single shared query every view (Matrix Grid, Weekly Board, Sites
-// Overview, Calendar) reads from — switching tabs never triggers a new
-// fetch, only changing `month` does.
-export function useSchedulesQuery(month: string) {
+// Overview, Calendar) reads from — switching view tabs never triggers a new
+// fetch, only changing `month`/`region` does.
+export function useSchedulesQuery(month: string, region: Region) {
   return useQuery({
-    queryKey: schedulesQueryKey(month),
-    queryFn:  () => fetchJson<PmSchedule[]>(`/api/pm-schedules?month=${month}`),
+    queryKey: schedulesQueryKey(month, region),
+    queryFn:  () => fetchJson<PmSchedule[]>(`/api/pm-schedules?month=${month}&region=${region}`),
   })
 }
 
@@ -113,14 +113,14 @@ export function useCreateSite() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (name: string) =>
+    mutationFn: (input: { name: string; region: Region }) =>
       fetchJson<Site>("/api/sites", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ name }),
+        body:    JSON.stringify(input),
       }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sitesQueryKey })
+    onSuccess: (site) => {
+      queryClient.invalidateQueries({ queryKey: sitesQueryKey(site.region) })
     },
   })
 }
@@ -137,9 +137,9 @@ export interface NewSchedule {
   notes?:         string | null
 }
 
-export function useCreateSchedule(month: string) {
+export function useCreateSchedule(month: string, region: Region) {
   const queryClient = useQueryClient()
-  const key = schedulesQueryKey(month)
+  const key = schedulesQueryKey(month, region)
 
   return useMutation({
     mutationFn: (row: NewSchedule) =>
@@ -158,9 +158,9 @@ export function useCreateSchedule(month: string) {
 // batch-inserts an array body (see app/api/pm-schedules/route.ts). Kept as
 // its own hook (distinct from useCreateSchedule) so call sites are explicit
 // about single-visit vs batch intent, even though both hit the same endpoint.
-export function useCreateBatchSchedules(month: string) {
+export function useCreateBatchSchedules(month: string, region: Region) {
   const queryClient = useQueryClient()
-  const key = schedulesQueryKey(month)
+  const key = schedulesQueryKey(month, region)
 
   return useMutation({
     mutationFn: (rows: NewSchedule[]) =>
@@ -188,7 +188,9 @@ export function useUpdateSite() {
         body:    JSON.stringify(patch),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: sitesQueryKey })
+      // Partial key — the site's region isn't known here, so invalidate
+      // every region-scoped ["sites", region] query rather than just one.
+      queryClient.invalidateQueries({ queryKey: ["sites"] })
     },
   })
 }
@@ -199,12 +201,12 @@ export function useUpdateSite() {
 // is simpler, and both All Sites grouping modes (By Month & Week, By Site)
 // derive from this single cached list via useMemo, so toggling between them
 // is instant with no refetch.
-export const allSchedulesQueryKey = ["pm-schedules", "all"] as const
+export const allSchedulesQueryKey = (region: Region) => ["pm-schedules", "all", region] as const
 
-export function useAllSchedulesQuery() {
+export function useAllSchedulesQuery(region: Region) {
   return useQuery({
-    queryKey: allSchedulesQueryKey,
-    queryFn:  () => fetchJson<PmSchedule[]>("/api/pm-schedules"),
+    queryKey: allSchedulesQueryKey(region),
+    queryFn:  () => fetchJson<PmSchedule[]>(`/api/pm-schedules?region=${region}`),
   })
 }
 

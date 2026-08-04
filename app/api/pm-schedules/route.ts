@@ -19,11 +19,15 @@ export async function GET(request: Request) {
     const month  = searchParams.get("month")     // e.g. "2026-07-01"
     const siteId = searchParams.get("site_id")
     const status = searchParams.get("status")
+    const region = searchParams.get("region")
 
-    const filters = [`select=*,sites(*)`, `order=scheduled_date.asc`]
+    // !inner is safe unconditionally — site_id is NOT NULL, so the inner
+    // join never drops a row when no region filter is given below.
+    const filters = [`select=*,sites!inner(*)`, `order=scheduled_date.asc`]
     if (month)  filters.push(`scheduled_month=eq.${month}`)
     if (siteId) filters.push(`site_id=eq.${siteId}`)
     if (status) filters.push(`status=eq.${status}`)
+    if (region === "JABO" || region === "CIKARANG") filters.push(`sites.region=eq.${region}`)
 
     const res = await fetch(
       `${supabaseConfig.url}/rest/v1/pm_schedules?${filters.join("&")}`,

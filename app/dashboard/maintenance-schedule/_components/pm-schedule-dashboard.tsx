@@ -1,9 +1,11 @@
 "use client"
 
 import * as React from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, ChevronRight, Plus, LayoutGrid, Kanban, Building2, CalendarDays } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { Region } from "@/types/pm-schedule"
 import { deriveKpis } from "@/lib/pm-schedule/status-rules"
 import { useAllSchedulesQuery, useSchedulesQuery, useSitesQuery } from "../_hooks/use-pm-schedules"
 import { KpiBar } from "./kpi-bar"
@@ -42,19 +44,30 @@ const EMPTY_SCHEDULES: never[] = []
 const EMPTY_SITES: never[] = []
 
 export function PmScheduleDashboard() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  // URL is the single source of truth — so Lidya's tab choice survives a
+  // refresh and the URL is shareable/bookmarkable.
+  const region: Region = searchParams.get("region") === "CIKARANG" ? "CIKARANG" : "JABO"
+  const setRegion = (next: Region) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("region", next)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }
+
   const [month, setMonth] = React.useState(currentMonth)
   const [activeTab, setActiveTab] = React.useState("matrix")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
 
-  const schedulesQuery = useSchedulesQuery(month)
-  const sitesQuery = useSitesQuery()
+  const schedulesQuery = useSchedulesQuery(month, region)
+  const sitesQuery = useSitesQuery(region)
   // Shared with AllSitesView's own useAllSchedulesQuery() call (same query
   // key, deduped by React Query) — kept here too so the Drawer can resolve
   // a selected schedule opened from Calendar or All Sites, both of which
   // can show visits outside the active month that schedulesQuery alone
   // wouldn't contain.
-  const allSchedulesQuery = useAllSchedulesQuery()
+  const allSchedulesQuery = useAllSchedulesQuery(region)
 
   const schedules = schedulesQuery.data ?? EMPTY_SCHEDULES
   const sites = sitesQuery.data ?? EMPTY_SITES
@@ -94,6 +107,13 @@ export function PmScheduleDashboard() {
         </div>
       </div>
 
+      <Tabs value={region} onValueChange={v => setRegion(v as Region)} className="w-full">
+        <TabsList className="h-9">
+          <TabsTrigger value="JABO" className="text-xs px-4">Jabo</TabsTrigger>
+          <TabsTrigger value="CIKARANG" className="text-xs px-4">Cikarang</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <KpiBar kpis={kpis} monthLabel={monthLabel(month)} />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -117,10 +137,10 @@ export function PmScheduleDashboard() {
               <WeeklyBoardView schedules={schedules} />
             </TabsContent>
             <TabsContent value="sites" className="mt-4">
-              <AllSitesView sites={sites} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
+              <AllSitesView sites={sites} region={region} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
             </TabsContent>
             <TabsContent value="calendar" className="mt-4">
-              <CalendarView anchorMonth={month} onOpenDrawer={setSelectedId} />
+              <CalendarView anchorMonth={month} region={region} onOpenDrawer={setSelectedId} />
             </TabsContent>
           </>
         )}
@@ -136,6 +156,7 @@ export function PmScheduleDashboard() {
         onClose={() => setCreateOpen(false)}
         sites={sites}
         month={month}
+        region={region}
         assigneeOptions={assigneeOptions}
       />
     </div>

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Plus, Wand2 } from "lucide-react"
 import { toast } from "sonner"
-import type { Site } from "@/types/pm-schedule"
+import type { Region, Site } from "@/types/pm-schedule"
 import { computeEvenlySpacedDates } from "@/lib/pm-schedule/recurring"
 import { useCreateBatchSchedules, useCreateSchedule, useCreateSite, schedulesQueryKeyPrefix, type NewSchedule } from "../_hooks/use-pm-schedules"
 import { AssigneesInput } from "./assignees-input"
@@ -22,16 +22,17 @@ function todayISO() {
 
 type Mode = "single" | "recurring"
 
-export function CreateScheduleDialog({ open, onClose, sites, month, assigneeOptions }: {
+export function CreateScheduleDialog({ open, onClose, sites, month, region, assigneeOptions }: {
   open:             boolean
   onClose:          () => void
   sites:            Site[]
   month:            string
+  region:           Region
   assigneeOptions:  string[]
 }) {
   const queryClient = useQueryClient()
-  const createSchedule = useCreateSchedule(month)
-  const createBatch = useCreateBatchSchedules(month)
+  const createSchedule = useCreateSchedule(month, region)
+  const createBatch = useCreateBatchSchedules(month, region)
   const createSite = useCreateSite()
 
   const [mode, setMode] = React.useState<Mode>("single")
@@ -103,7 +104,7 @@ export function CreateScheduleDialog({ open, onClose, sites, month, assigneeOpti
       toast.error("Nama site tidak boleh kosong.")
       return
     }
-    createSite.mutate(name, {
+    createSite.mutate({ name, region }, {
       onSuccess: (site) => {
         setSiteId(site.id)
         setAddingSite(false)
