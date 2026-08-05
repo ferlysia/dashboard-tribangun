@@ -81,6 +81,24 @@ export function ApInvoicesDashboard() {
     return { unpaid, priorityQueue, doneHistory, outstandingTotal, overdueCount, priorityCount, openDebtCount }
   }, [invoices])
 
+  const cashRequired7d = React.useMemo(() => {
+    const today = new Date()
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const in7Days = new Date(todayMidnight)
+    in7Days.setDate(in7Days.getDate() + 7)
+
+    return invoices.reduce((sum, inv) => {
+      if (inv.payment_date) return sum       // status !== 'PAID' eligibility
+      if (!inv.due_date) return sum          // ignore null/missing due dates
+      const [y, m, d] = inv.due_date.split("-").map(Number)
+      const due = new Date(y, m - 1, d)
+      const overdueOrDueSoon = due.getTime() <= in7Days.getTime() // past-due OR within next 7 rolling days
+      if (!overdueOrDueSoon) return sum
+      const grandTotal = (inv.dpp_amount ?? 0) + (inv.ppn_amount ?? 0) - (inv.pph_amount ?? 0)
+      return sum + grandTotal
+    }, 0)
+  }, [invoices])
+
   // Global search: filters the two flat tabs directly (the grid is already
   // flat, so this doubles as the "flatten so results are visible"
   // behavior); History/By Vendor filter internally so they can instead
@@ -124,7 +142,7 @@ export function ApInvoicesDashboard() {
         <KpiTile label="Overdue" value={String(overdueCount)} tone="rose" />
         <KpiTile label="Priority (≤7d)" value={String(priorityCount)} tone="amber" />
         <KpiTile label="Open Debt" value={String(openDebtCount)} tone="violet" />
-        <KpiTile label="Paid" value={String(doneHistory.length)} tone="pink" />
+        <KpiTile label="Cash Required (≤7D)" value={formatIDR(cashRequired7d)} tone="pink" />
       </div>
 
       <BulkActionBar count={selectedIds.size} onMarkPaid={handleMarkPaidBulk} onClear={clearSelection} />
