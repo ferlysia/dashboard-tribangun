@@ -6,10 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ApInvoice } from "@/types/ap-invoice"
 import { computeInvoiceUrgency } from "@/lib/ap-invoices/status-rules"
+import { matchesSearch } from "@/lib/ap-invoices/grouping"
 import { formatIDR } from "@/lib/format"
 import { useInvoicesQuery, useVendorsQuery } from "../_hooks/use-ap-invoices"
 import { InvoiceGrid } from "./invoice-grid"
 import { ByVendorView } from "./by-vendor-view"
+import { HistoryLedger } from "./history-ledger"
+import { GlobalSearchBar } from "./search-bar"
 import { BulkActionBar } from "./bulk-action-bar"
 import { MarkPaidDialog, type MarkPaidTarget } from "./mark-paid-dialog"
 import { CreateInvoiceDialog } from "./create-invoice-dialog"
@@ -41,6 +44,7 @@ export function ApInvoicesDashboard() {
   const vendors = vendorsQuery.data ?? EMPTY_VENDORS
 
   const [activeTab, setActiveTab] = React.useState("priority")
+  const [search, setSearch] = React.useState("")
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [markPaidTarget, setMarkPaidTarget] = React.useState<MarkPaidTarget | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -76,9 +80,16 @@ export function ApInvoicesDashboard() {
     return { unpaid, priorityQueue, doneHistory, outstandingTotal, overdueCount, priorityCount, openDebtCount }
   }, [invoices])
 
+  // Global search: filters the two flat tabs directly (the grid is already
+  // flat, so this doubles as the "flatten so results are visible"
+  // behavior); History/By Vendor filter internally so they can instead
+  // auto-expand only the accordions containing a match.
+  const searchedPriorityQueue = React.useMemo(() => priorityQueue.filter(inv => matchesSearch(inv, search)), [priorityQueue, search])
+  const searchedUnpaid = React.useMemo(() => unpaid.filter(inv => matchesSearch(inv, search)), [unpaid, search])
+
   const activeInvoicesForTab =
-    activeTab === "priority" ? priorityQueue :
-    activeTab === "all"      ? unpaid :
+    activeTab === "priority" ? searchedPriorityQueue :
+    activeTab === "all"      ? searchedUnpaid :
     activeTab === "done"     ? doneHistory :
     unpaid // "vendor" tab renders ByVendorView directly off `unpaid`
 
@@ -88,7 +99,9 @@ export function ApInvoicesDashboard() {
     setMarkPaidTarget({ ids: Array.from(selectedIds), label: `${selectedIds.size} invoice terpilih` })
 
   return (
-    <div className="flex flex-col gap-6 p-6 min-h-0">
+    <div className="flex flex-col min-h-0">
+      <GlobalSearchBar value={search} onChange={setSearch} />
+      <div className="flex flex-col gap-6 p-6 min-h-0">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight bg-gradient-to-r from-rose-600 to-fuchsia-600 dark:from-rose-400 dark:to-fuchsia-400 bg-clip-text text-transparent">
@@ -151,27 +164,28 @@ export function ApInvoicesDashboard() {
           <>
             <TabsContent value="priority" className="mt-4">
               <InvoiceGrid
-                invoices={priorityQueue}
+                invoices={searchedPriorityQueue}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
-                emptyMessage="Tidak ada invoice di Priority Queue — semua aman."
+                emptyMessage={search ? "Tidak ada hasil yang cocok." : "Tidak ada invoice di Priority Queue — semua aman."}
               />
             </TabsContent>
             <TabsContent value="all" className="mt-4">
               <InvoiceGrid
-                invoices={unpaid}
+                invoices={searchedUnpaid}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
-                emptyMessage="Belum ada invoice aktif."
+                emptyMessage={search ? "Tidak ada hasil yang cocok." : "Belum ada invoice aktif."}
               />
             </TabsContent>
             <TabsContent value="vendor" className="mt-4">
               <ByVendorView
-                invoices={unpaid}
+                invoices={invoices}
+                searchQuery={search}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
@@ -179,13 +193,13 @@ export function ApInvoicesDashboard() {
               />
             </TabsContent>
             <TabsContent value="done" className="mt-4">
-              <InvoiceGrid
+              <HistoryLedger
                 invoices={doneHistory}
+                searchQuery={search}
                 selectedIds={selectedIds}
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
-                emptyMessage="Belum ada invoice yang lunas."
               />
             </TabsContent>
           </>
@@ -197,6 +211,7 @@ export function ApInvoicesDashboard() {
         onClose={() => { setMarkPaidTarget(null); clearSelection() }}
       />
       <CreateInvoiceDialog open={createOpen} onClose={() => setCreateOpen(false)} vendors={vendors} />
+      </div>
     </div>
   )
 }
