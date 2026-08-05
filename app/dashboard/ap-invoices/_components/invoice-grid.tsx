@@ -20,23 +20,23 @@ export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSel
 
   if (invoices.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-xl border border-rose-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-8 text-center text-sm font-medium text-slate-500 dark:text-slate-400">
         {emptyMessage ?? "Tidak ada invoice."}
       </div>
     )
   }
 
   return (
-    <div className="rounded-lg border-2 border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+    <div className="rounded-xl border border-rose-100 dark:border-slate-800 overflow-hidden shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="bg-slate-100 dark:bg-slate-800/70">
-              <th className="px-2 py-2 border border-slate-200 dark:border-slate-800 text-center">
+            <tr className="bg-gradient-to-r from-rose-50 to-fuchsia-50 dark:from-slate-800 dark:to-slate-800">
+              <th className="px-2 py-2.5 border-b border-rose-100 dark:border-slate-700 text-center">
                 <Checkbox checked={allSelected} onCheckedChange={checked => onToggleSelectGroup(ids, checked === true)} />
               </th>
               {INVOICE_GRID_COLUMN_LABELS.map((col, i) => (
-                <th key={i} className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-left text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap">
+                <th key={i} className="px-3 py-2.5 border-b border-rose-100 dark:border-slate-700 text-left text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap">
                   {col}
                 </th>
               ))}

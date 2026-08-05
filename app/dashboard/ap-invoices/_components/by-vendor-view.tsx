@@ -28,7 +28,7 @@ export function ByVendorView({ invoices, selectedIds, onToggleSelect, onToggleSe
 
   if (groups.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+      <div className="rounded-xl border border-rose-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-8 text-center text-sm font-medium text-slate-500 dark:text-slate-400">
         Belum ada invoice.
       </div>
     )
@@ -51,8 +51,8 @@ export function ByVendorView({ invoices, selectedIds, onToggleSelect, onToggleSe
             subtitle={
               <span className="inline-flex items-center gap-2">
                 {group.rows.length} invoice · {unpaid.length} belum bayar
-                {priority.length > 0 && <span className="text-orange-600 dark:text-orange-400 font-semibold">· {priority.length} priority</span>}
-                · outstanding {formatIDR(outstanding)}
+                {priority.length > 0 && <span className="text-rose-600 dark:text-rose-400 font-bold">· {priority.length} priority</span>}
+                · outstanding <span className="font-bold text-fuchsia-700 dark:text-fuchsia-400">{formatIDR(outstanding)}</span>
               </span>
             }
           >

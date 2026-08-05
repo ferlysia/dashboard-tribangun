@@ -44,7 +44,7 @@ function EditableDateCell({ value, onCommit }: { value: string | null; onCommit:
     <button
       type="button"
       onClick={() => { setDraft(value ?? ""); setEditing(true) }}
-      className="text-left w-full text-xs text-foreground hover:underline underline-offset-2"
+      className="text-left w-full text-xs font-medium text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 hover:underline underline-offset-2"
       title="Klik untuk ubah"
     >
       {fDate(value)}
@@ -79,7 +79,7 @@ function EditableAmountCell({ value, onCommit }: { value: number; onCommit: (nex
     <button
       type="button"
       onClick={() => { setDraft(String(value)); setEditing(true) }}
-      className="text-left w-full text-xs text-foreground hover:underline underline-offset-2 whitespace-nowrap"
+      className="text-left w-full text-xs font-semibold text-slate-900 dark:text-slate-100 hover:text-rose-600 dark:hover:text-rose-400 hover:underline underline-offset-2 whitespace-nowrap"
       title="Klik untuk ubah"
     >
       {formatIDR(value)}
@@ -122,44 +122,44 @@ export const InvoiceRow = React.memo(function InvoiceRow({
   }
 
   return (
-    <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${isPaid ? "opacity-60" : ""}`}>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800 text-center">
+    <tr className={`border-b border-slate-100 dark:border-slate-800 hover:bg-rose-50/60 dark:hover:bg-rose-950/20 transition-colors ${isPaid ? "opacity-70" : ""}`}>
+      <td className="px-2 py-2.5 text-center">
         <Checkbox checked={selected} onCheckedChange={checked => onToggleSelect(invoice.id, checked === true)} />
       </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 font-semibold text-foreground whitespace-nowrap">
+      <td className="px-3 py-2.5 font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
         {invoice.ap_vendors?.name ?? "—"}
       </td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap">{fDate(invoice.po_date)}</td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 font-mono text-xs text-muted-foreground whitespace-nowrap">{invoice.po_number ?? "—"}</td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground max-w-[160px] truncate">{invoice.project_name ?? "—"}</td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 text-muted-foreground whitespace-nowrap">{fDate(invoice.invoice_date)}</td>
-      <td className="px-3 py-2 border border-slate-200 dark:border-slate-800 font-mono text-xs text-foreground whitespace-nowrap">{invoice.invoice_number}</td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
+      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{fDate(invoice.po_date)}</td>
+      <td className="px-3 py-2.5 font-mono text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap">{invoice.po_number ?? "—"}</td>
+      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 max-w-[160px] truncate">{invoice.project_name ?? "—"}</td>
+      <td className="px-3 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">{fDate(invoice.invoice_date)}</td>
+      <td className="px-3 py-2.5 font-mono text-xs text-slate-900 dark:text-slate-100 whitespace-nowrap">{invoice.invoice_number}</td>
+      <td className="px-2 py-2.5">
         <EditableAmountCell value={invoice.dpp_amount} onCommit={n => commitAmountField("dpp_amount", n)} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
+      <td className="px-2 py-2.5">
         <EditableAmountCell value={invoice.ppn_amount} onCommit={n => commitAmountField("ppn_amount", n)} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
+      <td className="px-2 py-2.5">
         <EditableAmountCell value={invoice.pph_amount} onCommit={n => commitAmountField("pph_amount", n)} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40">
+      <td className="px-2 py-2.5 bg-fuchsia-50/50 dark:bg-fuchsia-950/10">
         <EditableAmountCell value={invoice.total_amount} onCommit={n => updateInvoice.mutate({ id: invoice.id, total_amount: n })} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
+      <td className="px-2 py-2.5">
         <EditableDateCell value={invoice.due_date} onCommit={next => updateInvoice.mutate({ id: invoice.id, due_date: next })} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800">
+      <td className="px-2 py-2.5">
         <UrgencyPill invoice={invoice} />
       </td>
-      <td className="px-2 py-2 border border-slate-200 dark:border-slate-800 whitespace-nowrap">
+      <td className="px-2 py-2.5 whitespace-nowrap">
         <div className="flex items-center gap-1">
           {!isPaid && (
-            <Button type="button" size="sm" variant="outline" className="text-xs h-7" onClick={() => onMarkPaid(invoice)}>
+            <Button type="button" size="sm" className="text-xs h-7 font-semibold bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 text-white border-0 shadow-sm" onClick={() => onMarkPaid(invoice)}>
               Mark Paid
             </Button>
           )}
-          <button type="button" onClick={handleDelete} className="p-1 text-muted-foreground hover:text-red-600 transition-colors" title="Hapus invoice">
+          <button type="button" onClick={handleDelete} className="p-1 text-slate-400 hover:text-rose-600 transition-colors" title="Hapus invoice">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
