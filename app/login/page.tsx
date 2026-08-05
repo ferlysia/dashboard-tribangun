@@ -222,10 +222,11 @@ export default function LoginPage() {
 
   // ── Determine redirect target from ?next= ─────────────────────────────────
   const [nextUrl, setNextUrl] = React.useState("/dashboard")
+  const [nextUrlExplicit, setNextUrlExplicit] = React.useState(false)
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const n = params.get("next") ?? ""
-    if (n.startsWith("/") && !n.startsWith("//")) setNextUrl(n)
+    if (n.startsWith("/") && !n.startsWith("//")) { setNextUrl(n); setNextUrlExplicit(true) }
   }, [])
 
   // ── Stage machine ─────────────────────────────────────────────────────────
@@ -276,7 +277,10 @@ export default function LoginPage() {
 
   const finalise = (name: string, email: string, role?: AppRole) => {
     setUser({ name, firstName: name.split(" ")[0], email, role })
-    router.push(nextUrl)
+    // Finance users land directly on their invoice queue unless a specific
+    // deep link (?next=) was requested, e.g. from an auth-redirected page.
+    const target = !nextUrlExplicit && role === "FINANCE" ? "/dashboard/ap-invoices" : nextUrl
+    router.push(target)
   }
 
   // ── Handler: step 1 — password ───────────────────────────────────────────

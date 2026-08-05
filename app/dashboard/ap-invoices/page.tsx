@@ -10,7 +10,10 @@ import { ApInvoicesDashboard } from "./_components/ap-invoices-dashboard"
 export default function ApInvoicesPage() {
   return (
     <ApInvoicesQueryProvider>
-      <SidebarProvider>
+      {/* Zero-friction: Finance's primary workspace starts full-width with the
+          sidebar hidden; SiteHeader's existing SidebarTrigger reopens it as
+          an overlay/drawer on demand (standard shadcn offcanvas behavior). */}
+      <SidebarProvider defaultOpen={false}>
         <AppSidebar />
         <SidebarInset>
           <SiteHeader />
