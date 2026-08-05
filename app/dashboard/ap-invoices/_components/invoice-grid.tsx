@@ -1,13 +1,17 @@
 "use client"
 
+import type * as React from "react"
 import { Checkbox } from "@/components/ui/checkbox"
+import { TableFooter, TableRow as ShadcnTableRow, TableCell as ShadcnTableCell } from "@/components/ui/table"
 import type { ApInvoice } from "@/types/ap-invoice"
 import { InvoiceRow, INVOICE_GRID_COLUMN_LABELS } from "./invoice-row"
 
 // The smart data grid — shared by every tab (Priority/All/By Vendor/Done).
 // Selection state lives in the parent so the bulk-action bar can span the
-// whole page, not just one grid instance.
-export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit, emptyMessage }: {
+// whole page, not just one grid instance. `footer` is opt-in (e.g. the By
+// Vendor tab's "Total Outstanding" / "Grand Total Paid" summaries) — other
+// callers that don't pass it get no <tfoot> at all.
+export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit, emptyMessage, footer }: {
   invoices:              ApInvoice[]
   selectedIds:           Set<string>
   onToggleSelect:        (id: string, checked: boolean) => void
@@ -15,6 +19,7 @@ export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSel
   onMarkPaid:            (invoice: ApInvoice) => void
   onEdit:                (invoice: ApInvoice) => void
   emptyMessage?:         string
+  footer?:               React.ReactNode
 }) {
   const ids = invoices.map(inv => inv.id)
   const allSelected = ids.length > 0 && ids.every(id => selectedIds.has(id))
@@ -55,6 +60,15 @@ export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSel
               />
             ))}
           </tbody>
+          {footer && (
+            <TableFooter className="bg-muted/50 dark:bg-slate-900/60">
+              <ShadcnTableRow className="hover:bg-transparent">
+                <ShadcnTableCell colSpan={INVOICE_GRID_COLUMN_LABELS.length + 1} className="px-3 py-2.5 text-right">
+                  {footer}
+                </ShadcnTableCell>
+              </ShadcnTableRow>
+            </TableFooter>
+          )}
         </table>
       </div>
     </div>
