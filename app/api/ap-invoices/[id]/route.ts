@@ -33,6 +33,9 @@ export async function PATCH(
     for (const field of EDITABLE_FIELDS) {
       if (body[field] === undefined) continue
       if (NUMERIC_FIELDS.has(field)) {
+        // Progressive Entry: an explicit null clears the field (still "not
+        // entered yet"), it must not silently coerce to 0.
+        if (body[field] === null) { patch[field] = null; continue }
         const n = Number(body[field])
         if (!Number.isFinite(n)) {
           return NextResponse.json({ error: `${field} harus berupa angka` }, { status: 400 })

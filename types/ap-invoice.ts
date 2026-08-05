@@ -11,12 +11,15 @@ export interface ApInvoice {
   po_date:         string | null
   po_number:       string | null
   project_name:    string | null
-  invoice_date:    string   // ISO date
-  invoice_number:  string
-  dpp_amount:      number
-  ppn_amount:      number
-  pph_amount:      number
-  total_amount:    number
+  // Progressive Entry: only vendor_id is required to create a draft row —
+  // every other field below is filled in over several days as documents
+  // arrive, so all are nullable ("not entered yet" vs. a real 0/value).
+  invoice_date:    string | null
+  invoice_number:  string | null
+  dpp_amount:      number | null
+  ppn_amount:      number | null
+  pph_amount:      number | null
+  total_amount:    number | null
   // NULL = Type B "Open Debt" — tracked by aging (invoice_date -> today)
   // instead of a countdown. Non-null = Type A, tracked by days remaining.
   due_date:        string | null

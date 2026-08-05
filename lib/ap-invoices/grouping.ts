@@ -8,7 +8,7 @@ export function matchesSearch(inv: ApInvoice, query: string): boolean {
   if (!query) return true
   const q = query.toLowerCase()
   return (
-    inv.invoice_number.toLowerCase().includes(q) ||
+    (inv.invoice_number?.toLowerCase().includes(q) ?? false) ||
     (inv.po_number?.toLowerCase().includes(q) ?? false) ||
     (inv.ap_vendors?.name?.toLowerCase().includes(q) ?? false)
   )
@@ -44,7 +44,7 @@ export function groupByMonth(rows: ApInvoice[], dateField: "payment_date" | "inv
   }
   return Array.from(map.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([key, groupRows]) => ({ key, label: monthLabel(key), rows: groupRows, total: groupRows.reduce((s, r) => s + r.total_amount, 0) }))
+    .map(([key, groupRows]) => ({ key, label: monthLabel(key), rows: groupRows, total: groupRows.reduce((s, r) => s + (r.total_amount ?? 0), 0) }))
 }
 
 export interface VendorGroup {
@@ -77,7 +77,7 @@ export function groupHistoryByMonthThenVendor(invoices: ApInvoice[]): MonthGroup
     }
     const vg = vendorMap.get(inv.vendor_id)!
     vg.rows.push(inv)
-    vg.total += inv.total_amount
+    vg.total += inv.total_amount ?? 0
   }
   return Array.from(months.entries())
     .sort((a, b) => b[0].localeCompare(a[0]))
@@ -125,7 +125,7 @@ export function buildVendorProfiles(invoices: ApInvoice[]): VendorProfile[] {
       totalInvoices:       rows.length,
       totalPaidCount:      paidRows.length,
       totalUnpaidCount:    unpaidRows.length,
-      outstandingBalance:  unpaidRows.reduce((s, r) => s + r.total_amount, 0),
+      outstandingBalance:  unpaidRows.reduce((s, r) => s + (r.total_amount ?? 0), 0),
       unpaidRows,
       paidByMonth: groupByMonth(paidRows, "payment_date"),
     })

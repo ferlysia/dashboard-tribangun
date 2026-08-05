@@ -1,6 +1,6 @@
 import type { ApInvoice } from "@/types/ap-invoice"
 
-export type Urgency = "PAID" | "OVERDUE" | "PRIORITY" | "SAFE" | "OPEN_DEBT"
+export type Urgency = "PAID" | "OVERDUE" | "PRIORITY" | "SAFE" | "OPEN_DEBT" | "DRAFT"
 
 // Date-only, local-midnight math — due_date/invoice_date are bare DATE
 // columns (e.g. "2026-08-02"), so we avoid UTC-parse/time-of-day drift by
@@ -25,6 +25,9 @@ export function computeInvoiceUrgency(
   today: Date = new Date()
 ): { urgency: Urgency; days: number } {
   if (inv.payment_date) return { urgency: "PAID", days: 0 }
+  // Progressive Entry: a row with no invoice_date yet is still a draft —
+  // there's nothing to age or count down from.
+  if (!inv.invoice_date) return { urgency: "DRAFT", days: 0 }
   if (!inv.due_date) return { urgency: "OPEN_DEBT", days: daysBetween(inv.invoice_date, today) }
 
   const days = daysBetween(today, inv.due_date)

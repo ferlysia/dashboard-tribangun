@@ -11,6 +11,11 @@ function formatPaidDate(iso: string) {
 // Vibrant, high-contrast, solid-tinted pills — no dull flat grays. Each
 // urgency gets its own saturated color family with a matching ring for pop.
 const URGENCY_CFG: Record<Urgency, { emoji: string; label: (days: number, paymentDate: string | null) => string; badge: string }> = {
+  DRAFT:     {
+    emoji: "📝",
+    label: () => "Draft",
+    badge: "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-300 dark:bg-slate-800/60 dark:text-slate-400 dark:ring-slate-700 font-medium italic",
+  },
   OVERDUE:   {
     emoji: "🔴",
     label: d => `Lewat ${Math.abs(d)} hari`,

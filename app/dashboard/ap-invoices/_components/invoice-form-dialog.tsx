@@ -7,9 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectSe
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Plus } from "lucide-react"
-import type { ApVendor } from "@/types/ap-invoice"
+import type { ApInvoice, ApVendor } from "@/types/ap-invoice"
 import { computeTotal } from "@/lib/ap-invoices/status-rules"
-import { useCreateInvoice, useCreateVendor } from "../_hooks/use-ap-invoices"
+import { apInvoiceFormSchema } from "@/lib/ap-invoices/schema"
+import { useCreateInvoice, useUpdateInvoice, useCreateVendor } from "../_hooks/use-ap-invoices"
+import { CurrencyInput } from "./currency-input"
 
 const NEW_VENDOR_VALUE = "__new_vendor__"
 const inputCls = "w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/40"
@@ -40,43 +42,58 @@ function RateBadges({ rates, dpp, onPick }: { rates: number[]; dpp: number; onPi
   )
 }
 
-export function CreateInvoiceDialog({ open, onClose, vendors }: {
+// Shared by both "Invoice Baru" (invoice=null) and the row/vendor/placeholder
+// click Edit modal (invoice=<row>) — same centered Dialog layout either way,
+// per the "no drawers" requirement. Edit performs a lightweight PATCH via
+// the existing optimistic useUpdateInvoice mutation, no page reload.
+export function InvoiceFormDialog({ open, onClose, vendors, invoice }: {
   open:     boolean
   onClose:  () => void
   vendors:  ApVendor[]
+  invoice?: ApInvoice | null
 }) {
+  const isEdit = !!invoice
   const createInvoice = useCreateInvoice()
+  const updateInvoice = useUpdateInvoice()
   const createVendor  = useCreateVendor()
+  const saving = createInvoice.isPending || updateInvoice.isPending
 
   const [vendorId, setVendorId] = React.useState("")
   const [addingVendor, setAddingVendor] = React.useState(false)
   const [newVendorName, setNewVendorName] = React.useState("")
 
-  const [poDate, setPoDate] = React.useState("")
+  const [poDate, setPoDate] = React.useState<string>("")
   const [poNumber, setPoNumber] = React.useState("")
   const [projectName, setProjectName] = React.useState("")
-  const [invoiceDate, setInvoiceDate] = React.useState(todayISO)
+  const [invoiceDate, setInvoiceDate] = React.useState("")
   const [invoiceNumber, setInvoiceNumber] = React.useState("")
-  const [dpp, setDpp] = React.useState("0")
-  const [ppn, setPpn] = React.useState("0")
-  const [pph, setPph] = React.useState("0")
-  const [totalDraft, setTotalDraft] = React.useState<string | null>(null)
+  const [dpp, setDpp] = React.useState<number | null>(null)
+  const [ppn, setPpn] = React.useState<number | null>(null)
+  const [pph, setPph] = React.useState<number | null>(null)
+  const [totalDraft, setTotalDraft] = React.useState<number | null | undefined>(undefined) // undefined = follow the live formula
   const [dueDate, setDueDate] = React.useState("")
 
+  // Auto-populate from the row on edit; blank defaults (draft-friendly) on create.
   React.useEffect(() => {
     if (!open) return
-    setVendorId(""); setAddingVendor(false); setNewVendorName("")
-    setPoDate(""); setPoNumber(""); setProjectName("")
-    setInvoiceDate(todayISO()); setInvoiceNumber("")
-    setDpp("0"); setPpn("0"); setPph("0"); setTotalDraft(null); setDueDate("")
-  }, [open])
+    setVendorId(invoice?.vendor_id ?? "")
+    setAddingVendor(false); setNewVendorName("")
+    setPoDate(invoice?.po_date ?? "")
+    setPoNumber(invoice?.po_number ?? "")
+    setProjectName(invoice?.project_name ?? "")
+    setInvoiceDate(invoice?.invoice_date ?? (isEdit ? "" : todayISO()))
+    setInvoiceNumber(invoice?.invoice_number ?? "")
+    setDpp(invoice?.dpp_amount ?? null)
+    setPpn(invoice?.ppn_amount ?? null)
+    setPph(invoice?.pph_amount ?? null)
+    setTotalDraft(undefined)
+    setDueDate(invoice?.due_date ?? "")
+  }, [open, invoice, isEdit])
 
-  const dppN = Number(dpp) || 0
-  const ppnN = Number(ppn) || 0
-  const pphN = Number(pph) || 0
-  // Live-recomputed as any of the three change, but totalDraft (once the
-  // user types into Total directly) wins — never silently overwritten.
-  const totalValue = totalDraft ?? String(computeTotal(dppN, ppnN, pphN))
+  // Live-recomputed while DPP/PPN/PPh change, but a manual edit of Total
+  // itself always wins — never silently overwritten.
+  const formulaTotal = dpp != null || ppn != null || pph != null ? computeTotal(dpp ?? 0, ppn ?? 0, pph ?? 0) : null
+  const totalValue = totalDraft !== undefined ? totalDraft : formulaTotal
 
   const selectedVendorName = vendors.find(v => v.id === vendorId)?.name
 
@@ -98,37 +115,50 @@ export function CreateInvoiceDialog({ open, onClose, vendors }: {
   }
 
   const handleSubmit = () => {
-    if (!vendorId || !invoiceDate || !invoiceNumber.trim()) {
-      toast.error("Pilih vendor, isi tanggal dan nomor invoice.")
+    const parsed = apInvoiceFormSchema.safeParse({
+      vendor_id:      vendorId,
+      po_date:        poDate || null,
+      po_number:      poNumber.trim() || null,
+      project_name:   projectName.trim() || null,
+      invoice_date:   invoiceDate || null,
+      invoice_number: invoiceNumber.trim() || null,
+      dpp_amount:     dpp,
+      ppn_amount:     ppn,
+      pph_amount:     pph,
+      total_amount:   totalValue,
+      due_date:       dueDate || null,
+    })
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0]?.message ?? "Data tidak valid.")
       return
     }
-    createInvoice.mutate(
-      {
-        vendor_id:      vendorId,
-        po_date:        poDate || null,
-        po_number:      poNumber.trim() || null,
-        project_name:   projectName.trim() || null,
-        invoice_date:   invoiceDate,
-        invoice_number: invoiceNumber.trim(),
-        dpp_amount:     dppN,
-        ppn_amount:     ppnN,
-        pph_amount:     pphN,
-        total_amount:   Number(totalValue) || 0,
-        due_date:       dueDate || null,
-      },
-      {
-        onSuccess: () => { toast.success("Invoice dibuat."); onClose() },
+
+    if (isEdit) {
+      updateInvoice.mutate(
+        { id: invoice.id, ...parsed.data },
+        {
+          onSuccess: () => { toast.success("Invoice diperbarui."); onClose() },
+          onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal memperbarui invoice."),
+        }
+      )
+    } else {
+      createInvoice.mutate(parsed.data, {
+        onSuccess: () => { toast.success("Draft invoice dibuat."); onClose() },
         onError:   (err) => toast.error(err instanceof Error ? err.message : "Gagal membuat invoice."),
-      }
-    )
+      })
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="sm:max-w-2xl p-0 gap-0">
         <DialogHeader className="border-b border-slate-200 dark:border-slate-800 px-6 py-4">
-          <DialogTitle>Invoice Baru</DialogTitle>
-          <DialogDescription>Kosongkan Due Date untuk Open Debt (tanpa jatuh tempo, dilacak sebagai aging).</DialogDescription>
+          <DialogTitle>{isEdit ? "Edit Invoice" : "Invoice Baru"}</DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? "Isi data yang belum lengkap kapan saja — dokumen boleh menyusul."
+              : "Cukup pilih vendor untuk membuat draft; sisanya bisa diisi belakangan."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
@@ -171,7 +201,7 @@ export function CreateInvoiceDialog({ open, onClose, vendors }: {
             </div>
             <div>
               <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">PO Number <span className="font-normal normal-case text-muted-foreground/70">(opsional)</span></Label>
-              <input type="text" value={poNumber} onChange={e => setPoNumber(e.target.value)} className={inputCls} />
+              <input type="text" value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="Belum ada" className={inputCls} />
             </div>
           </div>
 
@@ -182,29 +212,29 @@ export function CreateInvoiceDialog({ open, onClose, vendors }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Invoice Date</Label>
+              <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Invoice Date <span className="font-normal normal-case text-muted-foreground/70">(opsional)</span></Label>
               <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className={inputCls} />
             </div>
             <div>
-              <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Invoice Number</Label>
-              <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} className={inputCls} />
+              <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">Invoice Number <span className="font-normal normal-case text-muted-foreground/70">(opsional)</span></Label>
+              <input type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="Belum ada" className={inputCls} />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div>
               <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">DPP</Label>
-              <input type="number" min={0} value={dpp} onChange={e => setDpp(e.target.value)} className={inputCls} />
+              <CurrencyInput value={dpp} onChange={setDpp} className={inputCls} />
             </div>
             <div>
               <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">PPN</Label>
-              <input type="number" min={0} value={ppn} onChange={e => setPpn(e.target.value)} className={inputCls} />
-              <RateBadges rates={[0.11, 0.12]} dpp={dppN} onPick={amount => setPpn(String(amount))} />
+              <CurrencyInput value={ppn} onChange={setPpn} className={inputCls} />
+              <RateBadges rates={[0.11, 0.12]} dpp={dpp ?? 0} onPick={amount => setPpn(amount)} />
             </div>
             <div>
               <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">PPh</Label>
-              <input type="number" min={0} value={pph} onChange={e => setPph(e.target.value)} className={inputCls} />
-              <RateBadges rates={[0.02]} dpp={dppN} onPick={amount => setPph(String(amount))} />
+              <CurrencyInput value={pph} onChange={setPph} className={inputCls} />
+              <RateBadges rates={[0.02]} dpp={dpp ?? 0} onPick={amount => setPph(amount)} />
             </div>
           </div>
 
@@ -212,7 +242,7 @@ export function CreateInvoiceDialog({ open, onClose, vendors }: {
             <Label className="text-xs font-medium text-muted-foreground mb-1.5 block">
               Total <span className="font-normal normal-case text-muted-foreground/70">(otomatis DPP+PPN-PPh, bisa diubah manual)</span>
             </Label>
-            <input type="number" value={totalValue} onChange={e => setTotalDraft(e.target.value)} className={inputCls} />
+            <CurrencyInput value={totalValue} onChange={setTotalDraft} className={inputCls} />
           </div>
 
           <div>
@@ -225,7 +255,9 @@ export function CreateInvoiceDialog({ open, onClose, vendors }: {
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 dark:border-slate-800 bg-muted/30 px-6 py-4">
           <Button type="button" variant="outline" size="sm" onClick={onClose}>Batal</Button>
-          <Button type="button" size="sm" onClick={handleSubmit} disabled={createInvoice.isPending}>Buat Invoice</Button>
+          <Button type="button" size="sm" onClick={handleSubmit} disabled={saving}>
+            {isEdit ? "Simpan Perubahan" : "Buat Draft Invoice"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -46,12 +46,12 @@ export interface InvoicePatch {
   po_date?:        string | null
   po_number?:      string | null
   project_name?:   string | null
-  invoice_date?:   string
-  invoice_number?: string
-  dpp_amount?:     number
-  ppn_amount?:     number
-  pph_amount?:     number
-  total_amount?:   number
+  invoice_date?:   string | null
+  invoice_number?: string | null
+  dpp_amount?:     number | null
+  ppn_amount?:     number | null
+  pph_amount?:     number | null
+  total_amount?:   number | null
   due_date?:       string | null
   payment_date?:   string | null
   notes?:          string | null
@@ -123,12 +123,14 @@ export interface NewInvoice {
   po_date?:        string | null
   po_number?:      string | null
   project_name?:   string | null
-  invoice_date:    string
-  invoice_number:  string
-  dpp_amount?:     number
-  ppn_amount?:     number
-  pph_amount?:     number
-  total_amount?:   number
+  // Progressive Entry: only vendor_id is required — the rest can be filled
+  // in later via the edit modal.
+  invoice_date?:   string | null
+  invoice_number?: string | null
+  dpp_amount?:     number | null
+  ppn_amount?:     number | null
+  pph_amount?:     number | null
+  total_amount?:   number | null
   due_date?:       string | null
   notes?:          string | null
 }

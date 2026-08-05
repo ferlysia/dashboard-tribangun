@@ -15,7 +15,7 @@ import { HistoryLedger } from "./history-ledger"
 import { GlobalSearchBar } from "./search-bar"
 import { BulkActionBar } from "./bulk-action-bar"
 import { MarkPaidDialog, type MarkPaidTarget } from "./mark-paid-dialog"
-import { CreateInvoiceDialog } from "./create-invoice-dialog"
+import { InvoiceFormDialog } from "./invoice-form-dialog"
 import { ImportExportBar } from "./import-export-bar"
 
 const EMPTY_INVOICES: never[] = []
@@ -48,6 +48,7 @@ export function ApInvoicesDashboard() {
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set())
   const [markPaidTarget, setMarkPaidTarget] = React.useState<MarkPaidTarget | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
+  const [editTarget, setEditTarget] = React.useState<ApInvoice | null>(null)
 
   const toggleSelect = (id: string, checked: boolean) => {
     setSelectedIds(prev => {
@@ -76,7 +77,7 @@ export function ApInvoicesDashboard() {
       else if (urgency === "PRIORITY") { priorityCount++; priorityQueue.push(inv) }
       else if (urgency === "OPEN_DEBT") openDebtCount++
     }
-    const outstandingTotal = unpaid.reduce((sum, inv) => sum + inv.total_amount, 0)
+    const outstandingTotal = unpaid.reduce((sum, inv) => sum + (inv.total_amount ?? 0), 0)
     return { unpaid, priorityQueue, doneHistory, outstandingTotal, overdueCount, priorityCount, openDebtCount }
   }, [invoices])
 
@@ -94,7 +95,7 @@ export function ApInvoicesDashboard() {
     unpaid // "vendor" tab renders ByVendorView directly off `unpaid`
 
   const handleMarkPaidSingle = (invoice: ApInvoice) =>
-    setMarkPaidTarget({ ids: [invoice.id], label: `${invoice.ap_vendors?.name ?? ""} — ${invoice.invoice_number}` })
+    setMarkPaidTarget({ ids: [invoice.id], label: `${invoice.ap_vendors?.name ?? ""} — ${invoice.invoice_number ?? "(draft)"}` })
   const handleMarkPaidBulk = () =>
     setMarkPaidTarget({ ids: Array.from(selectedIds), label: `${selectedIds.size} invoice terpilih` })
 
@@ -169,6 +170,7 @@ export function ApInvoicesDashboard() {
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
+                onEdit={setEditTarget}
                 emptyMessage={search ? "Tidak ada hasil yang cocok." : "Tidak ada invoice di Priority Queue — semua aman."}
               />
             </TabsContent>
@@ -179,6 +181,7 @@ export function ApInvoicesDashboard() {
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
+                onEdit={setEditTarget}
                 emptyMessage={search ? "Tidak ada hasil yang cocok." : "Belum ada invoice aktif."}
               />
             </TabsContent>
@@ -190,6 +193,7 @@ export function ApInvoicesDashboard() {
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
+                onEdit={setEditTarget}
               />
             </TabsContent>
             <TabsContent value="done" className="mt-4">
@@ -200,6 +204,7 @@ export function ApInvoicesDashboard() {
                 onToggleSelect={toggleSelect}
                 onToggleSelectGroup={toggleSelectGroup}
                 onMarkPaid={handleMarkPaidSingle}
+                onEdit={setEditTarget}
               />
             </TabsContent>
           </>
@@ -210,7 +215,8 @@ export function ApInvoicesDashboard() {
         target={markPaidTarget}
         onClose={() => { setMarkPaidTarget(null); clearSelection() }}
       />
-      <CreateInvoiceDialog open={createOpen} onClose={() => setCreateOpen(false)} vendors={vendors} />
+      <InvoiceFormDialog open={createOpen} onClose={() => setCreateOpen(false)} vendors={vendors} />
+      <InvoiceFormDialog open={!!editTarget} onClose={() => setEditTarget(null)} vendors={vendors} invoice={editTarget} />
       </div>
     </div>
   )

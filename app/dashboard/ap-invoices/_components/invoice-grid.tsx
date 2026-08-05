@@ -7,12 +7,13 @@ import { InvoiceRow, INVOICE_GRID_COLUMN_LABELS } from "./invoice-row"
 // The smart data grid — shared by every tab (Priority/All/By Vendor/Done).
 // Selection state lives in the parent so the bulk-action bar can span the
 // whole page, not just one grid instance.
-export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, emptyMessage }: {
+export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit, emptyMessage }: {
   invoices:              ApInvoice[]
   selectedIds:           Set<string>
   onToggleSelect:        (id: string, checked: boolean) => void
   onToggleSelectGroup:   (ids: string[], checked: boolean) => void
   onMarkPaid:            (invoice: ApInvoice) => void
+  onEdit:                (invoice: ApInvoice) => void
   emptyMessage?:         string
 }) {
   const ids = invoices.map(inv => inv.id)
@@ -50,6 +51,7 @@ export function InvoiceGrid({ invoices, selectedIds, onToggleSelect, onToggleSel
                 selected={selectedIds.has(inv.id)}
                 onToggleSelect={onToggleSelect}
                 onMarkPaid={onMarkPaid}
+                onEdit={onEdit}
               />
             ))}
           </tbody>

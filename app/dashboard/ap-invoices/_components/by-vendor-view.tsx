@@ -10,13 +10,14 @@ import { AnimatedCollapse, CollapseTrigger } from "./animated-collapse"
 
 const HISTORY_PAGE_SIZE = 3 // months shown before "Load Older History"
 
-function VendorMasterRow({ profile, forceOpen, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid }: {
+function VendorMasterRow({ profile, forceOpen, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit }: {
   profile:              VendorProfile
   forceOpen:            boolean
   selectedIds:          Set<string>
   onToggleSelect:       (id: string, checked: boolean) => void
   onToggleSelectGroup:  (ids: string[], checked: boolean) => void
   onMarkPaid:           (invoice: ApInvoice) => void
+  onEdit:               (invoice: ApInvoice) => void
 }) {
   const [manualOpen, setManualOpen] = React.useState(false)
   const open = forceOpen || manualOpen
@@ -51,6 +52,7 @@ function VendorMasterRow({ profile, forceOpen, selectedIds, onToggleSelect, onTo
               onToggleSelect={onToggleSelect}
               onToggleSelectGroup={onToggleSelectGroup}
               onMarkPaid={onMarkPaid}
+              onEdit={onEdit}
               emptyMessage="Tidak ada invoice aktif untuk vendor ini."
             />
           </div>
@@ -73,6 +75,7 @@ function VendorMasterRow({ profile, forceOpen, selectedIds, onToggleSelect, onTo
                         onToggleSelect={onToggleSelect}
                         onToggleSelectGroup={onToggleSelectGroup}
                         onMarkPaid={onMarkPaid}
+                        onEdit={onEdit}
                       />
                     </div>
                   </div>
@@ -96,13 +99,14 @@ function VendorMasterRow({ profile, forceOpen, selectedIds, onToggleSelect, onTo
   )
 }
 
-export function ByVendorView({ invoices, searchQuery, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid }: {
+export function ByVendorView({ invoices, searchQuery, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit }: {
   invoices:             ApInvoice[] // full vendor history — paid + unpaid
   searchQuery:          string
   selectedIds:          Set<string>
   onToggleSelect:       (id: string, checked: boolean) => void
   onToggleSelectGroup:  (ids: string[], checked: boolean) => void
   onMarkPaid:           (invoice: ApInvoice) => void
+  onEdit:               (invoice: ApInvoice) => void
 }) {
   const searching = searchQuery.trim().length > 0
 
@@ -137,6 +141,7 @@ export function ByVendorView({ invoices, searchQuery, selectedIds, onToggleSelec
           onToggleSelect={onToggleSelect}
           onToggleSelectGroup={onToggleSelectGroup}
           onMarkPaid={onMarkPaid}
+          onEdit={onEdit}
         />
       ))}
     </div>

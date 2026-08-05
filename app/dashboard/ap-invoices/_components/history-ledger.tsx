@@ -10,13 +10,14 @@ import { AnimatedCollapse, CollapseTrigger } from "./animated-collapse"
 // Done/History tab: Month/Year -> Vendor -> rows. Grouping runs in a
 // useMemo keyed on (invoices, searchQuery) so it's skipped entirely on
 // unrelated re-renders (selection changes, other tabs, etc).
-export function HistoryLedger({ invoices, searchQuery, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid }: {
+export function HistoryLedger({ invoices, searchQuery, selectedIds, onToggleSelect, onToggleSelectGroup, onMarkPaid, onEdit }: {
   invoices:             ApInvoice[] // payment_date != null
   searchQuery:          string
   selectedIds:          Set<string>
   onToggleSelect:       (id: string, checked: boolean) => void
   onToggleSelectGroup:  (ids: string[], checked: boolean) => void
   onMarkPaid:           (invoice: ApInvoice) => void
+  onEdit:               (invoice: ApInvoice) => void
 }) {
   const searching = searchQuery.trim().length > 0
 
@@ -101,6 +102,7 @@ export function HistoryLedger({ invoices, searchQuery, selectedIds, onToggleSele
                             onToggleSelect={onToggleSelect}
                             onToggleSelectGroup={onToggleSelectGroup}
                             onMarkPaid={onMarkPaid}
+                            onEdit={onEdit}
                           />
                         </div>
                       </AnimatedCollapse>

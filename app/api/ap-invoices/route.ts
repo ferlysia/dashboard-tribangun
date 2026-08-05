@@ -44,37 +44,34 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { vendor_id, invoice_date, invoice_number } = body as {
-      vendor_id:      string
-      invoice_date:   string
-      invoice_number: string
+    const { vendor_id } = body as { vendor_id: string }
+
+    // Progressive Entry: only the vendor is required to create a draft row
+    // — everything else is filled in over the following days.
+    if (!vendor_id) {
+      return NextResponse.json({ error: "vendor_id is required" }, { status: 400 })
     }
 
-    if (!vendor_id || !invoice_date || !invoice_number) {
-      return NextResponse.json(
-        { error: "vendor_id, invoice_date, and invoice_number are required" },
-        { status: 400 }
-      )
-    }
-
-    const dpp = Number(body.dpp_amount) || 0
-    const ppn = Number(body.ppn_amount) || 0
-    const pph = Number(body.pph_amount) || 0
+    const dpp = body.dpp_amount != null ? Number(body.dpp_amount) : null
+    const ppn = body.ppn_amount != null ? Number(body.ppn_amount) : null
+    const pph = body.pph_amount != null ? Number(body.pph_amount) : null
 
     const payload = {
       vendor_id,
       po_date:        body.po_date || null,
       po_number:      body.po_number || null,
       project_name:   body.project_name || null,
-      invoice_date,
-      invoice_number,
+      invoice_date:   body.invoice_date || null,
+      invoice_number: body.invoice_number || null,
       dpp_amount:     dpp,
       ppn_amount:     ppn,
       pph_amount:     pph,
       // Pre-filled by the formula but never forced — the client already
       // sends whatever the user landed on (possibly hand-edited away from
       // the formula), this is just the fallback if omitted entirely.
-      total_amount:   body.total_amount !== undefined ? Number(body.total_amount) : computeTotal(dpp, ppn, pph),
+      total_amount:   body.total_amount !== undefined
+        ? (body.total_amount != null ? Number(body.total_amount) : null)
+        : (dpp != null || ppn != null || pph != null ? computeTotal(dpp ?? 0, ppn ?? 0, pph ?? 0) : null),
       due_date:       body.due_date || null,
       payment_date:   body.payment_date || null,
       notes:          body.notes || null,
