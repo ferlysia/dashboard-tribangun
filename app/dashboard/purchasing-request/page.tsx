@@ -402,7 +402,7 @@ const ProcurementRow = React.memo(function ProcurementRow({
               disabled={item.fulfillment_source === "STOK_INTERNAL"}
               placeholder={item.fulfillment_source === "STOK_INTERNAL" ? "—" : "No. PO"}
               title="No. PO"
-              className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full min-w-[200px] rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 disabled:opacity-50 disabled:cursor-not-allowed"
             />
           ) : (
             <span className="font-mono text-muted-foreground">{item.po_number || "—"}</span>
@@ -494,14 +494,14 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
     <div className="rounded-lg border border-border overflow-hidden">
       <table className="w-full text-xs table-fixed">
         <colgroup>
-          <col style={{ width: "5%" }} />
-          <col style={{ width: "8%" }} />
-          <col style={{ width: "8%" }} />
-          <col style={{ width: "21%" }} />
-          <col style={{ width: "14%" }} />
-          <col style={{ width: "18%" }} />
+          <col style={{ width: "4%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "7%" }} />
+          <col style={{ width: "19%" }} />
+          <col style={{ width: "12%" }} />
+          <col style={{ width: "22%" }} />
           <col style={{ width: "16%" }} />
-          <col style={{ width: "10%" }} />
+          <col style={{ width: "8%" }} />
         </colgroup>
         <thead>
           <tr className="border-b border-border bg-muted/30">
@@ -510,7 +510,7 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Satuan</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Sumber</th>
-            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">No. PO</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider min-w-[200px]">No. PO</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
             <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Split</th>
           </tr>
@@ -608,7 +608,7 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
                             type="button" size="sm" variant="outline"
                             disabled={saving}
                             onClick={() => onSetWarehouseStatus?.(it, "RECEIVED")}
-                            className="h-7 flex-1 text-[11px] gap-1 px-2"
+                            className="h-7 w-fit mx-auto whitespace-nowrap text-[11px] gap-1 px-3"
                           >
                             <PackageCheck className="h-3 w-3" /> Verifikasi Fisik
                           </Button>
@@ -1314,7 +1314,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="w-[92vw] max-w-[1100px] max-h-[88vh] p-0 flex flex-col gap-0">
+      <DialogContent className="w-[95vw] max-w-[1400px] max-h-[88vh] p-0 flex flex-col gap-0">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="font-mono text-sm">{pr.pr_no}</DialogTitle>
           <DialogDescription>{pr.site_maintenance}</DialogDescription>
