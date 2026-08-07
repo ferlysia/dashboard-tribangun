@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { Region } from "@/types/pm-schedule"
 import { deriveKpis } from "@/lib/pm-schedule/status-rules"
 import { useAllSchedulesQuery, useSchedulesQuery, useSitesQuery } from "../_hooks/use-pm-schedules"
+import { useUserBranch } from "../_hooks/use-user-branch"
 import { KpiBar } from "./kpi-bar"
 import { MatrixGridView } from "./matrix-grid-view"
 import { WeeklyBoardView } from "./weekly-board-view"
@@ -55,6 +56,17 @@ export function PmScheduleDashboard() {
     router.replace(`?${params.toString()}`, { scroll: false })
   }
 
+  const { branch } = useUserBranch()
+  React.useEffect(() => {
+    if (branch === "cikarang" && searchParams.get("region") !== "CIKARANG") {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("region", "CIKARANG")
+      router.replace(`?${params.toString()}`, { scroll: false })
+    }
+  }, [branch, searchParams, router])
+  // null branch (e.g. ADMIN, no branch assigned) = unrestricted.
+  const canEdit = !branch || branch.toUpperCase() === region
+
   const [month, setMonth] = React.useState(currentMonth)
   const [activeTab, setActiveTab] = React.useState("matrix")
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -101,9 +113,11 @@ export function PmScheduleDashboard() {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> Jadwalkan Kunjungan
-          </Button>
+          {canEdit && (
+            <Button size="sm" className="gap-1.5 h-8 text-xs" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> Jadwalkan Kunjungan
+            </Button>
+          )}
         </div>
       </div>
 
@@ -137,7 +151,7 @@ export function PmScheduleDashboard() {
               <WeeklyBoardView schedules={schedules} />
             </TabsContent>
             <TabsContent value="sites" className="mt-4">
-              <AllSitesView sites={sites} region={region} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} />
+              <AllSitesView sites={sites} region={region} assigneeOptions={assigneeOptions} onOpenDrawer={setSelectedId} canEdit={canEdit} />
             </TabsContent>
             <TabsContent value="calendar" className="mt-4">
               <CalendarView anchorMonth={month} region={region} onOpenDrawer={setSelectedId} />

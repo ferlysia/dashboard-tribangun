@@ -196,11 +196,12 @@ export function CollapsibleSection({ title, subtitle, defaultOpen = true, childr
 // useMemo hooks below.
 const EMPTY_SCHEDULES: never[] = []
 
-export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
+export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer, canEdit = true }: {
   sites:            Site[]
   region:           Region
   assigneeOptions:  string[]
   onOpenDrawer:     (id: string) => void
+  canEdit?:         boolean
 }) {
   const { data, isLoading } = useAllSchedulesQuery(region)
   const schedules = data ?? EMPTY_SCHEDULES
@@ -411,8 +412,12 @@ export function AllSitesView({ sites, region, assigneeOptions, onOpenDrawer }: {
               subtitle={
                 <span className="inline-flex items-center gap-2">
                   {done}/{visits.length} Visits Done | {visits.length - done} Remaining
-                  <UnitCountEditor site={site} />
-                  <DeleteSiteButton site={site} visitCount={visits.length} />
+                  {canEdit && (
+                    <>
+                      <UnitCountEditor site={site} />
+                      <DeleteSiteButton site={site} visitCount={visits.length} />
+                    </>
+                  )}
                 </span>
               }
             >
