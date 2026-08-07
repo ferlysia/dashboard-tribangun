@@ -8,6 +8,7 @@ import type { ApInvoice } from "@/types/ap-invoice"
 import { formatIDR } from "@/lib/format"
 import { useDeleteInvoice } from "../_hooks/use-ap-invoices"
 import { UrgencyPill } from "./urgency-pill"
+import { InlineEditCell } from "./inline-edit-cell"
 
 function fDate(iso: string | null) {
   if (!iso) return null
@@ -68,7 +69,7 @@ export const InvoiceRow = React.memo(function InvoiceRow({
         <FieldCell value={fDate(invoice.po_date)} placeholder="Add PO Date" className="text-slate-600 dark:text-slate-400" />
       </td>
       <td className="px-3 py-2.5 font-mono text-xs whitespace-nowrap">
-        <FieldCell value={invoice.po_number} placeholder="Add PO" className="text-slate-600 dark:text-slate-400" />
+        <InlineEditCell id={invoice.id} field="po_number" value={invoice.po_number} placeholder="Add PO" className="text-slate-600 dark:text-slate-400" />
       </td>
       <td className="px-3 py-2.5 max-w-[160px] truncate">
         <FieldCell value={invoice.project_name} placeholder="Add Project" className="text-slate-600 dark:text-slate-400" />
@@ -77,7 +78,7 @@ export const InvoiceRow = React.memo(function InvoiceRow({
         <FieldCell value={fDate(invoice.invoice_date)} placeholder="Add Invoice Date" className="text-slate-600 dark:text-slate-400" />
       </td>
       <td className="px-3 py-2.5 font-mono text-xs whitespace-nowrap">
-        <FieldCell value={invoice.invoice_number} placeholder="Add Invoice No" className="text-slate-900 dark:text-slate-100" />
+        <InlineEditCell id={invoice.id} field="invoice_number" value={invoice.invoice_number} placeholder="Add Invoice No" className="text-slate-900 dark:text-slate-100" />
       </td>
       <td className="px-2 py-2.5">
         <FieldCell value={invoice.dpp_amount != null ? formatIDR(invoice.dpp_amount) : null} placeholder="Add DPP" className="text-xs font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap" />
