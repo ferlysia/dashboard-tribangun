@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
+import { deriveOverallStatus } from "@/lib/purchase-request/status-rules"
 
 function headers() {
   return {
@@ -150,16 +151,42 @@ export async function POST(request: Request) {
     })
     if (!itemsRes.ok) throw new Error(await itemsRes.text())
 
+    // 3. This app has no separate "save as draft" step — a created PR is
+    // immediately submitted, so its status must reflect where its items
+    // actually stand (e.g. PENDING_STOCK_CHECK for a MATERIAL item) instead
+    // of lingering at the purchase_requests.status column's DRAFT default.
+    // deriveOverallStatus early-returns unchanged for a DRAFT/REJECTED
+    // currentStatus, so "WAITING_PAYMENT" is passed as a neutral seed purely
+    // to bypass that guard — the actual result is fully computed from
+    // itemRows, this seed value is never itself returned unless there were
+    // zero items, which POST already rejects above.
+    const derivedItems = itemRows.map(row => ({
+      item_type:           row.item_type as string,
+      fulfillment_source:  (row.fulfillment_source as string | undefined)
+        ?? (row.item_type === "MATERIAL" ? "PENDING_STOCK_CHECK" : "BELI_BARU"),
+      procurement_status:  "AWAITING_PAYMENT",
+      warehouse_status:    "PENDING",
+    }))
+    const initialStatus = deriveOverallStatus(derivedItems, "WAITING_PAYMENT")
+
+    const statusRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_requests?id=eq.${created.id}`, {
+      method:  "PATCH",
+      headers: { ...headers(), Prefer: "return=representation" },
+      body:    JSON.stringify({ status: initialStatus }),
+    })
+    if (!statusRes.ok) throw new Error(await statusRes.text())
+    const [updatedHeader] = await statusRes.json()
+
     // Best-effort — the response doesn't wait on this.
     logActivity({
       actorEmail: requested_by,
       action:     "PR_CREATED",
       entityId:   created.id,
       summary:    `PR ${created.pr_no} dibuat untuk ${site_maintenance} (${unit})`,
-      payload:    { pr_no: created.pr_no, item_count: itemRows.length },
+      payload:    { pr_no: created.pr_no, item_count: itemRows.length, initial_status: initialStatus },
     })
 
-    return NextResponse.json({ data: { ...created, items: itemRows } })
+    return NextResponse.json({ data: { ...updatedHeader, items: itemRows } })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create purchase request" },
