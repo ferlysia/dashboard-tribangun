@@ -17,12 +17,20 @@ import {
   Clock, RefreshCw, X, ShoppingCart, Package,
   Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2,
 } from "lucide-react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { useQueryClient } from "@tanstack/react-query"
 import type { PRStatus, SJStatus, FulfillmentSource, ItemType, WarehouseStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 import {
   getLegalNextStatuses, describeTransition,
   hasEnteredWarehousePipeline, canSelectForSJ, isDispatched, canMarkPurchased,
   needsStockValidation, isReadyToBuy,
 } from "@/lib/purchase-request/status-rules"
+import { PurchaseRequestsQueryProvider } from "./_lib/query-client"
+import {
+  usePurchaseRequestsInfinite, usePurchaseRequestItemsInfinite, usePurchaseRequestCounts,
+  useBulkMarkPurchasedMutation, useDeletePrMutation,
+  applyUpdateToCache, prCountsQueryKey,
+} from "./_hooks/use-purchase-requests"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1613,11 +1621,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 // immediately ready for an SJ. Same predicate as isInGudangPipeline (the
 // "Sampai di Gudang" status chip on the main table) — reused directly so
 // the two views never drift apart.
-function WarehouseTab({ prs, onOpenDetail }: {
-  prs:          PurchaseRequestRecord[]
+function WarehouseTab({ onOpenDetail }: {
   onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
-  const pending = prs.filter(isInGudangPipeline)
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = usePurchaseRequestsInfinite("ARRIVED_AT_WAREHOUSE", "")
+  const pending = React.useMemo(() => data?.pages.flatMap(p => p.data) ?? [], [data])
 
   return (
     <div className="space-y-3">
@@ -1676,6 +1684,7 @@ function WarehouseTab({ prs, onOpenDetail }: {
               </tbody>
             </table>
           </div>
+          <LoadMoreButton hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onClick={fetchNextPage} />
         </div>
       )}
     </div>
@@ -1687,15 +1696,15 @@ function WarehouseTab({ prs, onOpenDetail }: {
 // awaiting the handover decision. Pure read-only listing (same shape as
 // WarehouseTab) — the actual "Ada Stok"/"Beli Baru" action lives inside
 // PRDetailSheet's StockCheckTable, opened via row click.
-function StockCheckTab({ prs, onOpenDetail }: {
-  prs:          PurchaseRequestRecord[]
+function StockCheckTab({ onOpenDetail }: {
   onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
-  const pending = prs.filter(isInStockCheckQueue)
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = usePurchaseRequestItemsInfinite("stock_check", "")
+  const rows = React.useMemo(() => data?.pages.flatMap(p => p.data) ?? [], [data])
 
   return (
     <div className="space-y-3">
-      {pending.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
           <PackageCheck className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">Tidak ada item material yang menunggu validasi stok.</p>
@@ -1712,19 +1721,20 @@ function StockCheckTab({ prs, onOpenDetail }: {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {pending.map(pr => (
-                  <tr key={pr.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
+                {rows.map(({ pr, item }) => (
+                  <tr key={item.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
                     <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
                     <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
                     <td className="px-4 py-3 w-full">
-                      <ItemNamesPreview items={pr.items.filter(needsStockValidation)} />
+                      <ItemNamesPreview items={[item]} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <LoadMoreButton hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onClick={fetchNextPage} />
         </div>
       )}
     </div>
@@ -1738,17 +1748,13 @@ function StockCheckTab({ prs, onOpenDetail }: {
 // stock-check. PO number is optional (Requirement 3) — the primary flow is
 // select-many -> bulk button, for urgent no-PO checkouts; a single row's PO
 // can still be filled in via row click -> PRDetailSheet -> ProcurementTable.
-function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
-  prs:                  PurchaseRequestRecord[]
-  onOpenDetail:         (pr: PurchaseRequestRecord) => void
-  onBulkMarkPurchased:  (itemIds: string[]) => Promise<void>
+function ReadyToBuyTab({ onOpenDetail }: {
+  onOpenDetail: (pr: PurchaseRequestRecord) => void
 }) {
-  const rows = React.useMemo(
-    () => prs.flatMap(pr => pr.items.filter(isReadyToBuy).map(item => ({ pr, item }))),
-    [prs]
-  )
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = usePurchaseRequestItemsInfinite("ready_to_buy", "")
+  const rows = React.useMemo(() => data?.pages.flatMap(p => p.data) ?? [], [data])
+  const bulkMarkPurchased = useBulkMarkPurchasedMutation()
   const [selected, setSelected]     = React.useState<Set<string>>(new Set())
-  const [submitting, setSubmitting] = React.useState(false)
 
   const toggle = (id: string) => setSelected(prev => {
     const next = new Set(prev)
@@ -1759,16 +1765,13 @@ function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
 
   const handleBulk = async () => {
     if (selected.size === 0) return
-    setSubmitting(true)
     try {
       const ids = Array.from(selected)
-      await onBulkMarkPurchased(ids)
+      await bulkMarkPurchased.mutateAsync(ids)
       toast.success(`${ids.length} item ditandai dibeli.`)
       setSelected(new Set())
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menandai item sebagai dibeli.")
-    } finally {
-      setSubmitting(false)
     }
   }
 
@@ -1776,7 +1779,7 @@ function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-xs text-muted-foreground">{selected.size} dari {rows.length} item dipilih</p>
-        <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleBulk} disabled={selected.size === 0 || submitting}>
+        <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleBulk} disabled={selected.size === 0 || bulkMarkPurchased.isPending}>
           <ShoppingCart className="h-3.5 w-3.5" />
           Tandai {selected.size > 0 ? selected.size : ""} Dibeli
         </Button>
@@ -1816,6 +1819,7 @@ function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
               </tbody>
             </table>
           </div>
+          <LoadMoreButton hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onClick={fetchNextPage} />
         </div>
       )}
     </div>
@@ -1827,8 +1831,9 @@ function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
 // signed Surat Jalan — i.e. status COMPLETED (the two flip together, see
 // fn_pr_lifecycle_interlock).
 
-function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
-  const done = prs.filter(p => p.status === "COMPLETED")
+function DonePRTab() {
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = usePurchaseRequestsInfinite("COMPLETED", "")
+  const done = React.useMemo(() => data?.pages.flatMap(p => p.data) ?? [], [data])
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
 
   const toggle = (id: string) => setSelected(prev => {
@@ -1909,8 +1914,31 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
               </tbody>
             </table>
           </div>
+          <LoadMoreButton hasNextPage={hasNextPage} isFetchingNextPage={isFetchingNextPage} onClick={fetchNextPage} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── LoadMoreButton (shared pagination trigger for non-virtualized tabs) ──────
+// The main "Semua PR" table uses full row virtualization (see
+// PurchaseRequestsTableBody) since it's the unbounded, unfiltered listing —
+// these four tabs are already-filtered worklists (stock-check queue,
+// ready-to-buy queue, warehouse-pending, done), so a simple "Load More" is a
+// deliberate lighter-weight choice for them: still server-paginated (no
+// full-list fetch), just not DOM-virtualized.
+function LoadMoreButton({ hasNextPage, isFetchingNextPage, onClick }: {
+  hasNextPage?:         boolean
+  isFetchingNextPage:   boolean
+  onClick:              () => void
+}) {
+  if (!hasNextPage) return null
+  return (
+    <div className="border-t border-border p-2 flex justify-center">
+      <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onClick} disabled={isFetchingNextPage}>
+        {isFetchingNextPage ? "Memuat…" : "Muat lebih banyak"}
+      </Button>
     </div>
   )
 }
@@ -1959,138 +1987,170 @@ function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   )
 }
 
-// A PR belongs in the "Sampai di Gudang" bucket the moment ANY of its items
-// has entered Warehouse Operations' pipeline (hasEnteredWarehousePipeline) —
-// independent of whether every item has, and independent of which of the 3
-// warehouse steps that item is actually at. deriveOverallStatus (server-side)
-// only flips a PR's own status column to ARRIVED_AT_WAREHOUSE once real
-// warehouse progress has begun (some item's warehouse_status !== 'PENDING')
-// or, for an all-Beli-Baru PR, never before that — so filtering this
-// chip/stat by the literal pr.status undercounts PRs that have fully
-// cleared Purchasing but haven't had any Warehouse action yet. Reused
-// directly by the "Warehouse (SJ)" tab's own worklist filter so the two
-// views never drift apart.
-function isInGudangPipeline(pr: PurchaseRequestRecord): boolean {
-  return pr.status !== "DRAFT" && pr.status !== "REJECTED" && pr.status !== "COMPLETED" &&
-    pr.items.some(hasEnteredWarehousePipeline)
-}
+// isInGudangPipeline/isInStockCheckQueue now live in status-rules.ts, shared
+// by the server-side paginated routes and the client cache-eviction logic
+// (use-purchase-requests.ts) — see that file for the rationale.
 
-// A PR belongs in Warehouse's stock-check queue while ANY MATERIAL item is
-// still awaiting the handover decision — independent of sibling items that
-// may have already cleared it (a hybrid PR shows up here until its LAST
-// pending item is resolved, same "any item" membership rule as the other
-// two worklist predicates below).
-function isInStockCheckQueue(pr: PurchaseRequestRecord): boolean {
-  return pr.items.some(needsStockValidation)
+// ─── PurchaseRequestsTableBody (virtualized "Semua PR" listing) ──────────────
+// Rows aren't fixed height (item count per PR varies), so this cannot use a
+// static estimateSize — measureElement re-measures each <tr>'s real DOM
+// height after render and corrects the virtualizer's offsets, which is what
+// prevents scroll jumps as real (varying) row heights become known. <tr>
+// elements must stay in normal table flow (position: absolute breaks a
+// <table>/<tbody>), so instead of an absolutely-positioned row wrapper this
+// renders only the visible <tr>s plus two spacer <tr>s that reserve the
+// height of everything scrolled past — the standard way to virtualize an
+// HTML table with react-virtual.
+function PurchaseRequestsTableBody({ rows, onOpenDetail, hasNextPage, isFetchingNextPage, fetchNextPage, scrollRef }: {
+  rows:                 PurchaseRequestRecord[]
+  onOpenDetail:         (pr: PurchaseRequestRecord) => void
+  hasNextPage?:         boolean
+  isFetchingNextPage:   boolean
+  fetchNextPage:        () => void
+  scrollRef:            React.RefObject<HTMLDivElement | null>
+}) {
+  const virtualizer = useVirtualizer({
+    count:          rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize:   () => 56,
+    overscan:       8,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+  const paddingTop    = virtualItems.length > 0 ? virtualItems[0].start : 0
+  const paddingBottom = virtualItems.length > 0 ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end : 0
+
+  // Infinite-scroll trigger: once the last virtualized row is within 5 of
+  // the end of what's loaded, fetch the next page.
+  React.useEffect(() => {
+    const last = virtualItems[virtualItems.length - 1]
+    if (!last || !hasNextPage || isFetchingNextPage) return
+    if (last.index >= rows.length - 5) fetchNextPage()
+  }, [virtualItems, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  if (rows.length === 0) {
+    return (
+      <tbody>
+        <tr>
+          <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
+            Tidak ada PR yang cocok dengan pencarian.
+          </td>
+        </tr>
+      </tbody>
+    )
+  }
+
+  return (
+    <tbody className="divide-y divide-border">
+      {paddingTop > 0 && <tr style={{ height: paddingTop }}><td colSpan={9} /></tr>}
+      {virtualItems.map(vi => {
+        const pr = rows[vi.index]
+        const sla = computeSourcingSla(pr)
+        return (
+          <tr
+            key={pr.id}
+            ref={virtualizer.measureElement}
+            data-index={vi.index}
+            onClick={() => onOpenDetail(pr)}
+            className="hover:bg-muted/40 transition-colors cursor-pointer"
+          >
+            <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
+            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{monthNameId(pr.permintaan_tanggal)}</td>
+            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{quarterLabel(pr.permintaan_tanggal)}</td>
+            <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
+            <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+            <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
+            <td className="px-4 py-3 w-full">
+              <ItemNamesPreview items={pr.items} />
+            </td>
+            <td className="px-4 py-3">
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
+                {STATUS_CFG[pr.status].label}
+              </span>
+            </td>
+            <td className="px-4 py-3">
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${SLA_TONE_CLASS[sla.tone]}`}>
+                {sla.label}
+              </span>
+            </td>
+          </tr>
+        )
+      })}
+      {paddingBottom > 0 && <tr style={{ height: paddingBottom }}><td colSpan={9} /></tr>}
+    </tbody>
+  )
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function PurchasingRequestPage() {
+function PurchasingRequestPageInner() {
   const { user } = useCurrentUser()
-  const [prs, setPrs]                 = React.useState<PurchaseRequestRecord[]>([])
-  const [loading, setLoading]         = React.useState(true)
+  const queryClient = useQueryClient()
   const [searchQuery, setQ]           = React.useState("")
+  const [debouncedQuery, setDebouncedQuery] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<PRStatus | "ALL">("ALL")
   const [formOpen, setFormOpen]       = React.useState(false)
   const [selected, setSelected]       = React.useState<PurchaseRequestRecord | null>(null)
   const [detailOpen, setDetailOpen]   = React.useState(false)
+  const scrollRef = React.useRef<HTMLDivElement>(null)
 
-  const loadPrs = React.useCallback(() => {
-    setLoading(true)
-    fetch("/api/purchase-requests")
-      .then(r => r.json())
-      .then(({ data }) => setPrs(data ?? []))
-      .catch(() => toast.error("Gagal memuat data Purchasing Request."))
-      .finally(() => setLoading(false))
-  }, [])
+  // The search box drives a server refetch on every change (filtering is now
+  // server-side, not an in-memory .filter()), so it's debounced to avoid
+  // firing a request per keystroke.
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchQuery])
 
-  React.useEffect(() => { loadPrs() }, [loadPrs])
+  const {
+    data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage,
+  } = usePurchaseRequestsInfinite(statusFilter, debouncedQuery)
+  const rows = React.useMemo(() => data?.pages.flatMap(p => p.data) ?? [], [data])
 
-  const applyUpdate = (updated: PurchaseRequestRecord) => {
-    setPrs(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p))
+  const { data: countsData } = usePurchaseRequestCounts()
+  const counts = React.useMemo(() => {
+    const c = { ALL: 0 } as Record<PRStatus | "ALL", number>
+    ALL_STATUSES.forEach(s => { c[s] = countsData?.counts[s] ?? 0 })
+    c.ALL = countsData?.counts.ALL ?? 0
+    return c
+  }, [countsData])
+  const stockCheckCount = countsData?.stockCheck ?? 0
+  const readyToBuyCount = countsData?.readyToBuy ?? 0
+  const warehousePendingCount = countsData?.counts.ARRIVED_AT_WAREHOUSE ?? 0
+  const donePrCount = countsData?.counts.COMPLETED ?? 0
+
+  const deletePr = useDeletePrMutation()
+
+  const applyUpdate = React.useCallback((updated: PurchaseRequestRecord) => {
+    applyUpdateToCache(queryClient, updated)
     setSelected(prev => prev && prev.id === updated.id ? { ...prev, ...updated } : prev)
-  }
+  }, [queryClient])
 
   const openDetail = (pr: PurchaseRequestRecord) => { setSelected(pr); setDetailOpen(true) }
 
   const openCreate = () => setFormOpen(true)
 
-  // Bulk "Tandai N Dibeli" — one PATCH via id=in.(...) instead of N
-  // sequential requests. The route returns every affected PR (a bulk
-  // selection can span multiple PRs) already re-derived, so each is applied
-  // through the same applyUpdate() merge every other mutation uses — no
-  // router.refresh(), no manual reload (see plan's cache-invalidation note).
-  const handleBulkMarkPurchased = async (itemIds: string[]) => {
-    const res = await fetch("/api/purchase-requests/items/bulk-mark-purchased", {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ item_ids: itemIds }),
-    })
-    const data = await safeJson(res)
-    if (!res.ok) throw new Error(data.error)
-    ;(data.data as PurchaseRequestRecord[]).forEach(applyUpdate)
-  }
+  // Any brand-new PR (or item-level change from a different tab) can affect
+  // every cached page/filter combination in ways applyUpdateToCache can't
+  // know about from a single record — full invalidation here (not a refetch
+  // of the currently-mounted page only) is intentionally the one place this
+  // module still asks React Query to go back to the network, since "a new
+  // PR was just created" has no local record yet to splice into the cache.
+  const handleCreated = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["pr-list"] })
+    queryClient.invalidateQueries({ queryKey: prCountsQueryKey })
+  }, [queryClient])
 
   const handleDelete = async (pr: PurchaseRequestRecord) => {
     if (!window.confirm(`Hapus PR ${pr.pr_no}? Tindakan ini tidak bisa dibatalkan.`)) return
     try {
-      const res = await fetch(`/api/purchase-requests/${pr.id}`, {
-        method:  "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ actor_email: user.email || undefined }),
-      })
-      const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.error)
+      await deletePr.mutateAsync({ id: pr.id, actor_email: user.email || undefined })
       toast.success(`PR ${pr.pr_no} dihapus.`)
       setDetailOpen(false)
-      loadPrs()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal menghapus PR.")
     }
   }
-
-  const counts = React.useMemo(() => {
-    const c = { ALL: prs.length } as Record<PRStatus | "ALL", number>
-    ALL_STATUSES.forEach(s => {
-      c[s] = s === "ARRIVED_AT_WAREHOUSE"
-        ? prs.filter(isInGudangPipeline).length
-        : prs.filter(p => p.status === s).length
-    })
-    return c
-  }, [prs])
-
-  const filtered = React.useMemo(() => {
-    let result = prs
-    if (statusFilter === "ARRIVED_AT_WAREHOUSE") result = result.filter(isInGudangPipeline)
-    else if (statusFilter !== "ALL") result = result.filter(p => p.status === statusFilter)
-    const q = searchQuery.trim().toLowerCase()
-    if (q) {
-      result = result.filter(p =>
-        p.pr_no.toLowerCase().includes(q) ||
-        p.site_maintenance.toLowerCase().includes(q) ||
-        p.unit.toLowerCase().includes(q)
-      )
-    }
-    return result
-  }, [prs, statusFilter, searchQuery])
-
-  const warehousePendingCount = React.useMemo(
-    () => prs.filter(isInGudangPipeline).length,
-    [prs]
-  )
-  const stockCheckCount = React.useMemo(
-    () => prs.reduce((n, p) => n + p.items.filter(needsStockValidation).length, 0),
-    [prs]
-  )
-  const readyToBuyCount = React.useMemo(
-    () => prs.reduce((n, p) => n + p.items.filter(isReadyToBuy).length, 0),
-    [prs]
-  )
-  const donePrCount = React.useMemo(
-    () => prs.filter(p => p.status === "COMPLETED").length,
-    [prs]
-  )
 
   return (
     <SidebarProvider>
@@ -2117,7 +2177,7 @@ export default function PurchasingRequestPage() {
 
           {/* Stats Row */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <StatCard icon={ShoppingCart} label="Total PR" value={prs.length} sub="semua permintaan" />
+            <StatCard icon={ShoppingCart} label="Total PR" value={counts.ALL} sub="semua permintaan" />
             <StatCard icon={Clock} label="Menunggu Pembayaran" value={counts.WAITING_PAYMENT} sub="perlu diproses Purchasing" accent="bg-amber-50 dark:bg-amber-950/40" />
             <StatCard icon={Package} label="Dalam Pembelian" value={counts.PURCHASED} sub="sudah dibayar, dalam perjalanan" accent="bg-blue-50 dark:bg-blue-950/40" />
             <StatCard icon={Truck} label="Di Gudang" value={counts.ARRIVED_AT_WAREHOUSE} sub="menunggu Surat Jalan" accent="bg-purple-50 dark:bg-purple-950/40" />
@@ -2165,56 +2225,30 @@ export default function PurchasingRequestPage() {
                     </button>
                   )}
                 </div>
-                {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-                <p className="text-xs text-muted-foreground ml-auto">{filtered.length} dari {prs.length} PR</p>
+                {(isLoading || isFetchingNextPage) && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                <p className="text-xs text-muted-foreground ml-auto">{rows.length} dari {counts.ALL} PR dimuat</p>
               </div>
 
               <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="overflow-x-auto">
+                {/* Bounded, scrollable container — required for react-virtual
+                    to know how much of the table is actually visible. */}
+                <div ref={scrollRef} className="overflow-auto max-h-[70vh]">
                   <table className="w-full text-sm">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-card">
                       <tr className="border-b border-border bg-muted/30">
                         {["PR NO", "Periode", "KET", "Site Maintenance", "Unit", "Tanggal", "Barang", "Status", "Due Date"].map((col, i) => (
                           <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-border">
-                      {filtered.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="px-4 py-12 text-center text-sm text-muted-foreground">
-                            Tidak ada PR yang cocok dengan pencarian.
-                          </td>
-                        </tr>
-                      ) : (
-                        filtered.map(pr => {
-                          const sla = computeSourcingSla(pr)
-                          return (
-                            <tr key={pr.id} onClick={() => openDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
-                              <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{monthNameId(pr.permintaan_tanggal)}</td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{quarterLabel(pr.permintaan_tanggal)}</td>
-                              <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate">{pr.site_maintenance}</td>
-                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
-                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fDate(pr.permintaan_tanggal)}</td>
-                              <td className="px-4 py-3 w-full">
-                                <ItemNamesPreview items={pr.items} />
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
-                                  {STATUS_CFG[pr.status].label}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${SLA_TONE_CLASS[sla.tone]}`}>
-                                  {sla.label}
-                                </span>
-                              </td>
-                            </tr>
-                          )
-                        })
-                      )}
-                    </tbody>
+                    <PurchaseRequestsTableBody
+                      rows={rows}
+                      onOpenDetail={openDetail}
+                      hasNextPage={hasNextPage}
+                      isFetchingNextPage={isFetchingNextPage}
+                      fetchNextPage={fetchNextPage}
+                      scrollRef={scrollRef}
+                    />
                   </table>
                 </div>
               </div>
@@ -2222,22 +2256,22 @@ export default function PurchasingRequestPage() {
 
             {/* ── Stock Validation (Warehouse) ── */}
             <TabsContent value="stock-check" className="mt-4">
-              <StockCheckTab prs={prs} onOpenDetail={openDetail} />
+              <StockCheckTab onOpenDetail={openDetail} />
             </TabsContent>
 
             {/* ── Ready to Buy (Purchasing) ── */}
             <TabsContent value="ready-to-buy" className="mt-4">
-              <ReadyToBuyTab prs={prs} onOpenDetail={openDetail} onBulkMarkPurchased={handleBulkMarkPurchased} />
+              <ReadyToBuyTab onOpenDetail={openDetail} />
             </TabsContent>
 
             {/* ── Warehouse ── */}
             <TabsContent value="warehouse" className="mt-4">
-              <WarehouseTab prs={prs} onOpenDetail={openDetail} />
+              <WarehouseTab onOpenDetail={openDetail} />
             </TabsContent>
 
             {/* ── Done PR ── */}
             <TabsContent value="done" className="mt-4">
-              <DonePRTab prs={prs} />
+              <DonePRTab />
             </TabsContent>
           </Tabs>
         </div>
@@ -2245,7 +2279,7 @@ export default function PurchasingRequestPage() {
         <PRFormDialog
           open={formOpen}
           onClose={() => setFormOpen(false)}
-          onSaved={loadPrs}
+          onSaved={handleCreated}
         />
         <PRDetailSheet
           pr={selected}
@@ -2258,5 +2292,13 @@ export default function PurchasingRequestPage() {
         <Toaster richColors />
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+export default function PurchasingRequestPage() {
+  return (
+    <PurchaseRequestsQueryProvider>
+      <PurchasingRequestPageInner />
+    </PurchaseRequestsQueryProvider>
   )
 }

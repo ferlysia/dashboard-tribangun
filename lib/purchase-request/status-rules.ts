@@ -1,4 +1,4 @@
-import type { PRStatus } from "@/types/purchase-request"
+import type { PRStatus, PurchaseRequestRecord } from "@/types/purchase-request"
 
 // Minimal shape needed to evaluate these rules — callers can pass either the
 // full PurchaseRequestItem or a lightweight draft with just these fields.
@@ -86,6 +86,25 @@ export function getLegalNextStatuses(status: PRStatus): PRStatus[] {
     default:
       return []
   }
+}
+
+// A PR belongs in the "Sampai di Gudang" bucket the moment ANY of its items
+// has entered Warehouse Operations' pipeline (hasEnteredWarehousePipeline) —
+// independent of whether every item has, and independent of which of the 3
+// warehouse steps that item is actually at. Shared by the main PR table's
+// tab filter, the paginated GET route's ARRIVED_AT_WAREHOUSE bucket
+// (app/api/purchase-requests/route.ts), the counts route, and the
+// client-side cache-eviction logic (use-purchase-requests.ts) — kept in one
+// place so all four can never drift apart.
+export function isInGudangPipeline(pr: Pick<PurchaseRequestRecord, "status" | "items">): boolean {
+  return pr.status !== "DRAFT" && pr.status !== "REJECTED" && pr.status !== "COMPLETED" &&
+    pr.items.some(hasEnteredWarehousePipeline)
+}
+
+// A PR belongs in Warehouse's stock-check queue while ANY MATERIAL item is
+// still awaiting the handover decision.
+export function isInStockCheckQueue(pr: Pick<PurchaseRequestRecord, "items">): boolean {
+  return pr.items.some(needsStockValidation)
 }
 
 export function describeTransition(from: PRStatus, to: PRStatus): string {

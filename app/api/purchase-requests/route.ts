@@ -31,27 +31,105 @@ async function logActivity(input: {
   }).catch(() => { /* activity log is best-effort */ })
 }
 
-export async function GET() {
+function shapeRow(r: Record<string, unknown>) {
+  const { purchase_request_items, purchase_request_surat_jalan, ...rest } = r
+  return {
+    ...rest,
+    items:                 purchase_request_items ?? [],
+    surat_jalan_documents: purchase_request_surat_jalan ?? [],
+  }
+}
+
+// "Sampai di Gudang" isn't a literal status match — a PR belongs there once
+// ANY item has entered Warehouse Operations' pipeline (see
+// hasEnteredWarehousePipeline / isInGudangPipeline in page.tsx), independent
+// of the PR's own status column. Reproduced server-side as a two-step query:
+// first resolve which PR ids qualify via an inner-join filter against
+// purchase_request_items (a filtered embed only returns matching child rows,
+// so it can't be used to fetch the full item set), then re-select those PRs
+// in full — same two-step shape already used by items/bulk-mark-purchased.
+async function fetchGudangPipelineIds(cursorFilter: string, limit: number) {
+  const res = await fetch(
+    `${supabaseConfig.url}/rest/v1/purchase_requests` +
+    `?select=id,created_at,purchase_request_items!inner(fulfillment_source,procurement_status)` +
+    `&status=not.in.(DRAFT,REJECTED,COMPLETED)` +
+    `&purchase_request_items.or=(fulfillment_source.eq.STOK_INTERNAL,procurement_status.eq.PURCHASED)` +
+    cursorFilter +
+    `&order=created_at.desc,id.desc&limit=${limit}`,
+    { headers: headers() }
+  )
+  if (!res.ok) throw new Error(await res.text())
+  const rawRows = await res.json() as { id: string; created_at: string }[]
+  // De-dupe: the inner join repeats a parent row once per matching child, but
+  // pagination (limit / nextCursor) must be driven by the raw, pre-dedupe
+  // rows — otherwise a PR with 2+ qualifying items shrinks the page below
+  // `limit` and the `rows.length === limit` nextCursor check below would
+  // stop paginating early even though more rows exist.
+  const ids = Array.from(new Set(rawRows.map(r => r.id)))
+  return { ids, rawRows }
+}
+
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const cursor = searchParams.get("cursor")
+    const limit  = Math.min(Number(searchParams.get("limit")) || 30, 100)
+    const status = searchParams.get("status")
+    const q      = searchParams.get("q")?.trim()
+
+    // Cursor is the exact, unparsed "<created_at>_<id>" string of the last
+    // row of the previous page. created_at is echoed back verbatim (never
+    // round-tripped through a JS Date) to avoid losing Postgres' microsecond
+    // precision, which would otherwise skip or duplicate rows created within
+    // the same millisecond.
+    let cursorFilter = ""
+    if (cursor) {
+      const sep = cursor.lastIndexOf("_")
+      const cursorCreatedAt = decodeURIComponent(cursor.slice(0, sep))
+      const cursorId        = cursor.slice(sep + 1)
+      cursorFilter =
+        `&or=(created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId}))`
+    }
+
+    let idFilter = ""
+    let gudangRawRows: { id: string; created_at: string }[] | null = null
+    if (status === "ARRIVED_AT_WAREHOUSE") {
+      const { ids, rawRows } = await fetchGudangPipelineIds(cursorFilter, limit)
+      gudangRawRows = rawRows
+      if (ids.length === 0) return NextResponse.json({ data: [], nextCursor: null })
+      idFilter = `&id=in.(${ids.map(id => `"${id}"`).join(",")})`
+    } else if (status) {
+      idFilter = `&status=eq.${status}`
+    }
+
+    const qFilter = q
+      ? `&or=(pr_no.ilike.*${q}*,site_maintenance.ilike.*${q}*,unit.ilike.*${q}*)`
+      : ""
+
     const res = await fetch(
       `${supabaseConfig.url}/rest/v1/purchase_requests` +
       `?select=*,purchase_request_items(*),purchase_request_surat_jalan(*)` +
-      `&order=created_at.desc`,
+      idFilter + qFilter +
+      // Re-apply the cursor here too (not just inside fetchGudangPipelineIds)
+      // so the non-bucketed status/no-status paths paginate correctly.
+      (status === "ARRIVED_AT_WAREHOUSE" ? "" : cursorFilter) +
+      `&order=created_at.desc,id.desc&limit=${limit}`,
       { headers: headers() }
     )
     if (!res.ok) throw new Error(await res.text())
 
-    const rows = await res.json()
-    const data = rows.map((r: Record<string, unknown>) => {
-      const { purchase_request_items, purchase_request_surat_jalan, ...rest } = r
-      return {
-        ...rest,
-        items:                 purchase_request_items ?? [],
-        surat_jalan_documents: purchase_request_surat_jalan ?? [],
-      }
-    })
+    const rows = await res.json() as Record<string, unknown>[]
+    // Re-sort into the id order the full-select query returned in (already
+    // created_at.desc,id.desc, matching the id-filter query's own order).
+    const data = rows.map(shapeRow)
 
-    return NextResponse.json({ data })
+    const cursorSourceRows = gudangRawRows ?? (rows as { id: string; created_at: string }[])
+    const last = cursorSourceRows[cursorSourceRows.length - 1]
+    const nextCursor = cursorSourceRows.length === limit && last
+      ? `${encodeURIComponent(last.created_at)}_${last.id}`
+      : null
+
+    return NextResponse.json({ data, nextCursor })
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load purchase requests" },
