@@ -63,13 +63,33 @@ interface ItemInput {
   qty:                 number
   satuan:              string
   nama_barang:         string
+  item_type?:          string
   fulfillment_source?: string
   po_number?:          string | null
 }
 
-function normalizeFulfillment(it: ItemInput): { fulfillment_source: string; po_number: string | null } {
-  const source = it.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
-  return { fulfillment_source: source, po_number: source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null) }
+// item_type drives the initial fulfillment_source via a DB trigger (see
+// 20260808_purchase_request_item_type_stock_gate.sql) — MATERIAL starts
+// PENDING_STOCK_CHECK (Warehouse's queue), NON_MATERIAL starts BELI_BARU
+// (Purchasing's queue immediately). We only send an explicit
+// fulfillment_source when the caller forces one (e.g. legacy data import);
+// otherwise the key is omitted so the column stays NULL and the trigger
+// decides — sending a computed default here would silently defeat the gate.
+function buildItemRow(it: ItemInput, purchaseRequestId: string, idx: number): Record<string, unknown> {
+  const item_type = it.item_type === "NON_MATERIAL" ? "NON_MATERIAL" : "MATERIAL"
+  const row: Record<string, unknown> = {
+    purchase_request_id: purchaseRequestId,
+    line_no:             idx + 1,
+    qty:                 Number(it.qty),
+    satuan:               it.satuan,
+    nama_barang:          it.nama_barang,
+    item_type,
+  }
+  if (it.fulfillment_source === "STOK_INTERNAL" || it.fulfillment_source === "BELI_BARU") {
+    row.fulfillment_source = it.fulfillment_source
+    row.po_number = it.fulfillment_source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null)
+  }
+  return row
 }
 
 export async function POST(request: Request) {
@@ -122,14 +142,7 @@ export async function POST(request: Request) {
 
     // 2. Bulk-insert items — response body isn't used by any caller, so skip
     // parsing it (return=minimal avoids Supabase building/transferring it).
-    const itemRows = items.map((it, idx) => ({
-      purchase_request_id: created.id,
-      line_no:             idx + 1,
-      qty:                 Number(it.qty),
-      satuan:               it.satuan,
-      nama_barang:          it.nama_barang,
-      ...normalizeFulfillment(it),
-    }))
+    const itemRows = items.map((it, idx) => buildItemRow(it, created.id, idx))
     const itemsRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_items`, {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=minimal" },

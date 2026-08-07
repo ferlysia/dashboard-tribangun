@@ -42,13 +42,29 @@ interface ItemInput {
   qty:                 number
   satuan:              string
   nama_barang:         string
+  item_type?:          string
   fulfillment_source?: string
   po_number?:          string | null
 }
 
-function normalizeFulfillment(it: ItemInput): { fulfillment_source: string; po_number: string | null } {
-  const source = it.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
-  return { fulfillment_source: source, po_number: source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null) }
+// Same as app/api/purchase-requests/route.ts's buildItemRow — item_type
+// drives the initial fulfillment_source via DB trigger, so it's omitted
+// here unless explicitly forced (legacy data import).
+function buildItemRow(it: ItemInput, purchaseRequestId: string, idx: number): Record<string, unknown> {
+  const item_type = it.item_type === "NON_MATERIAL" ? "NON_MATERIAL" : "MATERIAL"
+  const row: Record<string, unknown> = {
+    purchase_request_id: purchaseRequestId,
+    line_no:             idx + 1,
+    qty:                 Number(it.qty),
+    satuan:               it.satuan,
+    nama_barang:          it.nama_barang,
+    item_type,
+  }
+  if (it.fulfillment_source === "STOK_INTERNAL" || it.fulfillment_source === "BELI_BARU") {
+    row.fulfillment_source = it.fulfillment_source
+    row.po_number = it.fulfillment_source === "STOK_INTERNAL" ? null : (it.po_number?.trim() || null)
+  }
+  return row
 }
 
 async function fetchOne(id: string) {
@@ -163,14 +179,7 @@ export async function PATCH(
       )
       if (!deleteRes.ok) throw new Error(await deleteRes.text())
 
-      const itemRows = items.map((it, idx) => ({
-        purchase_request_id: id,
-        line_no:             idx + 1,
-        qty:                 Number(it.qty),
-        satuan:               it.satuan,
-        nama_barang:          it.nama_barang,
-        ...normalizeFulfillment(it),
-      }))
+      const itemRows = items.map((it, idx) => buildItemRow(it, id, idx))
       // The edit drawer applies this response directly to live UI state (no
       // follow-up reload), so — unlike the create flow — it needs the real
       // rows back (id, received, etc.), not just an echo of what was sent.

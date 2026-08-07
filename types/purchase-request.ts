@@ -1,8 +1,17 @@
-export type PRStatus = "DRAFT" | "WAITING_PAYMENT" | "PURCHASED" | "ARRIVED_AT_WAREHOUSE" | "COMPLETED" | "REJECTED"
+export type PRStatus = "DRAFT" | "PENDING_STOCK_CHECK" | "WAITING_PAYMENT" | "PURCHASED" | "ARRIVED_AT_WAREHOUSE" | "COMPLETED" | "REJECTED"
 
 export type SJStatus = "PENDING_SIGNED_SJ" | "BILLING_READY" | null
 
-export type FulfillmentSource = "BELI_BARU" | "STOK_INTERNAL"
+// MATERIAL = Warehouse must stock-validate before Purchasing sees the item
+// (fulfillment_source starts PENDING_STOCK_CHECK). NON_MATERIAL bypasses
+// Warehouse entirely (starts BELI_BARU). Item-level, not PR-level — a PR
+// can be a hybrid, same as fulfillment_source already is.
+export type ItemType = "MATERIAL" | "NON_MATERIAL"
+
+// PENDING_STOCK_CHECK = MATERIAL item awaiting Warehouse's stock-check
+// handover, not yet visible to Purchasing. One-way: only ever moves to
+// BELI_BARU or STOK_INTERNAL, never back — see status-rules.ts.
+export type FulfillmentSource = "PENDING_STOCK_CHECK" | "BELI_BARU" | "STOK_INTERNAL"
 
 // Purchasing/Finance-owned, payment progress only: AWAITING_PAYMENT ->
 // PURCHASED (PO placed). Does NOT track physical receipt — that's
@@ -23,6 +32,7 @@ export interface PurchaseRequestItem {
   qty:                  number
   satuan:               string
   nama_barang:          string
+  item_type:            ItemType
   fulfillment_source:   FulfillmentSource
   po_number:            string | null
   procurement_status:   ProcurementStatus

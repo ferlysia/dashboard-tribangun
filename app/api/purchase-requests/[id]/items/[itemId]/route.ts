@@ -65,6 +65,7 @@ function persistDerivedStatusInBackground(
 
 type ItemRow = {
   id:                  string
+  item_type:           string
   fulfillment_source:  string
   po_number:           string | null
   procurement_status:  string
@@ -143,6 +144,11 @@ export async function PATCH(
       if (isDispatched(item)) {
         return NextResponse.json({ error: "Item yang sudah terkirim tidak dapat diubah sumbernya" }, { status: 400 })
       }
+      // One-way gate: this is Warehouse's stock-check handover decision.
+      // PENDING_STOCK_CHECK can only be left, never manually (re-)entered.
+      if (body.fulfillment_source === "PENDING_STOCK_CHECK") {
+        return NextResponse.json({ error: "PENDING_STOCK_CHECK hanya ditetapkan otomatis saat item dibuat" }, { status: 400 })
+      }
       const source = body.fulfillment_source === "STOK_INTERNAL" ? "STOK_INTERNAL" : "BELI_BARU"
       itemPatch = {
         fulfillment_source: source,
@@ -157,7 +163,7 @@ export async function PATCH(
         return NextResponse.json({ error: "Item yang sudah terkirim tidak dapat diubah statusnya" }, { status: 400 })
       }
       if (body.procurement_status === "PURCHASED" && !canMarkPurchased(item)) {
-        return NextResponse.json({ error: "Isi No. PO terlebih dahulu sebelum menandai Dibeli" }, { status: 400 })
+        return NextResponse.json({ error: "Item belum siap dibeli (masih menunggu validasi stok Gudang atau berstatus Stok Internal)" }, { status: 400 })
       }
       itemPatch = { procurement_status: body.procurement_status }
     } else {

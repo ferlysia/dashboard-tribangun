@@ -7,6 +7,21 @@ interface FulfillmentItem {
   po_number?:          string | null
   procurement_status?: string
   warehouse_status?:   string
+  item_type?:          string
+}
+
+// Warehouse's stock-check queue: MATERIAL items awaiting handover, not yet
+// visible to Purchasing. NON_MATERIAL items never enter this (they start
+// life at BELI_BARU, enforced by the DB trigger + guard constraint).
+export function needsStockValidation(item: FulfillmentItem): boolean {
+  return item.item_type === "MATERIAL" && item.fulfillment_source === "PENDING_STOCK_CHECK"
+}
+
+// Purchasing's worklist: items Warehouse has handed off (or that bypassed
+// Warehouse entirely) and haven't been purchased yet. Mutually exclusive
+// with needsStockValidation by construction — same column, different value.
+export function isReadyToBuy(item: FulfillmentItem): boolean {
+  return item.fulfillment_source === "BELI_BARU" && item.procurement_status === "AWAITING_PAYMENT"
 }
 
 // The ONLY gate deciding ProcurementTable ("Sudah Dibayar") vs
@@ -31,9 +46,10 @@ export function isDispatched(item: FulfillmentItem): boolean {
   return item.warehouse_status === "DISPATCHED"
 }
 
-// Gate for the per-item "Tandai Dibeli" action — a PO must already be set.
+// Gate for the per-item "Tandai Dibeli" action. PO number is optional —
+// urgent no-PO checkouts (e.g. e-commerce) must still be markable.
 export function canMarkPurchased(item: FulfillmentItem): boolean {
-  return item.fulfillment_source === "BELI_BARU" && Boolean(item.po_number?.trim())
+  return item.fulfillment_source === "BELI_BARU"
 }
 
 // Warehouse Operations' 3-step pipeline, forward and backward (corrections).
@@ -60,6 +76,7 @@ export function getLegalNextStatuses(status: PRStatus): PRStatus[] {
   switch (status) {
     case "DRAFT":
       return ["WAITING_PAYMENT", "REJECTED"]
+    case "PENDING_STOCK_CHECK":
     case "WAITING_PAYMENT":
     case "PURCHASED":
     case "ARRIVED_AT_WAREHOUSE":
@@ -101,6 +118,10 @@ export function deriveOverallStatus<T extends FulfillmentItem>(items: T[], curre
     // nothing to checkpoint, so it skips straight to "Sampai di Gudang".
     return items.some(i => i.fulfillment_source === "BELI_BARU") ? "PURCHASED" : "ARRIVED_AT_WAREHOUSE"
   }
+
+  // At least one MATERIAL item is still awaiting Warehouse's stock-check
+  // handover — earliest lifecycle stage, precedes WAITING_PAYMENT.
+  if (items.some(needsStockValidation)) return "PENDING_STOCK_CHECK"
 
   return "WAITING_PAYMENT"
 }

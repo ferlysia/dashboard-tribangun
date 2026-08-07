@@ -17,10 +17,11 @@ import {
   Clock, RefreshCw, X, ShoppingCart, Package,
   Truck, Receipt, UploadCloud, Trash2, Ban, ArrowRight, Download, Pencil, Undo2,
 } from "lucide-react"
-import type { PRStatus, SJStatus, FulfillmentSource, WarehouseStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
+import type { PRStatus, SJStatus, FulfillmentSource, ItemType, WarehouseStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 import {
   getLegalNextStatuses, describeTransition,
   hasEnteredWarehousePipeline, canSelectForSJ, isDispatched, canMarkPurchased,
+  needsStockValidation, isReadyToBuy,
 } from "@/lib/purchase-request/status-rules"
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ const MONTH_NAMES_ID = [
 
 const STATUS_CFG: Record<PRStatus, { label: string; badge: string }> = {
   DRAFT:                { label: "Draft",                  badge: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300" },
+  PENDING_STOCK_CHECK:  { label: "Menunggu Validasi Stok",  badge: "bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-400" },
   WAITING_PAYMENT:      { label: "Menunggu Pembayaran",     badge: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" },
   PURCHASED:            { label: "Sudah Dibayar",           badge: "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" },
   ARRIVED_AT_WAREHOUSE: { label: "Sampai di Gudang",        badge: "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400" },
@@ -58,15 +60,20 @@ const WAREHOUSE_STEP_MESSAGES: Record<WarehouseStatus, string> = {
   DISPATCHED:         "Item ditandai terkirim.",
 }
 
-const REJECTABLE_STATUSES: PRStatus[] = ["DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE"]
+const REJECTABLE_STATUSES: PRStatus[] = ["DRAFT", "PENDING_STOCK_CHECK", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE"]
 const DELETABLE_STATUSES:  PRStatus[] = ["DRAFT", "REJECTED"]
 
 const STATUS_FILTERS: (PRStatus | "ALL")[] = [
-  "ALL", "DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
+  "ALL", "DRAFT", "PENDING_STOCK_CHECK", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
 ]
 
 const ALL_STATUSES: PRStatus[] = [
-  "DRAFT", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
+  "DRAFT", "PENDING_STOCK_CHECK", "WAITING_PAYMENT", "PURCHASED", "ARRIVED_AT_WAREHOUSE", "COMPLETED", "REJECTED",
+]
+
+const ITEM_TYPE_OPTIONS: { value: "MATERIAL" | "NON_MATERIAL"; label: string }[] = [
+  { value: "MATERIAL",     label: "Material" },
+  { value: "NON_MATERIAL", label: "Non-Material (mis. APD/Safety Gear)" },
 ]
 
 const MIN_ITEM_ROWS = 5
@@ -160,17 +167,20 @@ function nextTempId() {
 }
 
 // Sumber/No. PO don't exist yet at this stage — the admin creating/editing a
-// DRAFT PR only ever enters qty/satuan/nama_barang. Fulfillment is assigned
-// later by Purchasing once the PR leaves DRAFT (see ProcurementTable).
+// DRAFT PR only enters qty/satuan/nama_barang/item_type. Fulfillment is
+// assigned later: MATERIAL items go to Warehouse's stock-check queue first,
+// NON_MATERIAL items skip straight to Purchasing (see ProcurementTable /
+// StockCheckTable and needsStockValidation/isReadyToBuy).
 interface ItemDraft {
   tempId:      string
   qty:         string
   satuan:      string
   nama_barang: string
+  item_type:   ItemType
 }
 
 function blankItem(): ItemDraft {
-  return { tempId: nextTempId(), qty: "", satuan: "", nama_barang: "" }
+  return { tempId: nextTempId(), qty: "", satuan: "", nama_barang: "", item_type: "MATERIAL" }
 }
 
 function padToMin(rows: ItemDraft[]): ItemDraft[] {
@@ -183,7 +193,7 @@ function itemsFromRecord(pr: PurchaseRequestRecord): ItemDraft[] {
   const rows = pr.items
     .slice()
     .sort((a, b) => a.line_no - b.line_no)
-    .map(it => ({ tempId: nextTempId(), qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang }))
+    .map(it => ({ tempId: nextTempId(), qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang, item_type: it.item_type }))
   return padToMin(rows)
 }
 
@@ -231,6 +241,71 @@ function StatusFilterChips({ active, onChange, counts }: {
           <span className={`ml-1.5 text-[10px] ${active === s ? "opacity-60" : "opacity-50"}`}>{counts[s]}</span>
         </button>
       ))}
+    </div>
+  )
+}
+
+// ─── StockCheckTable ("Menunggu Validasi Stok" section) ───────────────────────
+// Warehouse's stock-check handover queue — MATERIAL items only, before
+// Purchasing ever sees them (needsStockValidation). Two-button decision:
+// "Ada Stok" hands the item to STOK_INTERNAL (never reaches Purchasing),
+// "Beli Baru" hands it to BELI_BARU (appears in Purchasing's ProcurementTable
+// on the very next render). Reuses the exact same PATCH handler
+// (onFulfillmentCommit / handleFulfillmentCommit) ProcurementTable already
+// uses for corrections — this is just the first, one-way use of it.
+function StockCheckTable({ items, interactive, onFulfillmentCommit, savingItemId }: {
+  items:                 PurchaseRequestItem[]
+  interactive?:          boolean
+  onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
+  savingItemId?:         string | null
+}) {
+  return (
+    <div className="rounded-lg border border-cyan-200 dark:border-cyan-900 overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border bg-cyan-50/60 dark:bg-cyan-950/20">
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-10">No</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-16">Qty</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Satuan</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-56">Keputusan Gudang</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {items.map(item => (
+            <tr key={item.id}>
+              <td className="px-3 py-2 text-muted-foreground">{item.line_no}</td>
+              <td className="px-3 py-2 text-foreground">{item.qty}</td>
+              <td className="px-3 py-2 text-foreground truncate">{item.satuan}</td>
+              <td className="px-3 py-2 text-foreground truncate" title={item.nama_barang}>{item.nama_barang}</td>
+              <td className="px-2 py-2">
+                {interactive ? (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      disabled={savingItemId === item.id}
+                      onClick={() => onFulfillmentCommit?.(item, { fulfillment_source: "STOK_INTERNAL", po_number: null })}
+                      className="h-7 flex-1 text-[11px] gap-1 px-2"
+                    >
+                      <PackageCheck className="h-3 w-3" /> Ada Stok
+                    </Button>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      disabled={savingItemId === item.id}
+                      onClick={() => onFulfillmentCommit?.(item, { fulfillment_source: "BELI_BARU", po_number: null })}
+                      className="h-7 flex-1 text-[11px] gap-1 px-2"
+                    >
+                      <ShoppingCart className="h-3 w-3" /> Beli Baru
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">Menunggu validasi stok Gudang</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -667,6 +742,7 @@ function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
               <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">QTY</th>
               <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-28">Satuan</th>
               <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider">Nama Barang</th>
+              <th className="text-left px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-32">Tipe</th>
               <th className="text-center px-3 py-2 font-semibold text-muted-foreground uppercase tracking-wider w-20">Row Action</th>
             </tr>
           </thead>
@@ -706,6 +782,18 @@ function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
                     title="Nama Barang"
                     className="w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30"
                   />
+                </td>
+                <td className="px-2 py-2">
+                  <Select value={item.item_type} onValueChange={v => onUpdate(item.tempId, { item_type: v as ItemType })}>
+                    <SelectTrigger size="sm" className="w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ITEM_TYPE_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td className="px-2 py-2 text-center">
                   <button
@@ -783,6 +871,7 @@ function PRFormDialog({ open, onClose, onSaved }: {
             qty:         Number(i.qty),
             satuan:      i.satuan.trim(),
             nama_barang: i.nama_barang.trim(),
+            item_type:   i.item_type,
           })),
         }),
       })
@@ -967,8 +1056,12 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   // ORDER BY), causing the edited row to visibly jump position mid-edit.
   const byLineNo = (a: PurchaseRequestItem, b: PurchaseRequestItem) =>
     a.line_no - b.line_no || a.id.localeCompare(b.id)
-  const pendingItems   = pr.items.filter(i => !hasEnteredWarehousePipeline(i)).sort(byLineNo)
-  const warehouseItems = pr.items.filter(hasEnteredWarehousePipeline).sort(byLineNo)
+  // Split three ways, not two: MATERIAL items start in stockCheckItems
+  // (Warehouse's stock-check queue, not yet visible to Purchasing at all)
+  // before ever reaching pendingItems (Purchasing's Ready-to-Buy queue).
+  const stockCheckItems = pr.items.filter(needsStockValidation).sort(byLineNo)
+  const pendingItems    = pr.items.filter(isReadyToBuy).sort(byLineNo)
+  const warehouseItems  = pr.items.filter(hasEnteredWarehousePipeline).sort(byLineNo)
   const eligibleItems  = warehouseItems.filter(canSelectForSJ)
   const splitParentIds = new Set(pr.items.filter(i => i.parent_item_id).map(i => i.parent_item_id as string))
   const showUploadSj   = itemsEditable && eligibleItems.length > 0
@@ -1002,6 +1095,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             qty:         Number(i.qty),
             satuan:      i.satuan.trim(),
             nama_barang: i.nama_barang.trim(),
+            item_type:   i.item_type,
           })),
         }),
       })
@@ -1357,6 +1451,21 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             </div>
           )}
 
+          {!isEditable && stockCheckItems.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Menunggu Validasi Stok · Gudang</p>
+                <span className="text-xs text-muted-foreground">{stockCheckItems.length} item material menunggu Gudang</span>
+              </div>
+              <StockCheckTable
+                items={stockCheckItems}
+                interactive={itemsEditable}
+                onFulfillmentCommit={handleFulfillmentCommit}
+                savingItemId={savingItemId}
+              />
+            </div>
+          )}
+
           {!isEditable && pendingItems.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1573,6 +1682,146 @@ function WarehouseTab({ prs, onOpenDetail }: {
   )
 }
 
+// ─── StockCheckTab ──────────────────────────────────────────────────────────
+// Warehouse's stock-check worklist — every PR with a MATERIAL item still
+// awaiting the handover decision. Pure read-only listing (same shape as
+// WarehouseTab) — the actual "Ada Stok"/"Beli Baru" action lives inside
+// PRDetailSheet's StockCheckTable, opened via row click.
+function StockCheckTab({ prs, onOpenDetail }: {
+  prs:          PurchaseRequestRecord[]
+  onOpenDetail: (pr: PurchaseRequestRecord) => void
+}) {
+  const pending = prs.filter(isInStockCheckQueue)
+
+  return (
+    <div className="space-y-3">
+      {pending.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-10 text-center">
+          <PackageCheck className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Tidak ada item material yang menunggu validasi stok.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  {["PR NO", "Site Maintenance", "Unit", "Barang Menunggu Validasi"].map((col, i) => (
+                    <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {pending.map(pr => (
+                  <tr key={pr.id} onClick={() => onOpenDetail(pr)} className="hover:bg-muted/40 transition-colors cursor-pointer">
+                    <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap">{pr.pr_no}</td>
+                    <td className="px-4 py-3 text-xs text-foreground max-w-[180px] truncate">{pr.site_maintenance}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{pr.unit}</td>
+                    <td className="px-4 py-3 w-full">
+                      <ItemNamesPreview items={pr.items.filter(needsStockValidation)} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ReadyToBuyTab ──────────────────────────────────────────────────────────
+// Purchasing's Ready-to-Buy worklist — one row per ITEM (not per PR, unlike
+// every other tab here), since bulk "Tandai Dibeli" targets specific items
+// and a hybrid PR can have some items ready while siblings are still mid
+// stock-check. PO number is optional (Requirement 3) — the primary flow is
+// select-many -> bulk button, for urgent no-PO checkouts; a single row's PO
+// can still be filled in via row click -> PRDetailSheet -> ProcurementTable.
+function ReadyToBuyTab({ prs, onOpenDetail, onBulkMarkPurchased }: {
+  prs:                  PurchaseRequestRecord[]
+  onOpenDetail:         (pr: PurchaseRequestRecord) => void
+  onBulkMarkPurchased:  (itemIds: string[]) => Promise<void>
+}) {
+  const rows = React.useMemo(
+    () => prs.flatMap(pr => pr.items.filter(isReadyToBuy).map(item => ({ pr, item }))),
+    [prs]
+  )
+  const [selected, setSelected]     = React.useState<Set<string>>(new Set())
+  const [submitting, setSubmitting] = React.useState(false)
+
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  const toggleAll = () => setSelected(prev => prev.size === rows.length ? new Set() : new Set(rows.map(r => r.item.id)))
+
+  const handleBulk = async () => {
+    if (selected.size === 0) return
+    setSubmitting(true)
+    try {
+      const ids = Array.from(selected)
+      await onBulkMarkPurchased(ids)
+      toast.success(`${ids.length} item ditandai dibeli.`)
+      setSelected(new Set())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal menandai item sebagai dibeli.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-xs text-muted-foreground">{selected.size} dari {rows.length} item dipilih</p>
+        <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleBulk} disabled={selected.size === 0 || submitting}>
+          <ShoppingCart className="h-3.5 w-3.5" />
+          Tandai {selected.size > 0 ? selected.size : ""} Dibeli
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-10 text-center">
+          <ShoppingCart className="h-7 w-7 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Tidak ada item yang siap dibeli.</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3 w-10">
+                    <input type="checkbox" title="Pilih semua" checked={rows.length > 0 && selected.size === rows.length} onChange={toggleAll} />
+                  </th>
+                  {["PR NO", "Site Maintenance", "Barang", "No. PO"].map((col, i) => (
+                    <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map(({ pr, item }) => (
+                  <tr key={item.id} className="hover:bg-muted/40 transition-colors">
+                    <td className="px-4 py-3">
+                      <input type="checkbox" title={`Pilih ${item.nama_barang}`} checked={selected.has(item.id)} onChange={() => toggle(item.id)} />
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs font-medium text-foreground whitespace-nowrap cursor-pointer" onClick={() => onOpenDetail(pr)}>{pr.pr_no}</td>
+                    <td className="px-4 py-3 text-xs text-foreground max-w-[160px] truncate cursor-pointer" onClick={() => onOpenDetail(pr)}>{pr.site_maintenance}</td>
+                    <td className="px-4 py-3 text-xs text-foreground truncate cursor-pointer" onClick={() => onOpenDetail(pr)}>{item.qty} {item.satuan} · {item.nama_barang}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{item.po_number || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── DonePRTab ────────────────────────────────────────────────────────────────
 // Final repository: items fully delivered AND warehouse has uploaded the
 // signed Surat Jalan — i.e. status COMPLETED (the two flip together, see
@@ -1707,6 +1956,15 @@ function isInGudangPipeline(pr: PurchaseRequestRecord): boolean {
     pr.items.some(hasEnteredWarehousePipeline)
 }
 
+// A PR belongs in Warehouse's stock-check queue while ANY MATERIAL item is
+// still awaiting the handover decision — independent of sibling items that
+// may have already cleared it (a hybrid PR shows up here until its LAST
+// pending item is resolved, same "any item" membership rule as the other
+// two worklist predicates below).
+function isInStockCheckQueue(pr: PurchaseRequestRecord): boolean {
+  return pr.items.some(needsStockValidation)
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PurchasingRequestPage() {
@@ -1738,6 +1996,22 @@ export default function PurchasingRequestPage() {
   const openDetail = (pr: PurchaseRequestRecord) => { setSelected(pr); setDetailOpen(true) }
 
   const openCreate = () => setFormOpen(true)
+
+  // Bulk "Tandai N Dibeli" — one PATCH via id=in.(...) instead of N
+  // sequential requests. The route returns every affected PR (a bulk
+  // selection can span multiple PRs) already re-derived, so each is applied
+  // through the same applyUpdate() merge every other mutation uses — no
+  // router.refresh(), no manual reload (see plan's cache-invalidation note).
+  const handleBulkMarkPurchased = async (itemIds: string[]) => {
+    const res = await fetch("/api/purchase-requests/items/bulk-mark-purchased", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ item_ids: itemIds }),
+    })
+    const data = await safeJson(res)
+    if (!res.ok) throw new Error(data.error)
+    ;(data.data as PurchaseRequestRecord[]).forEach(applyUpdate)
+  }
 
   const handleDelete = async (pr: PurchaseRequestRecord) => {
     if (!window.confirm(`Hapus PR ${pr.pr_no}? Tindakan ini tidak bisa dibatalkan.`)) return
@@ -1786,6 +2060,14 @@ export default function PurchasingRequestPage() {
     () => prs.filter(isInGudangPipeline).length,
     [prs]
   )
+  const stockCheckCount = React.useMemo(
+    () => prs.reduce((n, p) => n + p.items.filter(needsStockValidation).length, 0),
+    [prs]
+  )
+  const readyToBuyCount = React.useMemo(
+    () => prs.reduce((n, p) => n + p.items.filter(isReadyToBuy).length, 0),
+    [prs]
+  )
   const donePrCount = React.useMemo(
     () => prs.filter(p => p.status === "COMPLETED").length,
     [prs]
@@ -1826,6 +2108,14 @@ export default function PurchasingRequestPage() {
           <Tabs defaultValue="all" className="w-full">
             <TabsList className="h-9">
               <TabsTrigger value="all" className="text-xs">Semua PR</TabsTrigger>
+              <TabsTrigger value="stock-check" className="text-xs">
+                Validasi Stok
+                {stockCheckCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{stockCheckCount}</span>}
+              </TabsTrigger>
+              <TabsTrigger value="ready-to-buy" className="text-xs">
+                Ready to Buy
+                {readyToBuyCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{readyToBuyCount}</span>}
+              </TabsTrigger>
               <TabsTrigger value="warehouse" className="text-xs">
                 Warehouse (SJ)
                 {warehousePendingCount > 0 && <span className="ml-1.5 text-[10px] opacity-70">{warehousePendingCount}</span>}
@@ -1909,6 +2199,16 @@ export default function PurchasingRequestPage() {
                   </table>
                 </div>
               </div>
+            </TabsContent>
+
+            {/* ── Stock Validation (Warehouse) ── */}
+            <TabsContent value="stock-check" className="mt-4">
+              <StockCheckTab prs={prs} onOpenDetail={openDetail} />
+            </TabsContent>
+
+            {/* ── Ready to Buy (Purchasing) ── */}
+            <TabsContent value="ready-to-buy" className="mt-4">
+              <ReadyToBuyTab prs={prs} onOpenDetail={openDetail} onBulkMarkPurchased={handleBulkMarkPurchased} />
             </TabsContent>
 
             {/* ── Warehouse ── */}
