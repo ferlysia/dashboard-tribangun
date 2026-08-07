@@ -1917,25 +1917,44 @@ function DonePRTab({ prs }: { prs: PurchaseRequestRecord[] }) {
 
 // ─── ItemNamesPreview (inline item names in the main table) ──────────────────
 
+// Per-item state badge — mirrors the item's actual fulfillment/procurement/
+// warehouse fields instead of a single hardcoded "Pending" fallback.
+function itemStateBadge(it: PurchaseRequestItem): { label: string; cls: string } {
+  if (it.fulfillment_source === "STOK_INTERNAL") {
+    return { label: "Stok Internal", cls: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400" }
+  }
+  if (it.fulfillment_source === "PENDING_STOCK_CHECK") {
+    return { label: "Cek Gudang", cls: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400" }
+  }
+  // procurement_status PURCHASED, or any warehouse step beyond it
+  // (RECEIVED/READY_FOR_DISPATCH/DISPATCHED) all count as "beyond purchased".
+  if (it.procurement_status === "PURCHASED" || it.warehouse_status !== "PENDING") {
+    return { label: "Sudah Dibeli", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" }
+  }
+  if (it.fulfillment_source === "BELI_BARU" && it.procurement_status === "AWAITING_PAYMENT") {
+    return { label: "Beli Baru", cls: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/40 dark:text-yellow-400" }
+  }
+  return { label: "—", cls: "bg-slate-50 text-slate-500 dark:bg-slate-900/40 dark:text-slate-400" }
+}
+
 function ItemNamesPreview({ items }: { items: PurchaseRequestItem[] }) {
   if (items.length === 0) return <span className="text-xs text-muted-foreground">—</span>
   return (
     <div className="flex flex-col gap-1 w-full min-w-[200px]">
-      {items.map(it => (
-        <div key={it.id} className="flex items-center justify-between gap-3 w-full">
-          <span className="text-xs text-foreground truncate flex-1 min-w-0" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
-            {it.qty} {it.satuan} · {it.nama_barang}
-          </span>
-          <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${
-            isDispatched(it)
-              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-              : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-          }`}>
-            {isDispatched(it) && <CheckCircle2 className="h-2 w-2" />}
-            {isDispatched(it) ? "Terkirim" : "Pending"}
-          </span>
-        </div>
-      ))}
+      {items.map(it => {
+        const badge = itemStateBadge(it)
+        return (
+          <div key={it.id} className="flex items-center justify-between gap-3 w-full">
+            <span className="text-xs text-foreground truncate flex-1 min-w-0" title={`${it.qty} ${it.satuan} — ${it.nama_barang}`}>
+              {it.qty} {it.satuan} · {it.nama_barang}
+            </span>
+            <span className={`inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap shrink-0 ${badge.cls}`}>
+              {isDispatched(it) && <CheckCircle2 className="h-2 w-2" />}
+              {badge.label}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
