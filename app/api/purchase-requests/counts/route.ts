@@ -24,15 +24,15 @@ async function exactCount(query: string): Promise<number> {
   return Number(range.split("/")[1] ?? 0)
 }
 
-// PENDING_STOCK_CHECK is excluded here — like ARRIVED_AT_WAREHOUSE, it isn't
-// a literal status match (see below): a hybrid PR's own status column can
-// already read PURCHASED/ARRIVED_AT_WAREHOUSE (deriveOverallStatus prioritizes
-// warehouse progress on ANY item) while it still has a sibling MATERIAL item
-// stuck waiting on Warehouse's stock-check decision. Counting by status=eq
-// undercounts that real backlog — this is exactly what caused the "Validasi
-// Stok" tab badge and the "Menunggu Validasi Stok" filter pill to disagree
-// (tab: 2 items awaiting validation; pill: 0 PRs literally in that status).
-const PLAIN_STATUS_BUCKETS: PRStatus[] = ["DRAFT", "WAITING_PAYMENT", "PURCHASED", "COMPLETED", "REJECTED"]
+// PENDING_STOCK_CHECK and WAITING_PAYMENT are excluded here — like
+// ARRIVED_AT_WAREHOUSE, neither is a literal status match (see below): a
+// hybrid PR's own status column can already read PURCHASED/ARRIVED_AT_WAREHOUSE
+// (deriveOverallStatus prioritizes warehouse progress on ANY item) while it
+// still has a sibling item stuck waiting on Warehouse's stock-check decision
+// or on Purchasing. Counting by status=eq undercounts that real backlog —
+// this is exactly what caused the "Validasi Stok"/"Ready to Buy" tab badges
+// and their filter pills to disagree with the item-level worklists.
+const PLAIN_STATUS_BUCKETS: PRStatus[] = ["DRAFT", "PURCHASED", "COMPLETED", "REJECTED"]
 
 export async function GET() {
   try {
@@ -59,28 +59,36 @@ export async function GET() {
     const gudangRows = await gudangRes.json() as { id: string }[]
     const arrivedAtWarehouse = new Set(gudangRows.map(r => r.id)).size
 
-    // Single query is the shared source of truth for BOTH numbers: `stockCheck`
-    // (item count — what the "Validasi Stok" tab badge shows) and
-    // counts.PENDING_STOCK_CHECK (distinct PR count — what the "Menunggu
-    // Validasi Stok" filter pill shows). Deriving both from one fetch means
-    // they can never drift apart the way the tab/pill did before.
-    const [stockCheckItemsRes, readyToBuy] = await Promise.all([
+    // Each pair below is the shared source of truth for BOTH of its numbers:
+    // the item count (what a tab badge shows) and the distinct-PR count
+    // (what the matching filter pill shows) come from one fetch each, so
+    // they can never drift apart the way they did before this fix.
+    const [stockCheckItemsRes, readyToBuyItemsRes] = await Promise.all([
       fetch(
         `${supabaseConfig.url}/rest/v1/purchase_request_items` +
         `?select=id,purchase_request_id&item_type=eq.MATERIAL&fulfillment_source=eq.PENDING_STOCK_CHECK`,
         { headers: headers() }
       ),
-      exactCount(`purchase_request_items?select=id&fulfillment_source=eq.BELI_BARU&procurement_status=eq.AWAITING_PAYMENT`),
+      fetch(
+        `${supabaseConfig.url}/rest/v1/purchase_request_items` +
+        `?select=id,purchase_request_id&fulfillment_source=eq.BELI_BARU&procurement_status=eq.AWAITING_PAYMENT`,
+        { headers: headers() }
+      ),
     ])
     if (!stockCheckItemsRes.ok) throw new Error(await stockCheckItemsRes.text())
+    if (!readyToBuyItemsRes.ok) throw new Error(await readyToBuyItemsRes.text())
     const stockCheckItems = await stockCheckItemsRes.json() as { id: string; purchase_request_id: string }[]
+    const readyToBuyItems = await readyToBuyItemsRes.json() as { id: string; purchase_request_id: string }[]
     const stockCheck = stockCheckItems.length
+    const readyToBuy = readyToBuyItems.length
     const pendingStockCheckPrCount = new Set(stockCheckItems.map(r => r.purchase_request_id)).size
+    const waitingPaymentPrCount    = new Set(readyToBuyItems.map(r => r.purchase_request_id)).size
 
     const counts: Record<string, number> = {
       ALL: all,
       ARRIVED_AT_WAREHOUSE: arrivedAtWarehouse,
       PENDING_STOCK_CHECK:  pendingStockCheckPrCount,
+      WAITING_PAYMENT:      waitingPaymentPrCount,
     }
     PLAIN_STATUS_BUCKETS.forEach((s, i) => { counts[s] = plain[i] })
 

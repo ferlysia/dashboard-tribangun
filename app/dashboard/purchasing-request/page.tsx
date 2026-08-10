@@ -2065,6 +2065,15 @@ function PurchaseRequestsTableBody({ rows, onOpenDetail, hasNextPage, isFetching
       {virtualItems.map(vi => {
         const pr = rows[vi.index]
         const sla = computeSourcingSla(pr)
+        // The header status is a deliberate high-water-mark rollup (see
+        // deriveOverallStatus) — it can read ARRIVED_AT_WAREHOUSE/PURCHASED
+        // while a sibling item is still stuck needing purchasing action.
+        // Surface that directly next to the badge instead of letting the
+        // single status label hide it (reuses the same predicate the SLA
+        // timer uses, so the two can never disagree about what's "open").
+        const hasPendingAction = pr.status !== "DRAFT" && pr.status !== "REJECTED" &&
+          pr.status !== "WAITING_PAYMENT" && pr.status !== "PENDING_STOCK_CHECK" &&
+          pr.items.some(itemNeedsPurchasingAction)
         return (
           <tr
             key={pr.id}
@@ -2083,9 +2092,19 @@ function PurchaseRequestsTableBody({ rows, onOpenDetail, hasNextPage, isFetching
               <ItemNamesPreview items={pr.items} />
             </td>
             <td className="px-4 py-3">
-              <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
-                {STATUS_CFG[pr.status].label}
-              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${STATUS_CFG[pr.status].badge}`}>
+                  {STATUS_CFG[pr.status].label}
+                </span>
+                {hasPendingAction && (
+                  <span
+                    title="Sebagian item masih menunggu aksi Purchasing (Beli Baru / Cek Gudang)"
+                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800"
+                  >
+                    ⚠ Ada item tertunda
+                  </span>
+                )}
+              </div>
             </td>
             <td className="px-4 py-3">
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${SLA_TONE_CLASS[sla.tone]}`}>

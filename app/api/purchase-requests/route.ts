@@ -91,6 +91,30 @@ async function fetchStockCheckQueueIds(cursorFilter: string, limit: number) {
   return { ids, rawRows }
 }
 
+// "Menunggu Pembayaran" isn't a literal status match either, for the same
+// reason as the two bucket fetchers above: a hybrid PR's own status can
+// already read ARRIVED_AT_WAREHOUSE/PURCHASED (because a sibling item went
+// STOK_INTERNAL or further into the warehouse pipeline) while another item
+// is still genuinely stuck awaiting purchase (isReadyToBuy in
+// status-rules.ts). Filtering by status=eq undercounts those PRs — this is
+// the third occurrence of the same bug pattern, fixed the same way.
+async function fetchReadyToBuyQueueIds(cursorFilter: string, limit: number) {
+  const res = await fetch(
+    `${supabaseConfig.url}/rest/v1/purchase_requests` +
+    `?select=id,created_at,purchase_request_items!inner(fulfillment_source,procurement_status)` +
+    `&purchase_request_items.fulfillment_source=eq.BELI_BARU&purchase_request_items.procurement_status=eq.AWAITING_PAYMENT` +
+    cursorFilter +
+    `&order=created_at.desc,id.desc&limit=${limit}`,
+    { headers: headers() }
+  )
+  if (!res.ok) throw new Error(await res.text())
+  const rawRows = await res.json() as { id: string; created_at: string }[]
+  const ids = Array.from(new Set(rawRows.map(r => r.id)))
+  return { ids, rawRows }
+}
+
+const BUCKETED_STATUSES = new Set(["ARRIVED_AT_WAREHOUSE", "PENDING_STOCK_CHECK", "WAITING_PAYMENT"])
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -113,23 +137,24 @@ export async function GET(request: Request) {
         `&or=(created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId}))`
     }
 
-    // Both ARRIVED_AT_WAREHOUSE and PENDING_STOCK_CHECK are item-derived
-    // buckets, not literal status matches — see fetchGudangPipelineIds and
-    // fetchStockCheckQueueIds above. Every other status filters by the
-    // purchase_requests.status column directly.
+    // ARRIVED_AT_WAREHOUSE, PENDING_STOCK_CHECK, and WAITING_PAYMENT are all
+    // item-derived buckets, not literal status matches — see
+    // fetchGudangPipelineIds/fetchStockCheckQueueIds/fetchReadyToBuyQueueIds
+    // above. Every other status filters by the purchase_requests.status
+    // column directly.
     let idFilter = ""
     let bucketRawRows: { id: string; created_at: string }[] | null = null
-    if (status === "ARRIVED_AT_WAREHOUSE" || status === "PENDING_STOCK_CHECK") {
-      const { ids, rawRows } = status === "ARRIVED_AT_WAREHOUSE"
-        ? await fetchGudangPipelineIds(cursorFilter, limit)
-        : await fetchStockCheckQueueIds(cursorFilter, limit)
+    const isBucketedStatus = status !== null && BUCKETED_STATUSES.has(status)
+    if (isBucketedStatus) {
+      const { ids, rawRows } = status === "ARRIVED_AT_WAREHOUSE" ? await fetchGudangPipelineIds(cursorFilter, limit)
+        : status === "PENDING_STOCK_CHECK" ? await fetchStockCheckQueueIds(cursorFilter, limit)
+        : await fetchReadyToBuyQueueIds(cursorFilter, limit)
       bucketRawRows = rawRows
       if (ids.length === 0) return NextResponse.json({ data: [], nextCursor: null })
       idFilter = `&id=in.(${ids.map(id => `"${id}"`).join(",")})`
     } else if (status) {
       idFilter = `&status=eq.${status}`
     }
-    const isBucketedStatus = status === "ARRIVED_AT_WAREHOUSE" || status === "PENDING_STOCK_CHECK"
 
     const qFilter = q
       ? `&or=(pr_no.ilike.*${q}*,site_maintenance.ilike.*${q}*,unit.ilike.*${q}*)`

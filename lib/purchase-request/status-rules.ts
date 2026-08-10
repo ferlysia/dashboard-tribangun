@@ -107,6 +107,15 @@ export function isInStockCheckQueue(pr: Pick<PurchaseRequestRecord, "items">): b
   return pr.items.some(needsStockValidation)
 }
 
+// A PR belongs in Purchasing's "Menunggu Pembayaran" bucket while ANY item
+// still needs purchasing (isReadyToBuy) — independent of the PR's own header
+// status, which may have already advanced past this phase because a sibling
+// item went STOK_INTERNAL or further into the warehouse pipeline. Same
+// "any item" membership rule as isInGudangPipeline/isInStockCheckQueue above.
+export function isInReadyToBuyQueue(pr: Pick<PurchaseRequestRecord, "items">): boolean {
+  return pr.items.some(isReadyToBuy)
+}
+
 export function describeTransition(from: PRStatus, to: PRStatus): string {
   if (from === "DRAFT" && to === "WAITING_PAYMENT") return "Setujui → Menunggu Pembayaran"
   if (to === "REJECTED") return "Tolak / Batalkan PR"
