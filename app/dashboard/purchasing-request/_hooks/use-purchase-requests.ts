@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import type { PurchaseRequestRecord } from "@/types/purchase-request"
-import { needsStockValidation, isReadyToBuy, isInGudangPipeline } from "@/lib/purchase-request/status-rules"
+import { needsStockValidation, isReadyToBuy, isInGudangPipeline, isInStockCheckQueue } from "@/lib/purchase-request/status-rules"
 import type { PaginatedItemRow } from "@/app/api/purchase-requests/items/route"
 
 async function safeJson(res: Response) {
@@ -96,7 +96,12 @@ function matchesPrFilter(pr: PurchaseRequestRecord, status: string, q: string): 
     if (!haystack.includes(needle)) return false
   }
   if (!status || status === "ALL") return true
+  // Both buckets are item-derived, not literal status matches — mirrors the
+  // server's fetchGudangPipelineIds/fetchStockCheckQueueIds in
+  // app/api/purchase-requests/route.ts, so optimistic cache membership never
+  // disagrees with what a refetch of the same filter would actually return.
   if (status === "ARRIVED_AT_WAREHOUSE") return isInGudangPipeline(pr)
+  if (status === "PENDING_STOCK_CHECK") return isInStockCheckQueue(pr)
   return pr.status === status
 }
 

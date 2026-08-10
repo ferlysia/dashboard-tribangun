@@ -69,6 +69,28 @@ async function fetchGudangPipelineIds(cursorFilter: string, limit: number) {
   return { ids, rawRows }
 }
 
+// "Menunggu Validasi Stok" isn't a literal status match either, for the same
+// reason as fetchGudangPipelineIds above: a hybrid PR's own status can
+// already read PURCHASED/ARRIVED_AT_WAREHOUSE while a sibling MATERIAL item
+// is still stuck waiting on Warehouse's stock-check decision
+// (needsStockValidation in status-rules.ts). Filtering by status=eq
+// undercounts/misses those PRs entirely — this is the bucket counterpart to
+// counts/route.ts's identical fix for the tab-badge/filter-pill mismatch.
+async function fetchStockCheckQueueIds(cursorFilter: string, limit: number) {
+  const res = await fetch(
+    `${supabaseConfig.url}/rest/v1/purchase_requests` +
+    `?select=id,created_at,purchase_request_items!inner(item_type,fulfillment_source)` +
+    `&purchase_request_items.item_type=eq.MATERIAL&purchase_request_items.fulfillment_source=eq.PENDING_STOCK_CHECK` +
+    cursorFilter +
+    `&order=created_at.desc,id.desc&limit=${limit}`,
+    { headers: headers() }
+  )
+  if (!res.ok) throw new Error(await res.text())
+  const rawRows = await res.json() as { id: string; created_at: string }[]
+  const ids = Array.from(new Set(rawRows.map(r => r.id)))
+  return { ids, rawRows }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -91,16 +113,23 @@ export async function GET(request: Request) {
         `&or=(created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.lt.${cursorId}))`
     }
 
+    // Both ARRIVED_AT_WAREHOUSE and PENDING_STOCK_CHECK are item-derived
+    // buckets, not literal status matches — see fetchGudangPipelineIds and
+    // fetchStockCheckQueueIds above. Every other status filters by the
+    // purchase_requests.status column directly.
     let idFilter = ""
-    let gudangRawRows: { id: string; created_at: string }[] | null = null
-    if (status === "ARRIVED_AT_WAREHOUSE") {
-      const { ids, rawRows } = await fetchGudangPipelineIds(cursorFilter, limit)
-      gudangRawRows = rawRows
+    let bucketRawRows: { id: string; created_at: string }[] | null = null
+    if (status === "ARRIVED_AT_WAREHOUSE" || status === "PENDING_STOCK_CHECK") {
+      const { ids, rawRows } = status === "ARRIVED_AT_WAREHOUSE"
+        ? await fetchGudangPipelineIds(cursorFilter, limit)
+        : await fetchStockCheckQueueIds(cursorFilter, limit)
+      bucketRawRows = rawRows
       if (ids.length === 0) return NextResponse.json({ data: [], nextCursor: null })
       idFilter = `&id=in.(${ids.map(id => `"${id}"`).join(",")})`
     } else if (status) {
       idFilter = `&status=eq.${status}`
     }
+    const isBucketedStatus = status === "ARRIVED_AT_WAREHOUSE" || status === "PENDING_STOCK_CHECK"
 
     const qFilter = q
       ? `&or=(pr_no.ilike.*${q}*,site_maintenance.ilike.*${q}*,unit.ilike.*${q}*)`
@@ -110,9 +139,9 @@ export async function GET(request: Request) {
       `${supabaseConfig.url}/rest/v1/purchase_requests` +
       `?select=*,purchase_request_items(*),purchase_request_surat_jalan(*)` +
       idFilter + qFilter +
-      // Re-apply the cursor here too (not just inside fetchGudangPipelineIds)
+      // Re-apply the cursor here too (not just inside the bucket fetchers)
       // so the non-bucketed status/no-status paths paginate correctly.
-      (status === "ARRIVED_AT_WAREHOUSE" ? "" : cursorFilter) +
+      (isBucketedStatus ? "" : cursorFilter) +
       `&order=created_at.desc,id.desc&limit=${limit}`,
       { headers: headers() }
     )
@@ -123,7 +152,7 @@ export async function GET(request: Request) {
     // created_at.desc,id.desc, matching the id-filter query's own order).
     const data = rows.map(shapeRow)
 
-    const cursorSourceRows = gudangRawRows ?? (rows as { id: string; created_at: string }[])
+    const cursorSourceRows = bucketRawRows ?? (rows as { id: string; created_at: string }[])
     const last = cursorSourceRows[cursorSourceRows.length - 1]
     const nextCursor = cursorSourceRows.length === limit && last
       ? `${encodeURIComponent(last.created_at)}_${last.id}`

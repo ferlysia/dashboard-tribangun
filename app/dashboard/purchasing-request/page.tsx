@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useQueryClient } from "@tanstack/react-query"
+import { addBusinessDays, getBusinessDaysDifference } from "@/lib/date-utils"
 import type { PRStatus, SJStatus, FulfillmentSource, ItemType, WarehouseStatus, PurchaseRequestItem, PurchaseRequestRecord } from "@/types/purchase-request"
 import {
   getLegalNextStatuses, describeTransition,
@@ -130,28 +131,34 @@ const SLA_TONE_CLASS: Record<SlaInfo["tone"], string> = {
   muted:   "bg-muted text-muted-foreground border-border",
 }
 
-// 2-day sourcing SLA: target = permintaan_tanggal + 2 days. Resolved once the
-// PR's derived status leaves WAITING_PAYMENT (every item has either gone
-// STOK_INTERNAL or been marked PURCHASED — see deriveOverallStatus).
+// 2-BUSINESS-day sourcing SLA (Sat/Sun never count): target = permintaan_tanggal
+// + 2 business days. The timer only ever ticks while the PR is actively
+// sitting in Purchasing's queue (status === WAITING_PAYMENT) — an explicit
+// allowlist, not a "!== WAITING_PAYMENT" exclusion, so any status this app
+// doesn't know about yet defaults to frozen/muted rather than accidentally
+// ticking. Before WAITING_PAYMENT (DRAFT/PENDING_STOCK_CHECK — still with
+// Warehouse) there's nothing for Purchasing to source yet; once the PR
+// leaves WAITING_PAYMENT (PURCHASED and beyond) sourcing is done — both
+// freeze permanently at "Updated"/"—" rather than continuing to tick
+// Date.now() against a created_at/permintaan_tanggal that no longer reflects
+// an open action item.
 function computeSourcingSla(pr: PurchaseRequestRecord): SlaInfo {
-  if (pr.status === "DRAFT" || pr.status === "REJECTED") {
-    return { label: "—", tone: "muted" }
-  }
   if (pr.status !== "WAITING_PAYMENT") {
-    return { label: "Updated", tone: "ok" }
+    return pr.status === "DRAFT" || pr.status === "REJECTED"
+      ? { label: "—", tone: "muted" }
+      : { label: "Updated", tone: "ok" }
   }
 
-  // Date-only, local-midnight math — permintaan_tanggal is a bare DATE
-  // column (e.g. "2026-08-02"), avoid UTC-parse/time-of-day drift.
+  // permintaan_tanggal is a bare DATE column (e.g. "2026-08-02") — parse as
+  // local calendar date components, never new Date(isoString), to avoid
+  // UTC/time-of-day drift shifting the day.
   const [y, m, d] = pr.permintaan_tanggal.split("-").map(Number)
-  const target = new Date(y, m - 1, d + 2)
-  const today = new Date()
-  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const diffDays = Math.round((target.getTime() - todayMidnight.getTime()) / 86_400_000)
+  const target = addBusinessDays(new Date(y, m - 1, d), 2)
+  const diffDays = getBusinessDaysDifference(new Date(), target)
 
-  if (diffDays > 0) return { label: `${diffDays} hari lagi menjelang Due Date`, tone: "warning" }
+  if (diffDays > 0) return { label: `${diffDays} hari kerja lagi menjelang Due Date`, tone: "warning" }
   if (diffDays === 0) return { label: "Jatuh tempo hari ini", tone: "overdue" }
-  return { label: `Lewat ${Math.abs(diffDays)} hari update purchasing/warehouse`, tone: "overdue" }
+  return { label: `Lewat ${Math.abs(diffDays)} hari kerja update purchasing/warehouse`, tone: "overdue" }
 }
 
 // Server errors (crashes, platform timeouts, oversized payloads) sometimes
