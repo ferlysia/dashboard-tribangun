@@ -131,23 +131,35 @@ const SLA_TONE_CLASS: Record<SlaInfo["tone"], string> = {
   muted:   "bg-muted text-muted-foreground border-border",
 }
 
+// An item still needs Purchasing/Warehouse action if it hasn't been
+// resolved yet: either awaiting Warehouse's stock-check handover
+// (needsStockValidation — "Cek Gudang") or awaiting purchase (isReadyToBuy —
+// BELI_BARU + AWAITING_PAYMENT, i.e. "Beli Baru"/"Menunggu Pembayaran").
+// Once an item goes STOK_INTERNAL, PURCHASED, or further along the
+// warehouse pipeline, it no longer counts.
+function itemNeedsPurchasingAction(item: PurchaseRequestItem): boolean {
+  return needsStockValidation(item) || isReadyToBuy(item)
+}
+
 // 2-BUSINESS-day sourcing SLA (Sat/Sun never count): target = permintaan_tanggal
-// + 2 business days. The timer only ever ticks while the PR is actively
-// sitting in Purchasing's queue (status === WAITING_PAYMENT) — an explicit
-// allowlist, not a "!== WAITING_PAYMENT" exclusion, so any status this app
-// doesn't know about yet defaults to frozen/muted rather than accidentally
-// ticking. Before WAITING_PAYMENT (DRAFT/PENDING_STOCK_CHECK — still with
-// Warehouse) there's nothing for Purchasing to source yet; once the PR
-// leaves WAITING_PAYMENT (PURCHASED and beyond) sourcing is done — both
-// freeze permanently at "Updated"/"—" rather than continuing to tick
-// Date.now() against a created_at/permintaan_tanggal that no longer reflects
-// an open action item.
+// + 2 business days. Deliberately decoupled from the PR's own (hybrid)
+// status column — deriveOverallStatus can advance a PR to
+// ARRIVED_AT_WAREHOUSE/PURCHASED the moment just ONE item enters the
+// warehouse pipeline, even while a sibling item is still sitting unresolved.
+// Gating this timer on that aggregate status would hide that sibling's
+// overdue action behind a green "Updated". Instead this looks at the
+// CHILDREN directly: as long as ANY item still needsPurchasingAction, the
+// timer keeps ticking regardless of what the parent status says; it only
+// freezes to "Updated" once every item is resolved. DRAFT/REJECTED are the
+// one status-based exception — pre-submission/cancelled PRs stay muted
+// regardless of item state, since an SLA doesn't conceptually apply yet.
 function computeSourcingSla(pr: PurchaseRequestRecord): SlaInfo {
-  if (pr.status !== "WAITING_PAYMENT") {
-    return pr.status === "DRAFT" || pr.status === "REJECTED"
-      ? { label: "—", tone: "muted" }
-      : { label: "Updated", tone: "ok" }
+  if (pr.status === "DRAFT" || pr.status === "REJECTED") {
+    return { label: "—", tone: "muted" }
   }
+
+  const stillOpen = pr.items.some(itemNeedsPurchasingAction)
+  if (!stillOpen) return { label: "Updated", tone: "ok" }
 
   // permintaan_tanggal is a bare DATE column (e.g. "2026-08-02") — parse as
   // local calendar date components, never new Date(isoString), to avoid
