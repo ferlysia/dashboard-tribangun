@@ -87,8 +87,7 @@ const ITEM_TYPE_OPTIONS: { value: "MATERIAL" | "NON_MATERIAL"; label: string }[]
 
 const MIN_ITEM_ROWS = 5
 
-// Matches the server-side limit in the surat-jalan upload route.
-const MAX_SJ_FILE_BYTES = 10 * 1024 * 1024
+const ONEDRIVE_URL_PATTERN = /^https?:\/\/.+/i
 
 // Removes the native number-input spinner arrows so QTY reads as a plain field.
 const PR_PAGE_STYLES = `
@@ -1082,11 +1081,11 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   // "Sampai di Gudang" section), this just tracks the selection and drives
   // the upload action rendered right beneath that table ──
   const [selectedItemIds, setSelectedItemIds] = React.useState<Set<string>>(new Set())
-  const [sjFile, setSjFile]                   = React.useState<File | null>(null)
+  const [sjLink, setSjLink]                   = React.useState("")
   const [uploadingSj, setUploadingSj]         = React.useState(false)
 
   React.useEffect(() => {
-    if (!open) { setRejecting(false); setReason(""); setSelectedItemIds(new Set()); setSjFile(null); setEditMode(false) }
+    if (!open) { setRejecting(false); setReason(""); setSelectedItemIds(new Set()); setSjLink(""); setEditMode(false) }
   }, [open])
 
   // A different PR opened (or the sheet re-opened for the same id) — never
@@ -1238,43 +1237,37 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     return next
   })
 
-  const canSubmitSj = selectedItemIds.size > 0 && Boolean(sjFile) && !uploadingSj
-
-  const handleSjFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null
-    if (file && file.size > MAX_SJ_FILE_BYTES) {
-      toast.error(`File terlalu besar (maks ${Math.floor(MAX_SJ_FILE_BYTES / (1024 * 1024))}MB). Kompres dulu atau scan dengan resolusi lebih rendah.`)
-      e.target.value = ""
-      return
-    }
-    setSjFile(file)
-  }
+  const canSubmitSj = selectedItemIds.size > 0 && ONEDRIVE_URL_PATTERN.test(sjLink.trim()) && !uploadingSj
 
   const handleSjSubmit = async () => {
     // Guards against a stale selection (e.g. a fulfillment correction moved
     // an item out of eligibility after it was checked) — only ever submit
     // ids that are still actually eligible right now.
     const idsToSubmit = Array.from(selectedItemIds).filter(id => eligibleItems.some(i => i.id === id))
-    if (idsToSubmit.length === 0 || !sjFile) {
-      toast.error("Pilih minimal satu item dan satu file Surat Jalan.")
+    const link = sjLink.trim()
+    if (idsToSubmit.length === 0 || !ONEDRIVE_URL_PATTERN.test(link)) {
+      toast.error("Pilih minimal satu item dan masukkan link folder OneDrive yang valid (diawali http:// atau https://).")
       return
     }
     setUploadingSj(true)
     try {
-      const formData = new FormData()
-      formData.append("file", sjFile)
-      formData.append("item_ids", JSON.stringify(idsToSubmit))
-      if (user.email) formData.append("uploaded_by", user.email)
-
-      const res = await fetch(`/api/purchase-requests/${pr.id}/surat-jalan`, { method: "POST", body: formData })
+      const res = await fetch(`/api/purchase-requests/${pr.id}/surat-jalan`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_url:    link,
+          item_ids:    idsToSubmit,
+          uploaded_by: user.email || undefined,
+        }),
+      })
       const data = await safeJson(res)
       if (!res.ok) throw new Error(data.error)
       onUpdated({ ...pr, ...data.data })
-      toast.success("Surat Jalan berhasil diunggah.")
+      toast.success("Link Surat Jalan berhasil disimpan.")
       setSelectedItemIds(new Set())
-      setSjFile(null)
+      setSjLink("")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal mengunggah Surat Jalan.")
+      toast.error(err instanceof Error ? err.message : "Gagal menyimpan link Surat Jalan.")
     } finally {
       setUploadingSj(false)
     }
@@ -1624,18 +1617,27 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
               {showUploadSj && (
                 <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-3 mt-3">
                   <p className="text-xs font-medium text-foreground">
-                    Upload Surat Jalan untuk item terpilih di atas ({selectedItemIds.size} dipilih)
+                    Link Surat Jalan untuk item terpilih di atas ({selectedItemIds.size} dipilih)
                   </p>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    title="File Surat Jalan"
-                    onChange={handleSjFileSelect}
-                    className="w-full text-xs text-foreground file:mr-2 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1.5 file:text-xs file:text-foreground"
-                  />
+                  <div className="space-y-1">
+                    <label htmlFor="sj-link-input" className="text-xs text-muted-foreground">
+                      Link Folder OneDrive (Dokumentasi &amp; SJ)
+                    </label>
+                    <input
+                      id="sj-link-input"
+                      type="url"
+                      placeholder="https://..."
+                      value={sjLink}
+                      onChange={e => setSjLink(e.target.value)}
+                      className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-xs text-foreground"
+                    />
+                    {sjLink.trim().length > 0 && !ONEDRIVE_URL_PATTERN.test(sjLink.trim()) && (
+                      <p className="text-[11px] text-destructive">Link harus diawali dengan http:// atau https://</p>
+                    )}
+                  </div>
                   <Button size="sm" onClick={handleSjSubmit} disabled={!canSubmitSj} className="w-full h-8 text-xs gap-1.5">
                     <UploadCloud className="h-3.5 w-3.5" />
-                    {uploadingSj ? "Mengunggah…" : `Upload (${selectedItemIds.size} item)`}
+                    {uploadingSj ? "Menyimpan…" : `Simpan Link (${selectedItemIds.size} item)`}
                   </Button>
                 </div>
               )}

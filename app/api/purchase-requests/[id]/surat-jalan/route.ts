@@ -2,11 +2,7 @@ import { NextResponse } from "next/server"
 import { supabaseConfig } from "@/lib/supabase/config"
 import { deriveOverallStatus, canSelectForSJ } from "@/lib/purchase-request/status-rules"
 
-const BUCKET = "surat-jalan-docs"
-// Keeps uploads inside typical serverless function payload limits (Netlify's
-// synchronous function limit is a few MB) so oversized files fail fast with a
-// clean JSON error instead of crashing the function with a raw "Internal Error".
-const MAX_FILE_BYTES = 10 * 1024 * 1024
+const ONEDRIVE_URL_PATTERN = /^https?:\/\/.+/i
 
 function headers() {
   return {
@@ -60,26 +56,13 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const formData = await request.formData()
-    const file        = formData.get("file") as File | null
-    const uploaded_by = formData.get("uploaded_by") as string | null
-    const itemIdsRaw  = formData.get("item_ids") as string | null
+    const body = await request.json()
+    const file_url    = typeof body.file_url === "string" ? body.file_url.trim() : ""
+    const uploaded_by = typeof body.uploaded_by === "string" ? body.uploaded_by : null
+    const itemIds     = body.item_ids
 
-    if (!file) {
-      return NextResponse.json({ error: "file is required" }, { status: 400 })
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      return NextResponse.json(
-        { error: `File terlalu besar (maks ${Math.floor(MAX_FILE_BYTES / (1024 * 1024))}MB)` },
-        { status: 413 }
-      )
-    }
-
-    let itemIds: string[]
-    try {
-      itemIds = itemIdsRaw ? JSON.parse(itemIdsRaw) : []
-    } catch {
-      return NextResponse.json({ error: "item_ids must be a JSON array" }, { status: 400 })
+    if (!ONEDRIVE_URL_PATTERN.test(file_url)) {
+      return NextResponse.json({ error: "Link folder OneDrive tidak valid (harus diawali http:// atau https://)" }, { status: 400 })
     }
     if (!Array.isArray(itemIds) || itemIds.length === 0 || !itemIds.every(v => typeof v === "string")) {
       return NextResponse.json({ error: "Pilih minimal satu item yang tercakup dalam Surat Jalan ini" }, { status: 400 })
@@ -116,36 +99,13 @@ export async function POST(
       }
     }
 
-    const path = `${id}/${Date.now()}-${file.name}`
-
-    // Stream the file straight through instead of materializing a second
-    // full copy via arrayBuffer() — halves peak memory for large PDFs and
-    // reduces the odds of the function crashing (which is what surfaced as
-    // "Internal Error" instead of a clean JSON response).
-    const uploadRes = await fetch(`${supabaseConfig.url}/storage/v1/object/${BUCKET}/${path}`, {
-      method: "POST",
-      headers: {
-        apikey:          supabaseConfig.serviceRoleKey,
-        Authorization:   `Bearer ${supabaseConfig.serviceRoleKey}`,
-        "Content-Type":  file.type || "application/octet-stream",
-        "Content-Length": String(file.size),
-        "x-upsert":      "true",
-      },
-      body: file.stream(),
-      // Node's fetch requires this when streaming a request body.
-      duplex: "half",
-    } as RequestInit & { duplex: "half" })
-    if (!uploadRes.ok) throw new Error(`Storage error: ${await uploadRes.text()}`)
-
-    const file_url = `${supabaseConfig.url}/storage/v1/object/public/${BUCKET}/${path}`
-
     const sjRes = await fetch(`${supabaseConfig.url}/rest/v1/purchase_request_surat_jalan`, {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=representation" },
       body: JSON.stringify({
         purchase_request_id: id,
         file_url,
-        file_name:   file.name,
+        file_name:   null,
         uploaded_by: uploaded_by || null,
       }),
     })
