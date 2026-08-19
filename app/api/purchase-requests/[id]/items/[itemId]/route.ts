@@ -113,16 +113,32 @@ export async function PATCH(
     const item = items.find(it => it.id === itemId)
     if (!item) return NextResponse.json({ error: "Item not found on this PR" }, { status: 404 })
 
-    if (prHeader.status === "DRAFT" || prHeader.status === "REJECTED") {
+    let itemPatch: Record<string, unknown>
+
+    // Typo corrections (qty/satuan/nama_barang) are plain data fixes, not
+    // workflow transitions — allowed at any PR status, unlike the branches
+    // below which gate on DRAFT/REJECTED.
+    if (body.qty !== undefined || body.satuan !== undefined || body.nama_barang !== undefined) {
+      const patch: Record<string, unknown> = {}
+      if (body.qty !== undefined) {
+        if (!(Number(body.qty) > 0)) return NextResponse.json({ error: "qty must be > 0" }, { status: 400 })
+        patch.qty = Number(body.qty)
+      }
+      if (body.satuan !== undefined) {
+        if (!String(body.satuan).trim()) return NextResponse.json({ error: "satuan is required" }, { status: 400 })
+        patch.satuan = String(body.satuan).trim()
+      }
+      if (body.nama_barang !== undefined) {
+        if (!String(body.nama_barang).trim()) return NextResponse.json({ error: "nama_barang is required" }, { status: 400 })
+        patch.nama_barang = String(body.nama_barang).trim()
+      }
+      itemPatch = patch
+    } else if (prHeader.status === "DRAFT" || prHeader.status === "REJECTED") {
       return NextResponse.json(
         { error: "Item hanya dapat diubah setelah PR disetujui dan sebelum ditolak" },
         { status: 400 }
       )
-    }
-
-    let itemPatch: Record<string, unknown>
-
-    if (body.warehouse_status !== undefined) {
+    } else if (body.warehouse_status !== undefined) {
       const target = body.warehouse_status
       if (target === "DISPATCHED") {
         return NextResponse.json({ error: "Gunakan upload Surat Jalan untuk menandai item terkirim" }, { status: 400 })

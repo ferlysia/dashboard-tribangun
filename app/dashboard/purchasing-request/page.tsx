@@ -216,14 +216,6 @@ function padToMin(rows: ItemDraft[]): ItemDraft[] {
   return next
 }
 
-function itemsFromRecord(pr: PurchaseRequestRecord): ItemDraft[] {
-  const rows = pr.items
-    .slice()
-    .sort((a, b) => a.line_no - b.line_no)
-    .map(it => ({ tempId: nextTempId(), qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang, item_type: it.item_type }))
-  return padToMin(rows)
-}
-
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 
 function StatCard({ icon: Icon, label, value, sub, accent }: {
@@ -272,6 +264,59 @@ function StatusFilterChips({ active, onChange, counts }: {
   )
 }
 
+// ─── ItemCorrectionCells (Qty/Satuan/Nama Barang, shared across the 3 item
+// tables) — the typo-fix inputs rendered in place of the static cells while
+// the PR detail modal's Edit toggle is on. Reused instead of duplicated per
+// table since all three tables show these same three columns identically. ──
+const editInputClass = "w-full rounded-md border border-border bg-background text-xs text-foreground px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30"
+
+function ItemCorrectionCells({ item, editMode, editDrafts, onEditDraftChange, nameSuffix }: {
+  item:               PurchaseRequestItem
+  editMode?:          boolean
+  editDrafts?:        Record<string, { qty: string; satuan: string; nama_barang: string }>
+  onEditDraftChange?: (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) => void
+  nameSuffix?:        React.ReactNode
+}) {
+  const draft = editDrafts?.[item.id]
+  if (editMode && draft && onEditDraftChange) {
+    return (
+      <>
+        <td className="px-2 py-1.5">
+          <input
+            type="number" min={0} step="any"
+            value={draft.qty}
+            onChange={e => onEditDraftChange(item.id, { qty: e.target.value })}
+            className={editInputClass}
+          />
+        </td>
+        <td className="px-2 py-1.5">
+          <input
+            type="text"
+            value={draft.satuan}
+            onChange={e => onEditDraftChange(item.id, { satuan: e.target.value })}
+            className={editInputClass}
+          />
+        </td>
+        <td className="px-2 py-1.5">
+          <input
+            type="text"
+            value={draft.nama_barang}
+            onChange={e => onEditDraftChange(item.id, { nama_barang: e.target.value })}
+            className={editInputClass}
+          />
+        </td>
+      </>
+    )
+  }
+  return (
+    <>
+      <td className="px-3 py-2 text-foreground">{item.qty}</td>
+      <td className="px-3 py-2 text-foreground truncate">{item.satuan}</td>
+      <td className="px-3 py-2 text-foreground truncate" title={item.nama_barang}>{item.nama_barang}{nameSuffix}</td>
+    </>
+  )
+}
+
 // ─── StockCheckTable ("Menunggu Validasi Stok" section) ───────────────────────
 // Warehouse's stock-check handover queue — MATERIAL items only, before
 // Purchasing ever sees them (needsStockValidation). Two-button decision:
@@ -280,11 +325,14 @@ function StatusFilterChips({ active, onChange, counts }: {
 // on the very next render). Reuses the exact same PATCH handler
 // (onFulfillmentCommit / handleFulfillmentCommit) ProcurementTable already
 // uses for corrections — this is just the first, one-way use of it.
-function StockCheckTable({ items, interactive, onFulfillmentCommit, savingItemId }: {
+function StockCheckTable({ items, interactive, onFulfillmentCommit, savingItemId, editMode, editDrafts, onEditDraftChange }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
   savingItemId?:         string | null
+  editMode?:             boolean
+  editDrafts?:           Record<string, { qty: string; satuan: string; nama_barang: string }>
+  onEditDraftChange?:    (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) => void
 }) {
   return (
     <div className="rounded-lg border border-cyan-200 dark:border-cyan-900 overflow-hidden">
@@ -302,9 +350,7 @@ function StockCheckTable({ items, interactive, onFulfillmentCommit, savingItemId
           {items.map(item => (
             <tr key={item.id}>
               <td className="px-3 py-2 text-muted-foreground">{item.line_no}</td>
-              <td className="px-3 py-2 text-foreground">{item.qty}</td>
-              <td className="px-3 py-2 text-foreground truncate">{item.satuan}</td>
-              <td className="px-3 py-2 text-foreground truncate" title={item.nama_barang}>{item.nama_barang}</td>
+              <ItemCorrectionCells item={item} editMode={editMode} editDrafts={editDrafts} onEditDraftChange={onEditDraftChange} />
               <td className="px-2 py-2">
                 {interactive ? (
                   <div className="flex items-center gap-1.5">
@@ -355,7 +401,7 @@ function StockCheckTable({ items, interactive, onFulfillmentCommit, savingItemId
 // every keystroke (a single `poDrafts` object at ProcurementTable level).
 // Isolating it here means keystrokes only ever touch this one row.
 const ProcurementRow = React.memo(function ProcurementRow({
-  item, interactive, alreadySplit, saving, onFulfillmentCommit, onMarkReady, onSplit,
+  item, interactive, alreadySplit, saving, onFulfillmentCommit, onMarkReady, onSplit, editMode, editDrafts, onEditDraftChange,
 }: {
   item:                  PurchaseRequestItem
   interactive?:          boolean
@@ -364,6 +410,9 @@ const ProcurementRow = React.memo(function ProcurementRow({
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
   onMarkReady?:          (item: PurchaseRequestItem) => void
   onSplit?:              (item: PurchaseRequestItem, stok_internal_qty: number) => void
+  editMode?:             boolean
+  editDrafts?:           Record<string, { qty: string; satuan: string; nama_barang: string }>
+  onEditDraftChange?:    (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) => void
 }) {
   const [poDraft, setPoDraft]     = React.useState<string | null>(null)
   const [splitting, setSplitting] = React.useState(false)
@@ -395,12 +444,10 @@ const ProcurementRow = React.memo(function ProcurementRow({
     <>
       <tr>
         <td className="px-3 py-2 text-muted-foreground">{item.line_no}</td>
-        <td className="px-3 py-2 text-foreground">{item.qty}</td>
-        <td className="px-3 py-2 text-foreground truncate">{item.satuan}</td>
-        <td className="px-3 py-2 text-foreground truncate" title={item.nama_barang}>
-          {item.nama_barang}
-          {alreadySplit && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
-        </td>
+        <ItemCorrectionCells
+          item={item} editMode={editMode} editDrafts={editDrafts} onEditDraftChange={onEditDraftChange}
+          nameSuffix={alreadySplit && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
+        />
         <td className="px-2 py-2">
           {interactive ? (
             <Select value={item.fulfillment_source} onValueChange={v => commitSource(v as FulfillmentSource)}>
@@ -508,7 +555,7 @@ const ProcurementRow = React.memo(function ProcurementRow({
   )
 })
 
-function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onSplit, splitParentIds, savingItemId }: {
+function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady, onSplit, splitParentIds, savingItemId, editMode, editDrafts, onEditDraftChange }: {
   items:                 PurchaseRequestItem[]
   interactive?:          boolean
   onFulfillmentCommit?:  (item: PurchaseRequestItem, patch: { fulfillment_source: FulfillmentSource; po_number: string | null }) => void
@@ -516,6 +563,9 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
   onSplit?:              (item: PurchaseRequestItem, stok_internal_qty: number) => void
   splitParentIds?:       Set<string>
   savingItemId?:         string | null
+  editMode?:             boolean
+  editDrafts?:           Record<string, { qty: string; satuan: string; nama_barang: string }>
+  onEditDraftChange?:    (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) => void
 }) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -553,6 +603,9 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
               onFulfillmentCommit={onFulfillmentCommit}
               onMarkReady={onMarkReady}
               onSplit={onSplit}
+              editMode={editMode}
+              editDrafts={editDrafts}
+              onEditDraftChange={onEditDraftChange}
             />
           ))}
         </tbody>
@@ -578,7 +631,7 @@ function ProcurementTable({ items, interactive, onFulfillmentCommit, onMarkReady
 // hasn't started physical verification yet), it can be merged back into its
 // BELI_BARU sibling via "Undo split".
 
-function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onSetWarehouseStatus, onUnsplit, savingItemId }: {
+function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, onSetWarehouseStatus, onUnsplit, savingItemId, editMode, editDrafts, onEditDraftChange }: {
   items:                  PurchaseRequestItem[]
   interactive?:           boolean
   selectedItemIds?:       Set<string>
@@ -586,6 +639,9 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
   onSetWarehouseStatus?:  (item: PurchaseRequestItem, target: WarehouseStatus) => void
   onUnsplit?:             (item: PurchaseRequestItem) => void
   savingItemId?:          string | null
+  editMode?:              boolean
+  editDrafts?:            Record<string, { qty: string; satuan: string; nama_barang: string }>
+  onEditDraftChange?:     (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) => void
 }) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -616,12 +672,10 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
             return (
               <tr key={it.id} className={isDispatched(it) ? "bg-emerald-50/40 dark:bg-emerald-950/10" : undefined}>
                 <td className="px-3 py-2 text-muted-foreground">{it.line_no}</td>
-                <td className="px-3 py-2 text-foreground">{it.qty}</td>
-                <td className="px-3 py-2 text-foreground truncate">{it.satuan}</td>
-                <td className="px-3 py-2 text-foreground truncate" title={it.nama_barang}>
-                  {it.nama_barang}
-                  {it.parent_item_id && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
-                </td>
+                <ItemCorrectionCells
+                  item={it} editMode={editMode} editDrafts={editDrafts} onEditDraftChange={onEditDraftChange}
+                  nameSuffix={it.parent_item_id && <span className="ml-1.5 text-[10px] text-muted-foreground">· split</span>}
+                />
                 <td className="px-3 py-2 text-muted-foreground truncate">
                   {it.fulfillment_source === "STOK_INTERNAL" ? "Stok Internal" : "Beli Baru"}
                 </td>
@@ -1015,13 +1069,13 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [busy, setBusy]                 = React.useState(false)
   const [savingItemId, setSavingItemId]   = React.useState<string | null>(null)
 
-  // ── Full-edit state (header + items) — only relevant while DRAFT ──
-  const [editSiteMaintenance, setEditSiteMaintenance] = React.useState("")
-  const [editUnit, setEditUnit]                       = React.useState("")
-  const [editTanggal, setEditTanggal]                 = React.useState("")
-  const [editNotes, setEditNotes]                     = React.useState("")
-  const [editItems, setEditItems]                     = React.useState<ItemDraft[]>([])
-  const [savingEdit, setSavingEdit]                   = React.useState(false)
+  // ── Typo-correction edit mode (Unit + item Qty/Satuan/Nama Barang) —
+  // available at any PR status, since the WhatsApp group (not this app) is
+  // the source of truth for approvals; this is just fixing data entry slips. ──
+  const [editMode, setEditMode]             = React.useState(false)
+  const [editUnitDraft, setEditUnitDraft]   = React.useState("")
+  const [editItemDrafts, setEditItemDrafts] = React.useState<Record<string, { qty: string; satuan: string; nama_barang: string }>>({})
+  const [savingEditMode, setSavingEditMode] = React.useState(false)
 
   // ── Surat Jalan upload — checkboxes live inline in WarehouseTable (per-item,
   // one checkbox per checkoff-eligible row, only ever rendered in the
@@ -1032,8 +1086,12 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [uploadingSj, setUploadingSj]         = React.useState(false)
 
   React.useEffect(() => {
-    if (!open) { setRejecting(false); setReason(""); setSelectedItemIds(new Set()); setSjFile(null) }
+    if (!open) { setRejecting(false); setReason(""); setSelectedItemIds(new Set()); setSjFile(null); setEditMode(false) }
   }, [open])
+
+  // A different PR opened (or the sheet re-opened for the same id) — never
+  // carry over a stale edit session.
+  React.useEffect(() => { setEditMode(false) }, [pr?.id])
 
   // Prune the visible selection the instant an item drops out of
   // READY_FOR_DISPATCH (e.g. another action mid-session bumped it back a
@@ -1052,20 +1110,8 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pr?.items])
 
-  React.useEffect(() => {
-    if (!open || !pr) return
-    setEditSiteMaintenance(pr.site_maintenance)
-    setEditUnit(pr.unit)
-    setEditTanggal(pr.permintaan_tanggal.split("T")[0])
-    setEditNotes(pr.notes ?? "")
-    setEditItems(itemsFromRecord(pr))
-    // Reset from the record only when the drawer opens for a (possibly new) PR.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, pr?.id])
-
   if (!pr) return null
 
-  const isEditable    = pr.status === "DRAFT"
   const itemsEditable = pr.status !== "DRAFT" && pr.status !== "REJECTED"
   // "Sudah Dibayar" vs "Sampai di Gudang" are two disjoint, purpose-built
   // sections — every item falls into exactly one, based on whether it has
@@ -1094,46 +1140,95 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const showUploadSj   = itemsEditable && eligibleItems.length > 0
   const showDelete     = DELETABLE_STATUSES.includes(pr.status)
 
-  const addEditItem    = () => setEditItems(prev => [...prev, blankItem()])
-  const removeEditItem = (tempId: string) => setEditItems(prev => prev.length > 1 ? prev.filter(i => i.tempId !== tempId) : prev)
-  const updateEditItem = (tempId: string, patch: Partial<ItemDraft>) =>
-    setEditItems(prev => prev.map(i => i.tempId === tempId ? { ...i, ...patch } : i))
+  const enterEditMode = () => {
+    setEditUnitDraft(pr.unit)
+    setEditItemDrafts(Object.fromEntries(
+      pr.items.map(it => [it.id, { qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang }])
+    ))
+    setEditMode(true)
+  }
 
-  const validEditItems = editItems.filter(i => Number(i.qty) > 0 && i.satuan.trim() && i.nama_barang.trim())
-  const canSaveEdit = Boolean(editSiteMaintenance.trim() && editUnit.trim() && editTanggal && validEditItems.length > 0 && !savingEdit)
+  const updateEditItemDraft = (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) =>
+    setEditItemDrafts(prev => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
 
-  const handleSaveEdit = async () => {
-    if (!canSaveEdit) {
-      toast.error("Lengkapi Site Maintenance, Unit, Tanggal, dan minimal satu item.")
+  // Typo-fix save: Unit (header) and Qty/Satuan/Nama Barang (items) only —
+  // no add/remove rows, no other fields. Applied optimistically before the
+  // network round trip; a deep-cloned snapshot lets us roll back the whole
+  // record atomically if any of the parallel PATCHes fails.
+  const handleSaveEditMode = async () => {
+    if (savingEditMode) return
+
+    const unitChanged = editUnitDraft.trim() !== pr.unit
+    if (unitChanged && !editUnitDraft.trim()) {
+      toast.error("Unit tidak boleh kosong.")
       return
     }
-    setSavingEdit(true)
+
+    const changedItems = pr.items.filter(it => {
+      const d = editItemDrafts[it.id]
+      if (!d) return false
+      return Number(d.qty) !== it.qty || d.satuan.trim() !== it.satuan || d.nama_barang.trim() !== it.nama_barang
+    })
+    for (const it of changedItems) {
+      const d = editItemDrafts[it.id]
+      if (!(Number(d.qty) > 0) || !d.satuan.trim() || !d.nama_barang.trim()) {
+        toast.error("Qty, Satuan, dan Nama Barang tidak boleh kosong.")
+        return
+      }
+    }
+
+    if (!unitChanged && changedItems.length === 0) {
+      setEditMode(false)
+      return
+    }
+
+    const snapshot: PurchaseRequestRecord = JSON.parse(JSON.stringify(pr))
+    setSavingEditMode(true)
+    onUpdated({
+      ...pr,
+      unit: unitChanged ? editUnitDraft.trim() : pr.unit,
+      items: pr.items.map(it => {
+        const d = editItemDrafts[it.id]
+        if (!d) return it
+        return { ...it, qty: Number(d.qty), satuan: d.satuan.trim(), nama_barang: d.nama_barang.trim() }
+      }),
+    })
+
     try {
-      const res = await fetch(`/api/purchase-requests/${pr.id}`, {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          site_maintenance:   editSiteMaintenance.trim(),
-          unit:                editUnit.trim(),
-          permintaan_tanggal:  editTanggal,
-          notes:               editNotes.trim() || undefined,
-          actor_email:         user.email || undefined,
-          items: validEditItems.map(i => ({
-            qty:         Number(i.qty),
-            satuan:      i.satuan.trim(),
-            nama_barang: i.nama_barang.trim(),
-            item_type:   i.item_type,
-          })),
-        }),
-      })
-      const data = await safeJson(res)
-      if (!res.ok) throw new Error(data.error)
-      onUpdated({ ...pr, ...data.data })
-      toast.success(`PR ${pr.pr_no} berhasil diperbarui.`)
+      const requests: Promise<void>[] = []
+      if (unitChanged) {
+        requests.push(
+          fetch(`/api/purchase-requests/${pr.id}`, {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ unit: editUnitDraft.trim() }),
+          }).then(async res => {
+            const data = await safeJson(res)
+            if (!res.ok) throw new Error(data.error)
+          })
+        )
+      }
+      for (const it of changedItems) {
+        const d = editItemDrafts[it.id]
+        requests.push(
+          fetch(`/api/purchase-requests/${pr.id}/items/${it.id}`, {
+            method:  "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body:    JSON.stringify({ qty: Number(d.qty), satuan: d.satuan.trim(), nama_barang: d.nama_barang.trim() }),
+          }).then(async res => {
+            const data = await safeJson(res)
+            if (!res.ok) throw new Error(data.error)
+          })
+        )
+      }
+      await Promise.all(requests)
+      toast.success("Perubahan berhasil disimpan.")
+      setEditMode(false)
     } catch (err) {
+      onUpdated(snapshot)
       toast.error(err instanceof Error ? err.message : "Gagal menyimpan perubahan.")
     } finally {
-      setSavingEdit(false)
+      setSavingEditMode(false)
     }
   }
 
@@ -1337,14 +1432,48 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   // Upload Surat Jalan now renders inline within the "Sampai di Gudang"
   // section itself (not in this bottom action cluster), so it doesn't
   // factor into whether that cluster's Separator/actions render at all.
-  const hasActions = transitions.length > 0 || canReject || isEditable || showDelete
+  const hasActions = transitions.length > 0 || canReject || showDelete
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent className="w-[95vw] max-w-[1400px] max-h-[88vh] p-0 flex flex-col gap-0">
-        <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle className="font-mono text-sm">{pr.pr_no}</DialogTitle>
-          <DialogDescription>{pr.site_maintenance}</DialogDescription>
+        <DialogHeader className="border-b border-border px-6 py-4 pr-16">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="font-mono text-sm truncate">{pr.pr_no}</DialogTitle>
+              <DialogDescription className="truncate">{pr.site_maintenance}</DialogDescription>
+            </div>
+            {editMode ? (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button
+                  type="button" size="sm" variant="outline"
+                  disabled={savingEditMode}
+                  onClick={() => setEditMode(false)}
+                  className="h-7 text-xs gap-1.5"
+                >
+                  <X className="h-3.5 w-3.5" /> Batal
+                </Button>
+                <Button
+                  type="button" size="sm"
+                  disabled={savingEditMode}
+                  onClick={handleSaveEditMode}
+                  className="h-7 text-xs gap-1.5"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {savingEditMode ? "Menyimpan…" : "Simpan"}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button" size="sm" variant="outline"
+                title="Edit Unit / Qty / Satuan / Nama Barang"
+                onClick={enterEditMode}
+                className="h-7 text-xs gap-1.5 shrink-0"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit
+              </Button>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -1357,11 +1486,6 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 {SJ_STATUS_CFG.PENDING_SIGNED_SJ.label}
               </span>
             )}
-            {isEditable && (
-              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground">
-                Dapat diedit
-              </span>
-            )}
           </div>
 
           {pr.status === "REJECTED" && pr.rejection_reason && (
@@ -1371,70 +1495,36 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
             </div>
           )}
 
-          {isEditable ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-foreground">Site Maintenance</label>
+          <div className="grid grid-cols-2 gap-2">
+            {editMode ? (
+              <div className="rounded-lg border border-border bg-background px-3 py-2">
+                <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Unit</label>
                 <input
                   type="text"
-                  value={editSiteMaintenance}
-                  onChange={e => setEditSiteMaintenance(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
+                  value={editUnitDraft}
+                  onChange={e => setEditUnitDraft(e.target.value)}
+                  className="mt-0.5 w-full bg-transparent text-sm text-foreground font-medium focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="text-xs font-medium text-foreground">Unit</label>
-                <input
-                  type="text"
-                  value={editUnit}
-                  onChange={e => setEditUnit(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all font-mono"
-                />
+            ) : (
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Unit</p>
+                <p className="text-sm text-foreground font-medium truncate mt-0.5">{pr.unit}</p>
               </div>
-              <div>
-                <label className="text-xs font-medium text-foreground">Permintaan Tanggal</label>
-                <input
-                  type="date"
-                  title="Permintaan Tanggal"
-                  value={editTanggal}
-                  onChange={e => setEditTanggal(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all"
-                />
+            )}
+            {[
+              { label: "Permintaan Tanggal", value: fDate(pr.permintaan_tanggal) },
+              { label: "Periode",            value: monthNameId(pr.permintaan_tanggal) },
+              { label: "KET",                value: quarterLabel(pr.permintaan_tanggal) },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
+                <p className="text-sm text-foreground font-medium truncate mt-0.5">{value}</p>
               </div>
-              <div>
-                <label className="text-xs font-medium text-foreground">Periode / KET</label>
-                <div className="mt-1.5 rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground truncate">
-                  {monthNameId(editTanggal)} · {quarterLabel(editTanggal)}
-                </div>
-              </div>
-              <div className="col-span-2">
-                <label className="text-xs font-medium text-foreground">Catatan (opsional)</label>
-                <textarea
-                  value={editNotes}
-                  onChange={e => setEditNotes(e.target.value)}
-                  rows={2}
-                  placeholder="Catatan internal..."
-                  className="mt-1.5 w-full rounded-lg border border-border bg-background text-sm text-foreground px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 transition-all resize-none placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: "Unit",               value: pr.unit },
-                { label: "Permintaan Tanggal", value: fDate(pr.permintaan_tanggal) },
-                { label: "Periode",            value: monthNameId(pr.permintaan_tanggal) },
-                { label: "KET",                value: quarterLabel(pr.permintaan_tanggal) },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
-                  <p className="text-sm text-foreground font-medium truncate mt-0.5">{value}</p>
-                </div>
-              ))}
-            </div>
-          )}
+            ))}
+          </div>
 
-          {!isEditable && pr.notes && (
+          {pr.notes && (
             <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5">
               <p className="text-xs text-amber-800 dark:text-amber-300">📌 {pr.notes}</p>
             </div>
@@ -1471,14 +1561,7 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
 
           <Separator />
 
-          {isEditable && (
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Daftar Barang</p>
-              <ItemEditGrid items={editItems} onAdd={addEditItem} onRemove={removeEditItem} onUpdate={updateEditItem} datalistId="satuan-options-edit" />
-            </div>
-          )}
-
-          {!isEditable && stockCheckItems.length > 0 && (
+          {stockCheckItems.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Menunggu Validasi Stok · Gudang</p>
@@ -1489,11 +1572,14 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 interactive={itemsEditable}
                 onFulfillmentCommit={handleFulfillmentCommit}
                 savingItemId={savingItemId}
+                editMode={editMode}
+                editDrafts={editItemDrafts}
+                onEditDraftChange={updateEditItemDraft}
               />
             </div>
           )}
 
-          {!isEditable && pendingItems.length > 0 && (
+          {pendingItems.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sudah Dibayar · Proses Pembelian</p>
@@ -1507,11 +1593,14 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 onSplit={handleSplitItem}
                 splitParentIds={splitParentIds}
                 savingItemId={savingItemId}
+                editMode={editMode}
+                editDrafts={editItemDrafts}
+                onEditDraftChange={updateEditItemDraft}
               />
             </div>
           )}
 
-          {!isEditable && warehouseItems.length > 0 && (
+          {warehouseItems.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sampai di Gudang · Verifikasi &amp; Pengiriman</p>
@@ -1527,6 +1616,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                 onSetWarehouseStatus={handleWarehouseStep}
                 onUnsplit={handleUnsplitItem}
                 savingItemId={savingItemId}
+                editMode={editMode}
+                editDrafts={editItemDrafts}
+                onEditDraftChange={updateEditItemDraft}
               />
 
               {showUploadSj && (
@@ -1565,13 +1657,6 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                     {t.label}
                   </Button>
                 ))}
-
-                {isEditable && (
-                  <Button onClick={handleSaveEdit} disabled={!canSaveEdit} className="w-full h-9 text-sm gap-2">
-                    <Pencil className="h-3.5 w-3.5" />
-                    {savingEdit ? "Menyimpan…" : "Simpan Perubahan"}
-                  </Button>
-                )}
 
                 {canReject && !rejecting && (
                   <Button
