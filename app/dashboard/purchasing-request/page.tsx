@@ -1092,6 +1092,21 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   // carry over a stale edit session.
   React.useEffect(() => { setEditMode(false) }, [pr?.id])
 
+  // Pre-fill the OneDrive link from this PR's most recent Surat Jalan
+  // upload (partial deliveries happen across several saves, and it's
+  // almost always the same shared folder link) — sorted explicitly by
+  // created_at since PostgREST gives no ordering guarantee on an embedded
+  // resource without an ORDER BY. Only seeds on open/PR-change so it never
+  // clobbers a link the admin is actively editing/correcting.
+  React.useEffect(() => {
+    if (!open || !pr) return
+    const latest = pr.surat_jalan_documents.length > 0
+      ? pr.surat_jalan_documents.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
+      : null
+    setSjLink(latest?.file_url ?? "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pr?.id])
+
   // Prune the visible selection the instant an item drops out of
   // READY_FOR_DISPATCH (e.g. another action mid-session bumped it back a
   // step) — the submit-time filter already prevents a stale id from being
