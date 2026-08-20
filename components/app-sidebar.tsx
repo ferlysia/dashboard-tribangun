@@ -27,6 +27,7 @@ import {
   ScrollText,
   ShoppingCart,
   CalendarCheck,
+  ClipboardCheck,
 } from "lucide-react"
 import {
   Sidebar,
@@ -60,6 +61,7 @@ const NAV_MAIN = [
   { title: "Maintenance Assets",        url: "/dashboard/maintenance-assets", icon: Wrench      },
   { title: "Maintenance Schedule",  url: "/dashboard/maintenance-schedule", icon: CalendarCheck },
   { title: "Purchasing Request",       url: "/dashboard/purchasing-request", icon: ShoppingCart },
+  { title: "Tool Inspection",          url: "/dashboard/tool-inspection", icon: ClipboardCheck },
   { title: "Doc Con",                  url: "/dashboard/doc-con",        icon: ClipboardList   },
   { title: "Cost Control",             url: "/dashboard/cost-control",   icon: Receipt         },
   { title: "Finance",                  url: "/dashboard/finance",        icon: Wallet          },
@@ -427,6 +429,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Projects",               url: "/projects",              icon: FolderKanban,    desc: "Project portfolio and invoice progress" },
     { title: "Maintenance Schedule", url: "/dashboard/maintenance-schedule", icon: CalendarCheck, desc: "Perencanaan & dispatch kunjungan preventive maintenance per site" },
     { title: "Purchasing Request",     url: "/dashboard/purchasing-request", icon: ShoppingCart, desc: "Pengajuan & pelacakan status permintaan barang maintenance" },
+    { title: "Tool Inspection",       url: "/dashboard/tool-inspection", icon: ClipboardCheck, desc: "Formulir inspeksi mingguan alat & tool per site" },
     { title: "Cost Control",          url: "/dashboard/cost-control",  icon: Receipt,       desc: "Kelola pengeluaran lapangan per proyek — CRUD inline" },
     { title: "Finance",               url: "/dashboard/finance",       icon: Wallet,        desc: "Milestone pembayaran kontrak & SOW Bridge invoice lifecycle" },
     { title: "P&L",                   url: "/dashboard/pnl",           icon: ScrollText,    desc: "Rekonsiliasi laba rugi komersial, koreksi, fiskal" },
