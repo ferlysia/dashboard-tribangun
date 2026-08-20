@@ -109,7 +109,16 @@ export async function POST(
         uploaded_by: uploaded_by || null,
       }),
     })
-    if (!sjRes.ok) throw new Error(await sjRes.text())
+    if (!sjRes.ok) {
+      const sjErrText = await sjRes.text()
+      if (sjRes.status === 409 || sjErrText.includes("purchase_request_surat_jalan_pr_id_file_url_key")) {
+        return NextResponse.json(
+          { error: "Surat Jalan dengan link ini sudah pernah diunggah untuk PR ini" },
+          { status: 409 }
+        )
+      }
+      throw new Error(sjErrText)
+    }
     const [sjDoc] = await sjRes.json()
 
     const itemsPatchRes = await fetch(
