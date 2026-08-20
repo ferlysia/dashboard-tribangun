@@ -39,7 +39,12 @@ export function InspectionItemTable({ inspectionId, items, onPatch, onPhotosChan
         <div className="col-span-2">Photo (bad condition only)</div>
         <div className="col-span-1">Remarks</div>
       </div>
-      <div ref={scrollRef} className="max-h-[65vh] overflow-y-auto">
+      {/* h-[65vh], not max-h — max-h alone has no intrinsic height, so on
+          first render (before any rows exist) this div is 0px tall. The
+          virtualizer measures that 0px viewport, computes zero visible
+          rows, and nothing ever grows the container afterward — a
+          permanent deadlock where getVirtualItems() stays empty forever. */}
+      <div ref={scrollRef} className="h-[65vh] overflow-y-auto">
         <div style={{ height: paddingTop }} />
         {virtualItems.map(vi => {
           const item = items[vi.index]
