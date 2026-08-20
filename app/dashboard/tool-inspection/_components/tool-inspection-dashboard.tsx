@@ -7,31 +7,31 @@ import { Plus, ClipboardList, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useSites, useInspectionsInfinite } from "../_hooks/use-tool-inspection"
+import { useProjects, useInspectionsInfinite } from "../_hooks/use-tool-inspection"
+import { ProjectPicker } from "./project-picker"
 import { CreateInspectionDialog } from "./create-inspection-dialog"
 
 export function ToolInspectionDashboard() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { data: sites, isLoading: sitesLoading } = useSites()
+  const { data: projects } = useProjects()
 
-  const siteId = searchParams.get("site") || sites?.[0]?.id || null
-  const setSiteId = (id: string) => {
+  const projectId = searchParams.get("project") || null
+  const setProjectId = (id: string) => {
     const params = new URLSearchParams(searchParams.toString())
-    params.set("site", id)
+    params.set("project", id)
     router.replace(`?${params.toString()}`, { scroll: false })
   }
 
-  // Once sites resolve, default the URL to the first one so the site
-  // selector and inspection list agree without an extra click.
+  // Once projects resolve, default the URL to the first one so the picker
+  // and inspection list agree without an extra click.
   React.useEffect(() => {
-    if (!searchParams.get("site") && sites && sites.length > 0) setSiteId(sites[0].id)
-  }, [sites]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!searchParams.get("project") && projects && projects.length > 0) setProjectId(projects[0].id)
+  }, [projects]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const {
     data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading,
-  } = useInspectionsInfinite(siteId)
+  } = useInspectionsInfinite(projectId)
   const rows = data?.pages.flatMap(p => p.data) ?? []
 
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -39,38 +39,36 @@ export function ToolInspectionDashboard() {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Select value={siteId ?? undefined} onValueChange={setSiteId}>
-            <SelectTrigger className="h-9 w-[240px]">
-              <SelectValue placeholder={sitesLoading ? "Memuat site…" : "Pilih site"} />
-            </SelectTrigger>
-            <SelectContent>
-              {(sites ?? []).map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <ProjectPicker value={projectId} onChange={setProjectId} />
         <div className="flex items-center gap-2">
           <Button asChild variant="outline" size="sm" className="gap-1.5">
             <Link href="/dashboard/tool-inspection/catalog">
               <Settings2 className="h-4 w-4" /> Tool Catalog
             </Link>
           </Button>
-          <Button size="sm" className="gap-1.5" disabled={!siteId} onClick={() => setCreateOpen(true)}>
+          <Button size="sm" className="gap-1.5" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" /> New Weekly Inspection
           </Button>
         </div>
       </div>
 
-      {isLoading ? (
+      {!projectId ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-16 text-center">
+            <ClipboardList className="h-8 w-8 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              Pilih atau tambahkan project Construction/Project untuk melihat inspeksinya.
+            </p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">Memuat inspeksi…</div>
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-16 text-center">
             <ClipboardList className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              Belum ada Weekly Tool Inspection Form untuk site ini.
+              Belum ada Weekly Tool Inspection Form untuk project ini.
             </p>
           </CardContent>
         </Card>
@@ -108,14 +106,11 @@ export function ToolInspectionDashboard() {
         </div>
       )}
 
-      {siteId && (
-        <CreateInspectionDialog
-          open={createOpen}
-          onClose={() => setCreateOpen(false)}
-          siteId={siteId}
-          siteName={sites?.find(s => s.id === siteId)?.name ?? ""}
-        />
-      )}
+      <CreateInspectionDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        defaultProjectId={projectId}
+      />
     </div>
   )
 }

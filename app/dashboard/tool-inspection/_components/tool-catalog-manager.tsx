@@ -9,7 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "sonner"
-import { useSites, useCatalog, useCreateCatalogItems, usePatchCatalogItem, type NewCatalogItem } from "../_hooks/use-tool-inspection"
+import { useCatalog, useCreateCatalogItems, usePatchCatalogItem, type NewCatalogItem } from "../_hooks/use-tool-inspection"
+import { ProjectPicker } from "./project-picker"
 
 const inputCls = "w-full rounded-md border border-slate-300 dark:border-slate-700 bg-background text-sm text-foreground px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/40"
 
@@ -30,21 +31,17 @@ function emptyDraft(): RowDraft {
 export function ToolCatalogManager() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const { data: sites, isLoading: sitesLoading } = useSites()
 
-  const siteId = searchParams.get("site") || sites?.[0]?.id || null
-  const setSiteId = (id: string) => {
+  const projectId = searchParams.get("project") || null
+  const setProjectId = (id: string) => {
     const params = new URLSearchParams(searchParams.toString())
-    params.set("site", id)
+    params.set("project", id)
     router.replace(`?${params.toString()}`, { scroll: false })
   }
-  React.useEffect(() => {
-    if (!searchParams.get("site") && sites && sites.length > 0) setSiteId(sites[0].id)
-  }, [sites]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: catalog, isLoading: catalogLoading } = useCatalog(siteId)
-  const createItems = useCreateCatalogItems(siteId)
-  const patchItem = usePatchCatalogItem(siteId)
+  const { data: catalog, isLoading: catalogLoading } = useCatalog(projectId)
+  const createItems = useCreateCatalogItems(projectId)
+  const patchItem = usePatchCatalogItem(projectId)
 
   const [drafts, setDrafts] = React.useState<RowDraft[]>([emptyDraft()])
   const updateDraft = (tempId: string, patch: Partial<RowDraft>) =>
@@ -85,16 +82,7 @@ export function ToolCatalogManager() {
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
       <div className="flex items-center gap-2">
-        <Select value={siteId ?? undefined} onValueChange={setSiteId}>
-          <SelectTrigger className="h-9 w-[240px]">
-            <SelectValue placeholder={sitesLoading ? "Memuat site…" : "Pilih site"} />
-          </SelectTrigger>
-          <SelectContent>
-            {(sites ?? []).map(s => (
-              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ProjectPicker value={projectId} onChange={setProjectId} />
       </div>
 
       <div className="rounded-lg border">
@@ -114,7 +102,7 @@ export function ToolCatalogManager() {
             {catalogLoading ? (
               <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Memuat katalog…</TableCell></TableRow>
             ) : (catalog ?? []).length === 0 ? (
-              <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Belum ada tool di katalog site ini.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">Belum ada tool di katalog project ini.</TableCell></TableRow>
             ) : (catalog ?? []).map(item => (
               <TableRow key={item.id} className={!item.is_active ? "opacity-50" : undefined}>
                 <TableCell className="text-xs text-muted-foreground">{item.line_no}</TableCell>
@@ -194,7 +182,7 @@ export function ToolCatalogManager() {
           <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={addDraft}>
             <Plus className="h-3.5 w-3.5" /> Tambah Baris
           </Button>
-          <Button type="button" size="sm" disabled={createItems.isPending || !siteId} onClick={handleSaveDrafts}>
+          <Button type="button" size="sm" disabled={createItems.isPending || !projectId} onClick={handleSaveDrafts}>
             {createItems.isPending ? "Menyimpan…" : "Simpan ke Katalog"}
           </Button>
         </div>

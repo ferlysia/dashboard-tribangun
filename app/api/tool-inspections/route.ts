@@ -13,9 +13,9 @@ function headers() {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const siteId = searchParams.get("site_id")
-    if (!siteId) {
-      return NextResponse.json({ error: "site_id is required" }, { status: 400 })
+    const projectId = searchParams.get("project_id")
+    if (!projectId) {
+      return NextResponse.json({ error: "project_id is required" }, { status: 400 })
     }
     const cursor = searchParams.get("cursor")
     const limit  = Math.min(Number(searchParams.get("limit")) || 20, 100)
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const res = await fetch(
       `${supabaseConfig.url}/rest/v1/tool_inspections` +
       `?select=*,tool_inspection_items(count)` +
-      `&site_id=eq.${siteId}` +
+      `&project_id=eq.${projectId}` +
       cursorFilter +
       `&order=created_at.desc,id.desc&limit=${limit}`,
       { headers: headers() }
@@ -70,10 +70,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const {
-      site_id, project_name, project_location, inspection_date,
+      project_id, project_name, project_location, inspection_date,
       week_label, responsible_person, inspector,
     } = body as {
-      site_id:             string
+      project_id:          string
       project_name:        string
       project_location?:   string
       inspection_date:     string
@@ -82,25 +82,25 @@ export async function POST(request: Request) {
       inspector:           string
     }
 
-    if (!site_id || !project_name || !inspection_date || !week_label || !responsible_person || !inspector) {
+    if (!project_id || !project_name || !inspection_date || !week_label || !responsible_person || !inspector) {
       return NextResponse.json(
-        { error: "site_id, project_name, inspection_date, week_label, responsible_person, and inspector are required" },
+        { error: "project_id, project_name, inspection_date, week_label, responsible_person, and inspector are required" },
         { status: 400 }
       )
     }
 
-    // 1. Snapshot the site's active catalog — this is what makes weekly
+    // 1. Snapshot the project's active catalog — this is what makes weekly
     // entry fast: the inspector only touches exceptions from here on.
     const catalogRes = await fetch(
       `${supabaseConfig.url}/rest/v1/tool_catalog_items` +
-      `?select=*&site_id=eq.${site_id}&is_active=eq.true&order=line_no.asc`,
+      `?select=*&project_id=eq.${project_id}&is_active=eq.true&order=line_no.asc`,
       { headers: headers() }
     )
     if (!catalogRes.ok) throw new Error(await catalogRes.text())
     const catalog = await catalogRes.json() as ToolCatalogItem[]
     if (catalog.length === 0) {
       return NextResponse.json(
-        { error: "This site has no active tools in its catalog yet. Set up the tool catalog before creating an inspection." },
+        { error: "This project has no active tools in its catalog yet. Set up the tool catalog before creating an inspection." },
         { status: 400 }
       )
     }
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=representation" },
       body: JSON.stringify({
-        site_id, project_name,
+        project_id, project_name,
         project_location: project_location?.trim() || null,
         inspection_date, week_label, responsible_person, inspector,
       }),

@@ -2,10 +2,8 @@
 
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import type {
-  ToolCatalogItem, ToolInspection, ToolInspectionItem, ToolInspectionPhoto,
+  ToolCatalogItem, ToolInspection, ToolInspectionItem, ToolInspectionPhoto, ToolInspectionProject,
 } from "@/lib/tool-inspection/types"
-
-export interface SiteOption { id: string; name: string }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
@@ -14,24 +12,40 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return body
 }
 
-// ── Sites ────────────────────────────────────────────────────
+// ── Projects (Construction/Project division — separate from Maintenance's
+// `sites`, see 20260821_tool_inspection_projects.sql) ───────
 
-export function useSites() {
+export function useProjects() {
   return useQuery({
-    queryKey: ["tool-inspection", "sites"],
-    queryFn: () => fetchJson<{ data: SiteOption[] }>("/api/sites").then(r => r.data),
+    queryKey: ["tool-inspection", "projects"],
+    queryFn: () => fetchJson<{ data: ToolInspectionProject[] }>("/api/tool-inspection-projects").then(r => r.data),
+  })
+}
+
+export function useCreateProject() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { name: string; location?: string }) =>
+      fetchJson<{ data: ToolInspectionProject }>("/api/tool-inspection-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "projects"] })
+    },
   })
 }
 
 // ── Catalog ──────────────────────────────────────────────────
 
-export function useCatalog(siteId: string | null) {
+export function useCatalog(projectId: string | null) {
   return useQuery({
-    queryKey: ["tool-inspection", "catalog", siteId],
+    queryKey: ["tool-inspection", "catalog", projectId],
     queryFn: () => fetchJson<{ data: ToolCatalogItem[] }>(
-      `/api/tool-catalog?site_id=${siteId}&include_inactive=true`
+      `/api/tool-catalog?project_id=${projectId}&include_inactive=true`
     ).then(r => r.data),
-    enabled: !!siteId,
+    enabled: !!projectId,
   })
 }
 
@@ -45,22 +59,22 @@ export interface NewCatalogItem {
   asset_no?:    string | null
 }
 
-export function useCreateCatalogItems(siteId: string | null) {
+export function useCreateCatalogItems(projectId: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (items: NewCatalogItem[]) =>
       fetchJson<{ data: ToolCatalogItem[] }>("/api/tool-catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ site_id: siteId, items }),
+        body: JSON.stringify({ project_id: projectId, items }),
       }).then(r => r.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "catalog", siteId] })
+      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "catalog", projectId] })
     },
   })
 }
 
-export function usePatchCatalogItem(siteId: string | null) {
+export function usePatchCatalogItem(projectId: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<ToolCatalogItem> }) =>
@@ -70,7 +84,7 @@ export function usePatchCatalogItem(siteId: string | null) {
         body: JSON.stringify(patch),
       }).then(r => r.data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "catalog", siteId] })
+      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "catalog", projectId] })
     },
   })
 }
@@ -80,22 +94,22 @@ export function usePatchCatalogItem(siteId: string | null) {
 interface InspectionListRow extends ToolInspection { item_count: number }
 interface InspectionsPage { data: InspectionListRow[]; nextCursor: string | null }
 
-export function useInspectionsInfinite(siteId: string | null) {
+export function useInspectionsInfinite(projectId: string | null) {
   return useInfiniteQuery({
-    queryKey: ["tool-inspection", "inspections", siteId],
+    queryKey: ["tool-inspection", "inspections", projectId],
     queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ site_id: siteId || "", limit: "20" })
+      const params = new URLSearchParams({ project_id: projectId || "", limit: "20" })
       if (pageParam) params.set("cursor", pageParam)
       return fetchJson<InspectionsPage>(`/api/tool-inspections?${params}`)
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    enabled: !!siteId,
+    enabled: !!projectId,
   })
 }
 
 export interface NewInspection {
-  site_id:             string
+  project_id:          string
   project_name:        string
   project_location?:   string
   inspection_date:     string
@@ -114,7 +128,7 @@ export function useCreateInspection() {
         body: JSON.stringify(input),
       }).then(r => r.data),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "inspections", data.site_id] })
+      queryClient.invalidateQueries({ queryKey: ["tool-inspection", "inspections", data.project_id] })
     },
   })
 }

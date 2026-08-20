@@ -2,9 +2,21 @@ export type ItemKind = "ASSET" | "CONSUMABLE"
 export type Condition = "GOOD" | "DAMAGED" | "MISSING" | "REPAIR"
 export type InspectionStatus = "DRAFT" | "SUBMITTED"
 
+// Construction/Project division registry (GAIA Data Center, ...) —
+// deliberately separate from public.sites, which is Maintenance-division-
+// only (HITACHI, SUPERNOVA). See 20260821_tool_inspection_projects.sql.
+export interface ToolInspectionProject {
+  id:         string
+  name:       string
+  location:   string | null
+  is_active:  boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface ToolCatalogItem {
   id:          string
-  site_id:     string
+  project_id:  string
   line_no:     number
   name:        string
   category:    string | null
@@ -48,7 +60,7 @@ export interface ToolInspectionItem {
 
 export interface ToolInspection {
   id:                        string
-  site_id:                   string
+  project_id:                string
   project_name:              string
   project_location:          string | null
   inspection_date:           string

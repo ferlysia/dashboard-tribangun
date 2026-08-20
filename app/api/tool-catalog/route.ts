@@ -12,15 +12,15 @@ function headers() {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const siteId = searchParams.get("site_id")
-    if (!siteId) {
-      return NextResponse.json({ error: "site_id is required" }, { status: 400 })
+    const projectId = searchParams.get("project_id")
+    if (!projectId) {
+      return NextResponse.json({ error: "project_id is required" }, { status: 400 })
     }
     const includeInactive = searchParams.get("include_inactive") === "true"
 
     const filters = [
       "select=*",
-      `site_id=eq.${siteId}`,
+      `project_id=eq.${projectId}`,
       "order=line_no.asc",
     ]
     if (!includeInactive) filters.push("is_active=eq.true")
@@ -50,16 +50,16 @@ interface CatalogItemInput {
   asset_no?:    string | null
 }
 
-// Bulk create only — the physical form has 30-190 rows per site, so the
+// Bulk create only — the physical form has 30-190 rows per project, so the
 // catalog is almost always seeded in one paste/import, not row-by-row.
 // Single-item add is just { items: [oneItem] }.
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { site_id, items } = body as { site_id: string; items: CatalogItemInput[] }
+    const { project_id, items } = body as { project_id: string; items: CatalogItemInput[] }
 
-    if (!site_id) {
-      return NextResponse.json({ error: "site_id is required" }, { status: 400 })
+    if (!project_id) {
+      return NextResponse.json({ error: "project_id is required" }, { status: 400 })
     }
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: "At least one item is required" }, { status: 400 })
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     if (items.some(it => it.line_no === undefined)) {
       const maxRes = await fetch(
         `${supabaseConfig.url}/rest/v1/tool_catalog_items` +
-        `?select=line_no&site_id=eq.${site_id}&is_active=eq.true&order=line_no.desc&limit=1`,
+        `?select=line_no&project_id=eq.${project_id}&is_active=eq.true&order=line_no.desc&limit=1`,
         { headers: headers() }
       )
       if (!maxRes.ok) throw new Error(await maxRes.text())
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     }
 
     const rows = items.map(it => ({
-      site_id,
+      project_id,
       line_no:     it.line_no ?? nextLineNo++,
       name:        it.name,
       category:    it.category?.trim() || null,
