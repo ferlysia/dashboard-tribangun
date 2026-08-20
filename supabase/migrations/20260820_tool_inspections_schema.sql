@@ -179,7 +179,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- currently in a bad condition. Belt-and-suspenders alongside the
 -- client-side rule that hides the upload control otherwise.
 CREATE OR REPLACE FUNCTION public.fn_enforce_photo_requires_bad_condition()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER LANGUAGE plpgsql
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_item_kind  TEXT;
   v_condition  TEXT;
@@ -208,12 +209,40 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 
 -- ============================================================
---  SUPABASE STORAGE BUCKET (run once in the dashboard)
+--  ROW LEVEL SECURITY
 -- ============================================================
---
--- INSERT INTO storage.buckets (id, name, public)
--- VALUES ('tool-inspection-photos', 'tool-inspection-photos', true)
--- ON CONFLICT (id) DO NOTHING;
---
+
+ALTER TABLE public.tool_catalog_items     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tool_inspections       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tool_inspection_items  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tool_inspection_photos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "service_role_tool_catalog_items_all"
+  ON public.tool_catalog_items FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_tool_inspections_all"
+  ON public.tool_inspections FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_tool_inspection_items_all"
+  ON public.tool_inspection_items FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_role_tool_inspection_photos_all"
+  ON public.tool_inspection_photos FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "auth_tool_catalog_items_read"
+  ON public.tool_catalog_items FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "auth_tool_inspections_read"
+  ON public.tool_inspections FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "auth_tool_inspection_items_read"
+  ON public.tool_inspection_items FOR SELECT TO anon, authenticated USING (true);
+CREATE POLICY "auth_tool_inspection_photos_read"
+  ON public.tool_inspection_photos FOR SELECT TO anon, authenticated USING (true);
+
+
+-- ============================================================
+--  SUPABASE STORAGE BUCKET
+-- ============================================================
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('tool-inspection-photos', 'tool-inspection-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
 -- Storage path convention:
 --   {inspection_id}/{inspection_item_id}/{timestamp}.webp
