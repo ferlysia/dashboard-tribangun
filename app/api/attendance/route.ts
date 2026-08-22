@@ -31,8 +31,10 @@ async function deleteStorageObject(path: string) {
   }).catch(() => { /* best-effort cleanup */ })
 }
 
-function normalizeName(name: string) {
-  return name.trim().toLowerCase().replace(/\s+/g, " ")
+// Storage path fragment only — employee_id itself is stored verbatim as
+// the FK value; this just keeps the bucket path filesystem-safe.
+function sanitizePathSegment(value: string) {
+  return value.trim().replace(/[^a-zA-Z0-9_-]/g, "-")
 }
 
 // Fails closed in production if Turnstile isn't configured (that's the
@@ -70,7 +72,7 @@ export async function POST(request: Request) {
   let storagePath: string | null = null
   try {
     const formData = await request.formData()
-    const name = (formData.get("name") as string | null)?.trim()
+    const employeeId = (formData.get("employee_id") as string | null)?.trim()
     const site = (formData.get("site") as string | null)?.trim()
     const file = formData.get("file") as File | null
     const latitude = Number(formData.get("latitude"))
@@ -80,8 +82,8 @@ export async function POST(request: Request) {
     const deviceReportedAt = formData.get("device_reported_at") as string | null
     const turnstileToken = (formData.get("turnstile_token") as string | null) ?? ""
 
-    if (!name || !site || !file) {
-      return NextResponse.json({ error: "Nama, site, dan foto wajib diisi" }, { status: 400 })
+    if (!employeeId || !site || !file) {
+      return NextResponse.json({ error: "Karyawan, site, dan foto wajib diisi" }, { status: 400 })
     }
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return NextResponse.json({ error: "Lokasi tidak valid — coba lagi" }, { status: 400 })
@@ -92,14 +94,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Verifikasi keamanan gagal, silakan coba lagi" }, { status: 400 })
     }
 
-    const normalizedName = normalizeName(name)
     const since = new Date(Date.now() - DEDUPE_WINDOW_MINUTES * 60_000).toISOString()
     const dupeParams = new URLSearchParams({
-      worker_name_normalized: `eq.${normalizedName}`,
-      site_name:              `eq.${site}`,
-      recorded_at:             `gte.${since}`,
-      select:                  "id",
-      limit:                   "1",
+      employee_id:  `eq.${employeeId}`,
+      site_name:    `eq.${site}`,
+      recorded_at:  `gte.${since}`,
+      select:       "id",
+      limit:        "1",
     })
     const dupeRes = await fetch(`${supabaseConfig.url}/rest/v1/attendance_logs?${dupeParams}`, { headers: headers() })
     if (!dupeRes.ok) throw new Error(await dupeRes.text())
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
     }
 
     const ext = (file.type.split("/")[1] || "webp").split("+")[0]
-    storagePath = `${normalizedName.replace(/\s+/g, "-")}/${Date.now()}.${ext}`
+    storagePath = `${sanitizePathSegment(employeeId)}/${Date.now()}.${ext}`
 
     const arrayBuffer = await file.arrayBuffer()
     const uploadRes = await fetch(
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=representation" },
       body: JSON.stringify({
-        worker_name:         name,
+        employee_id:         employeeId,
         site_name:           site,
         selfie_storage_path: storagePath,
         latitude,
@@ -137,7 +138,14 @@ export async function POST(request: Request) {
     })
     if (!dbRes.ok) {
       await deleteStorageObject(storagePath)
-      throw new Error(await dbRes.text())
+      const dbErrText = await dbRes.text()
+      // Postgres 23503 = foreign_key_violation — employee_id doesn't exist
+      // in public.employees. Friendlier than a raw 500 (mirrors the
+      // surat-jalan duplicate-constraint mapping, see 92dce90).
+      if (dbErrText.includes("23503") || dbErrText.includes("attendance_logs_employee_id_fkey")) {
+        return NextResponse.json({ error: "ID Karyawan tidak ditemukan" }, { status: 400 })
+      }
+      throw new Error(dbErrText)
     }
     const [data] = await dbRes.json()
 
