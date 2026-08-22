@@ -23,14 +23,26 @@ declare global {
   }
 }
 
+// iOS Safari's canvas.toBlob has spotty/inconsistent image/webp encode
+// support (unlike Chrome/Android), so browser-image-compression can hand
+// back a blob whose actual bytes don't match its labeled type there. jpeg
+// is universally supported by canvas.toBlob across engines. The result is
+// also explicitly rebuilt as a fresh File — Safari has been known to drop
+// or mangle Blobs appended to FormData when they lack a real filename/type,
+// so we never rely on whatever name/type the compression lib happened to
+// preserve internally.
 async function compressSelfie(file: File): Promise<File> {
   const imageCompression = (await import("browser-image-compression")).default
-  return imageCompression(file, {
+  const compressed = await imageCompression(file, {
     maxSizeMB: 0.1,
     maxWidthOrHeight: 720,
     useWebWorker: true,
-    fileType: "image/webp",
+    fileType: "image/jpeg",
     initialQuality: 0.8,
+  })
+  return new File([compressed], "selfie.jpg", {
+    type: "image/jpeg",
+    lastModified: Date.now(),
   })
 }
 

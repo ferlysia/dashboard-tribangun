@@ -91,7 +91,7 @@ export async function POST(request: Request) {
 
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
 
-    const ext = (file.type.split("/")[1] || "webp").split("+")[0]
+    const ext = (file.type.split("/")[1] || "jpeg").split("+")[0]
     storagePath = `${sanitizePathSegment(employeeId)}/${Date.now()}.${ext}`
     const arrayBuffer = await file.arrayBuffer()
 
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
       fetch(`${supabaseConfig.url}/rest/v1/attendance_logs?${dupeParams}`, { headers: headers() }),
       fetch(
         `${supabaseConfig.url}/storage/v1/object/${BUCKET}/${storagePath}`,
-        { method: "POST", headers: storageHeaders(file.type || "image/webp"), body: Buffer.from(arrayBuffer) }
+        { method: "POST", headers: storageHeaders(file.type || "image/jpeg"), body: Buffer.from(arrayBuffer) }
       ),
     ])
 

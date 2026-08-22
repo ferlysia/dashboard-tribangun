@@ -33,7 +33,10 @@ export function useClockIn() {
       const formData = new FormData()
       formData.append("employee_id", input.employeeId)
       formData.append("site", input.site)
-      formData.append("file", input.file)
+      // Explicit filename — iOS Safari has been observed dropping/mangling
+      // a Blob/File appended without one, unlike Chrome/Android which
+      // tolerates the 2-arg form fine.
+      formData.append("file", input.file, input.file.name || "selfie.jpg")
       formData.append("latitude", String(input.latitude))
       formData.append("longitude", String(input.longitude))
       formData.append("accuracy", String(input.accuracy))
