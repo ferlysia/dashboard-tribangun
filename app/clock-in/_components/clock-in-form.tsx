@@ -5,6 +5,11 @@ import Script from "next/script"
 import { Camera, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useClockIn } from "../_hooks/use-clock-in"
+import { EmployeeCombobox, type Employee } from "./employee-combobox"
+
+// How long a cached geolocation fix is trusted before submit re-acquires
+// one. Kept short — this is an anti-fraud lock, not a convenience cache.
+const POSITION_MAX_AGE_MS = 20_000
 
 declare global {
   interface Window {
@@ -53,10 +58,10 @@ async function getPosition(onSearching?: (stage: "fast" | "precise") => void): P
   }
 }
 
-export function ClockInForm({ recentNames }: { recentNames: string[] }) {
+export function ClockInForm({ employees }: { employees: Employee[] }) {
   const clockIn = useClockIn()
   const [isPending, startTransition] = React.useTransition()
-  const [name, setName] = React.useState("")
+  const [employee, setEmployee] = React.useState<Employee | null>(null)
   const [site, setSite] = React.useState("")
   const [statusText, setStatusText] = React.useState<string | null>(null)
   const [failed, setFailed] = React.useState(false)
@@ -65,6 +70,33 @@ export function ClockInForm({ recentNames }: { recentNames: string[] }) {
   const turnstileContainerRef = React.useRef<HTMLDivElement>(null)
   const turnstileWidgetIdRef = React.useRef<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+
+  // Background geo-lock acquisition: fired on mount instead of on button
+  // press, so the (often multi-second) fix is already sitting in
+  // positionRef by the time the worker has picked their name, entered the
+  // site, and tapped capture — the single biggest latency win available,
+  // since it moves acquisition off the submit critical path entirely in
+  // the common case. Submit re-acquires only if this fix has gone stale.
+  const positionRef = React.useRef<GeolocationPosition | null>(null)
+  const positionFetchedAtRef = React.useRef(0)
+
+  const acquirePosition = React.useCallback(async (onSearching?: (stage: "fast" | "precise") => void) => {
+    const position = await getPosition(onSearching)
+    positionRef.current = position
+    positionFetchedAtRef.current = Date.now()
+    return position
+  }, [])
+
+  const getFreshPosition = React.useCallback(async (onSearching?: (stage: "fast" | "precise") => void) => {
+    if (positionRef.current && Date.now() - positionFetchedAtRef.current < POSITION_MAX_AGE_MS) {
+      return positionRef.current
+    }
+    return acquirePosition(onSearching)
+  }, [acquirePosition])
+
+  React.useEffect(() => {
+    acquirePosition().catch(() => { /* retried at submit time; silent here */ })
+  }, [acquirePosition])
 
   // Explicit rendering (not the implicit data-attribute API) so the
   // callback can write straight into a ref instead of needing a global
@@ -84,20 +116,25 @@ export function ClockInForm({ recentNames }: { recentNames: string[] }) {
   }, [turnstileReady])
 
   const handleCapture = (file: File | null) => {
-    if (!file || !name.trim() || !site.trim()) return
+    if (!file || !employee || !site.trim()) return
     setFailed(false)
 
     startTransition(async () => {
       try {
-        const position = await getPosition(stage =>
-          setStatusText(stage === "fast" ? "Mencari lokasi..." : "Mencari lokasi (dalam ruangan)...")
-        )
-        setStatusText("Memproses foto...")
-        const compressed = await compressSelfie(file)
+        setStatusText("Memproses...")
+        // Position (usually already cached from mount) and compression have
+        // no dependency on each other, so they run concurrently instead of
+        // as a sequential wait — the rest of the 5s -> 0-3s latency win.
+        const [position, compressed] = await Promise.all([
+          getFreshPosition(stage =>
+            setStatusText(stage === "fast" ? "Mencari lokasi..." : "Mencari lokasi (dalam ruangan)...")
+          ),
+          compressSelfie(file),
+        ])
 
         setStatusText("Mengirim...")
         await clockIn.mutateAsync({
-          name: name.trim(),
+          employeeId: employee.employee_id,
           site: site.trim(),
           file: compressed,
           latitude: position.coords.latitude,
@@ -108,7 +145,7 @@ export function ClockInForm({ recentNames }: { recentNames: string[] }) {
         })
 
         toast.success("Clock-in berhasil.")
-        setName("")
+        setEmployee(null)
         setSite("")
       } catch (err) {
         // No manual-location fallback on failure — that would defeat the
@@ -136,17 +173,12 @@ export function ClockInForm({ recentNames }: { recentNames: string[] }) {
         <p className="text-sm text-muted-foreground">Isi nama dan lokasi, lalu ambil foto untuk clock-in.</p>
       </div>
 
-      <input
-        list="recent-names"
-        value={name}
-        onChange={e => setName(e.target.value)}
-        placeholder="Nama"
+      <EmployeeCombobox
+        employees={employees}
+        value={employee}
+        onChange={setEmployee}
         disabled={isPending}
-        className="rounded border px-3 py-2"
       />
-      <datalist id="recent-names">
-        {recentNames.map(n => <option key={n} value={n} />)}
-      </datalist>
 
       <input
         value={site}
@@ -169,7 +201,7 @@ export function ClockInForm({ recentNames }: { recentNames: string[] }) {
           accept="image/*"
           capture="user"
           className="hidden"
-          disabled={isPending || !name.trim() || !site.trim()}
+          disabled={isPending || !employee || !site.trim()}
           onChange={e => handleCapture(e.target.files?.[0] ?? null)}
         />
       </label>

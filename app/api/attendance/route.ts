@@ -62,9 +62,9 @@ async function verifyTurnstile(token: string, ip: string | null): Promise<boolea
   return result.success
 }
 
-// Two gates run before any Storage/DB work, cheapest/fastest first:
-// Turnstile (proof-of-browser) then a duplicate-submission window check
-// (mirrors the surat-jalan fix's friendly-409 pattern, see 92dce90).
+// Turnstile (proof-of-browser) and a duplicate-submission window check
+// (mirrors the surat-jalan fix's friendly-409 pattern, see 92dce90) both
+// gate the DB insert, run concurrently with the Storage upload below.
 // recorded_at is intentionally never read from the request body — it is
 // DEFAULT NOW() at the database level, so it stays server-authoritative
 // regardless of what a spoofed client sends.
@@ -90,9 +90,10 @@ export async function POST(request: Request) {
     }
 
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
-    if (!(await verifyTurnstile(turnstileToken, ip))) {
-      return NextResponse.json({ error: "Verifikasi keamanan gagal, silakan coba lagi" }, { status: 400 })
-    }
+
+    const ext = (file.type.split("/")[1] || "webp").split("+")[0]
+    storagePath = `${sanitizePathSegment(employeeId)}/${Date.now()}.${ext}`
+    const arrayBuffer = await file.arrayBuffer()
 
     const since = new Date(Date.now() - DEDUPE_WINDOW_MINUTES * 60_000).toISOString()
     const dupeParams = new URLSearchParams({
@@ -102,24 +103,38 @@ export async function POST(request: Request) {
       select:       "id",
       limit:        "1",
     })
-    const dupeRes = await fetch(`${supabaseConfig.url}/rest/v1/attendance_logs?${dupeParams}`, { headers: headers() })
-    if (!dupeRes.ok) throw new Error(await dupeRes.text())
+
+    // Turnstile verification, the duplicate-window check, and the selfie
+    // upload have no data dependency on one another, so they run
+    // concurrently instead of as a serial waterfall — this is most of the
+    // 5s -> 0-3s latency win, since each was previously a full network
+    // round-trip blocking the next. The Storage object is rolled back
+    // (best-effort delete) if either gate fails after the upload lands.
+    const [turnstileOk, dupeRes, uploadRes] = await Promise.all([
+      verifyTurnstile(turnstileToken, ip),
+      fetch(`${supabaseConfig.url}/rest/v1/attendance_logs?${dupeParams}`, { headers: headers() }),
+      fetch(
+        `${supabaseConfig.url}/storage/v1/object/${BUCKET}/${storagePath}`,
+        { method: "POST", headers: storageHeaders(file.type || "image/webp"), body: Buffer.from(arrayBuffer) }
+      ),
+    ])
+
+    if (!turnstileOk) {
+      if (uploadRes.ok) await deleteStorageObject(storagePath)
+      return NextResponse.json({ error: "Verifikasi keamanan gagal, silakan coba lagi" }, { status: 400 })
+    }
+    if (!dupeRes.ok) {
+      if (uploadRes.ok) await deleteStorageObject(storagePath)
+      throw new Error(await dupeRes.text())
+    }
     const dupes = await dupeRes.json() as { id: string }[]
     if (dupes.length > 0) {
+      if (uploadRes.ok) await deleteStorageObject(storagePath)
       return NextResponse.json(
         { error: "Anda sudah melakukan clock-in di lokasi ini beberapa menit lalu" },
         { status: 409 }
       )
     }
-
-    const ext = (file.type.split("/")[1] || "webp").split("+")[0]
-    storagePath = `${sanitizePathSegment(employeeId)}/${Date.now()}.${ext}`
-
-    const arrayBuffer = await file.arrayBuffer()
-    const uploadRes = await fetch(
-      `${supabaseConfig.url}/storage/v1/object/${BUCKET}/${storagePath}`,
-      { method: "POST", headers: storageHeaders(file.type || "image/webp"), body: Buffer.from(arrayBuffer) }
-    )
     if (!uploadRes.ok) throw new Error(`Storage error: ${await uploadRes.text()}`)
 
     const dbRes = await fetch(`${supabaseConfig.url}/rest/v1/attendance_logs`, {

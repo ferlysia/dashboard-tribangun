@@ -10,7 +10,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 interface ClockInInput {
-  name:             string
+  employeeId:       string
   site:             string
   file:             File
   latitude:         number
@@ -21,8 +21,8 @@ interface ClockInInput {
 }
 
 interface AttendanceLog {
-  id:         string
-  worker_name: string
+  id:          string
+  employee_id: string
   site_name:   string
   recorded_at: string
 }
@@ -31,7 +31,7 @@ export function useClockIn() {
   return useMutation({
     mutationFn: (input: ClockInInput) => {
       const formData = new FormData()
-      formData.append("name", input.name)
+      formData.append("employee_id", input.employeeId)
       formData.append("site", input.site)
       formData.append("file", input.file)
       formData.append("latitude", String(input.latitude))
