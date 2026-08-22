@@ -61,6 +61,12 @@ export async function middleware(req: NextRequest) {
       pathname.startsWith("/api/auth/")                 ||
       pathname.startsWith("/_next/")                    ||
       pathname === "/403"                               ||
+      // Standalone clock-in module — public and unauthenticated by design
+      // (field workers have no dashboard account yet). Hardened inside the
+      // route itself via Cloudflare Turnstile + a duplicate-submission
+      // window check, not session auth.
+      pathname.startsWith("/clock-in")                  ||
+      pathname.startsWith("/api/attendance")             ||
       /\.(png|jpe?g|ico|svg|webp|gif|woff2?)$/i.test(pathname)
     ) {
       return NextResponse.next()
