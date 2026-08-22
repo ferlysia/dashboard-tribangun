@@ -23,15 +23,17 @@ declare global {
   }
 }
 
-// iOS Safari's canvas.toBlob has spotty/inconsistent image/webp encode
-// support (unlike Chrome/Android), so browser-image-compression can hand
-// back a blob whose actual bytes don't match its labeled type there. jpeg
-// is universally supported by canvas.toBlob across engines. The result is
-// also explicitly rebuilt as a fresh File — Safari has been known to drop
-// or mangle Blobs appended to FormData when they lack a real filename/type,
-// so we never rely on whatever name/type the compression lib happened to
-// preserve internally.
-async function compressSelfie(file: File): Promise<File> {
+// iOS Safari has a WebKit bug where a `File` object (including the one
+// browser-image-compression constructs internally — its return type is
+// Promise<File>) can serialize as an empty 0-byte body when sent through
+// fetch's multipart FormData encoding: .size still reports correctly and
+// nothing throws client-side, but the real bytes never reach the request
+// (see https://github.com/jaydenseric/apollo-upload-client/issues/54).
+// Reading the bytes back out via .arrayBuffer() happens in-memory, before
+// that serialization step, so rebuilding a plain Blob (never a File) from
+// them sidesteps the bug entirely. FormData.append's 3rd-arg filename
+// covers naming — a Blob doesn't need to be a File for that.
+async function compressSelfie(file: File): Promise<Blob> {
   const imageCompression = (await import("browser-image-compression")).default
   const compressed = await imageCompression(file, {
     maxSizeMB: 0.1,
@@ -40,10 +42,8 @@ async function compressSelfie(file: File): Promise<File> {
     fileType: "image/jpeg",
     initialQuality: 0.8,
   })
-  return new File([compressed], "selfie.jpg", {
-    type: "image/jpeg",
-    lastModified: Date.now(),
-  })
+  const bytes = await compressed.arrayBuffer()
+  return new Blob([bytes], { type: "image/jpeg" })
 }
 
 function getPositionOnce(options: PositionOptions): Promise<GeolocationPosition> {

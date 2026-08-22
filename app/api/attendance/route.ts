@@ -95,6 +95,15 @@ export async function POST(request: Request) {
     storagePath = `${sanitizePathSegment(employeeId)}/${Date.now()}.${ext}`
     const arrayBuffer = await file.arrayBuffer()
 
+    // Guards against a known WebKit bug (iOS Safari) where a File object
+    // can serialize as an empty body over fetch's multipart FormData
+    // encoding — the browser never errors, so without this the upload
+    // would silently store/insert a 0-byte "photo". Surfacing it here
+    // turns a silent failure into a specific, actionable client error.
+    if (arrayBuffer.byteLength < 1024) {
+      return NextResponse.json({ error: "File foto kosong atau rusak — coba lagi" }, { status: 400 })
+    }
+
     const since = new Date(Date.now() - DEDUPE_WINDOW_MINUTES * 60_000).toISOString()
     const dupeParams = new URLSearchParams({
       employee_id:  `eq.${employeeId}`,

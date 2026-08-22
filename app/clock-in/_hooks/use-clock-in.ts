@@ -12,7 +12,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 interface ClockInInput {
   employeeId:       string
   site:             string
-  file:             File
+  file:             Blob
   latitude:         number
   longitude:        number
   accuracy:         number
@@ -33,10 +33,10 @@ export function useClockIn() {
       const formData = new FormData()
       formData.append("employee_id", input.employeeId)
       formData.append("site", input.site)
-      // Explicit filename — iOS Safari has been observed dropping/mangling
-      // a Blob/File appended without one, unlike Chrome/Android which
-      // tolerates the 2-arg form fine.
-      formData.append("file", input.file, input.file.name || "selfie.jpg")
+      // input.file is a plain Blob (never a File — see compressSelfie's
+      // comment on the WebKit empty-body bug), so the filename must be
+      // passed explicitly here as FormData.append's 3rd argument.
+      formData.append("file", input.file, "selfie.jpg")
       formData.append("latitude", String(input.latitude))
       formData.append("longitude", String(input.longitude))
       formData.append("accuracy", String(input.accuracy))
