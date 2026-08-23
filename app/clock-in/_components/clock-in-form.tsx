@@ -2,8 +2,10 @@
 
 import * as React from "react"
 import Script from "next/script"
-import { Camera, Loader2 } from "lucide-react"
+import { Camera, Loader2, MapPin } from "lucide-react"
 import { toast } from "sonner"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { useClockIn } from "../_hooks/use-clock-in"
 import { EmployeeCombobox, type Employee } from "./employee-combobox"
 
@@ -83,6 +85,18 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
   const turnstileWidgetIdRef = React.useRef<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
+  // Presentational only — shows the captured selfie while it uploads, so
+  // the flow feels like a native camera app instead of a silent black
+  // box. Never touches the compression/upload pipeline below.
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null)
+  const previewUrlRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
   // Background geo-lock acquisition: fired on mount instead of on button
   // press, so the (often multi-second) fix is already sitting in
   // positionRef by the time the worker has picked their name, entered the
@@ -131,6 +145,11 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
     if (!file || !employee || !site.trim()) return
     setFailed(false)
 
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    const url = URL.createObjectURL(file)
+    previewUrlRef.current = url
+    setPreviewUrl(url)
+
     startTransition(async () => {
       try {
         setStatusText("Memproses...")
@@ -159,6 +178,11 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
         toast.success("Clock-in berhasil.")
         setEmployee(null)
         setSite("")
+        if (previewUrlRef.current) {
+          URL.revokeObjectURL(previewUrlRef.current)
+          previewUrlRef.current = null
+        }
+        setPreviewUrl(null)
       } catch (err) {
         // No manual-location fallback on failure — that would defeat the
         // geo-lock's anti-fraud purpose. Surface a retry action instead.
@@ -172,51 +196,94 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
     })
   }
 
+  const canCapture = !isPending && !!employee && !!site.trim()
+
   return (
-    <div className="mx-auto flex max-w-sm flex-col gap-4 p-6">
+    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-muted/30">
       <Script
         src="https://challenges.cloudflare.com/turnstile/v0/api.js"
         strategy="afterInteractive"
         onLoad={() => setTurnstileReady(true)}
       />
 
-      <div>
-        <h1 className="text-lg font-semibold">Clock In</h1>
-        <p className="text-sm text-muted-foreground">Isi nama dan lokasi, lalu ambil foto untuk clock-in.</p>
-      </div>
+      <header className="flex shrink-0 items-center gap-3 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <img
+          src="/logo pt.jpg"
+          alt="PT Tri Bangun Usaha Persada"
+          className="h-10 w-10 shrink-0 rounded-lg object-contain"
+        />
+        <div className="min-w-0">
+          <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            PT Tri Bangun Usaha Persada
+          </p>
+          <h1 className="text-lg font-bold leading-tight">Clock In</h1>
+        </div>
+      </header>
 
-      <EmployeeCombobox
-        employees={employees}
-        value={employee}
-        onChange={setEmployee}
-        disabled={isPending}
-      />
+      <main className="min-h-0 flex-1 overflow-y-auto px-5">
+        <div className="flex flex-col gap-4 rounded-2xl border bg-background p-4 shadow-sm">
+          <EmployeeCombobox
+            employees={employees}
+            value={employee}
+            onChange={setEmployee}
+            disabled={isPending}
+          />
 
-      <input
-        value={site}
-        onChange={e => setSite(e.target.value)}
-        placeholder="Lokasi / Site"
-        disabled={isPending}
-        className="rounded border px-3 py-2"
-      />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="site" className="text-xs text-muted-foreground">Lokasi / Site</Label>
+            <div className="relative">
+              <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="site"
+                value={site}
+                onChange={e => setSite(e.target.value)}
+                placeholder="mis. Site Bekasi"
+                disabled={isPending}
+                className="h-14 pl-9 text-base"
+              />
+            </div>
+          </div>
+        </div>
+
+        {previewUrl && (
+          <div className="relative mt-4 overflow-hidden rounded-2xl border bg-background shadow-sm">
+            <img src={previewUrl} alt="Foto selfie" className="aspect-[4/3] w-full object-cover" />
+            {isPending && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-sm font-medium">{statusText ?? "Memproses..."}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="mt-4 pb-4 text-center text-xs text-muted-foreground">
+          Pastikan wajah terlihat jelas dan GPS aktif sebelum mengambil foto.
+        </p>
+      </main>
 
       {/* Invisible Turnstile widget — no user interaction, just proof-of-browser
           before the API route does any Storage/DB work. */}
       <div ref={turnstileContainerRef} />
 
-      <label className="flex cursor-pointer items-center justify-center gap-2 rounded bg-primary py-3 font-medium text-primary-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-        {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Capture & Clock In"}
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          capture="user"
-          className="hidden"
-          disabled={isPending || !employee || !site.trim()}
-          onChange={e => handleCapture(e.target.files?.[0] ?? null)}
-        />
-      </label>
+      <div className="shrink-0 border-t bg-background px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+        <label
+          aria-disabled={!canCapture}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg transition active:scale-[0.98] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+        >
+          {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+          {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Clock In"}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            className="hidden"
+            disabled={!canCapture}
+            onChange={e => handleCapture(e.target.files?.[0] ?? null)}
+          />
+        </label>
+      </div>
     </div>
   )
 }
