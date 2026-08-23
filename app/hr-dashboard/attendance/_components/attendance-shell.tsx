@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { WeekNavigator } from "./week-navigator"
 import { KpiCards, type StatusFilter } from "./kpi-cards"
 import { AttendanceTable } from "./attendance-table"
+import { MonthlyRecapView } from "./monthly-recap-view"
 import { useAttendanceSummary } from "../_hooks/use-attendance-summary"
 import { useAttendanceTable } from "../_hooks/use-attendance-table"
 import { useAttendanceRealtime } from "../_hooks/use-attendance-realtime"
@@ -23,6 +24,7 @@ export function AttendanceShell() {
   const [selected, setSelected] = React.useState(() => getJakartaToday())
   const [filter, setFilter] = React.useState<StatusFilter>("all")
   const [search, setSearch] = React.useState("")
+  const [view, setView] = React.useState<"harian" | "bulanan">("harian")
   const dateKey = toDateKey(selected)
   const queryClient = useQueryClient()
 
@@ -57,16 +59,38 @@ export function AttendanceShell() {
         <p className="font-hr-sans text-sm text-hr-text-2">Pantau clock-in tim lapangan secara real-time, per hari.</p>
       </header>
 
-      <WeekNavigator selected={selected} onSelect={setSelected} />
-      <KpiCards summary={summaryQuery.data} isLoading={summaryQuery.isLoading} filter={filter} onFilterChange={setFilter} />
-      <AttendanceTable
-        rows={tableQuery.data?.data}
-        isLoading={tableQuery.isLoading}
-        date={dateKey}
-        filter={filter}
-        search={search}
-        onSearchChange={setSearch}
-      />
+      <div className="inline-flex w-fit gap-1 rounded-hr-pill border border-hr-hairline bg-white p-1 shadow-hr-card">
+        {([["harian", "Harian"], ["bulanan", "Rekap Bulanan"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            className={cn(
+              "rounded-hr-pill px-4 py-1.5 font-hr-sans text-sm font-semibold transition-all",
+              view === key ? "bg-hr-brand text-white shadow-hr-brand" : "text-hr-text-2 hover:text-hr-text"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "harian" ? (
+        <>
+          <WeekNavigator selected={selected} onSelect={setSelected} />
+          <KpiCards summary={summaryQuery.data} isLoading={summaryQuery.isLoading} filter={filter} onFilterChange={setFilter} />
+          <AttendanceTable
+            rows={tableQuery.data?.data}
+            isLoading={tableQuery.isLoading}
+            date={dateKey}
+            filter={filter}
+            search={search}
+            onSearchChange={setSearch}
+          />
+        </>
+      ) : (
+        <MonthlyRecapView />
+      )}
     </div>
   )
 }

@@ -51,3 +51,16 @@ export function jakartaDayRangeUTC(dateKey: string): { gte: string; lt: string }
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
   return { gte: start.toISOString(), lt: end.toISOString() }
 }
+
+// [gte, lt) UTC range for a full Jakarta calendar month (month is 1-12) —
+// same fixed-offset approach as jakartaDayRangeUTC, generalized to a
+// month for the Monthly Recap aggregation.
+export function jakartaMonthRangeUTC(year: number, month: number): { gte: string; lt: string; daysInMonth: number } {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const start = new Date(`${year}-${pad(month)}-01T00:00:00${JAKARTA_OFFSET}`)
+  const nextYear = month === 12 ? year + 1 : year
+  const nextMonth = month === 12 ? 1 : month + 1
+  const end = new Date(`${nextYear}-${pad(nextMonth)}-01T00:00:00${JAKARTA_OFFSET}`)
+  return { gte: start.toISOString(), lt: end.toISOString(), daysInMonth }
+}
