@@ -169,6 +169,13 @@ export async function POST(request: Request) {
       if (dbErrText.includes("23503") || dbErrText.includes("attendance_logs_employee_id_fkey")) {
         return NextResponse.json({ error: "ID Karyawan tidak ditemukan" }, { status: 400 })
       }
+      // 23505 = unique_violation on attendance_logs_employee_date_unique —
+      // this employee already has a row (clock-in or an HR-set status) for
+      // today. The authoritative 1x/day guard; the dupeParams check above
+      // only catches same-site rapid double-taps within the short window.
+      if (dbErrText.includes("23505") || dbErrText.includes("attendance_logs_employee_date_unique")) {
+        return NextResponse.json({ error: "Anda sudah melakukan clock-in hari ini" }, { status: 409 })
+      }
       throw new Error(dbErrText)
     }
     const [data] = await dbRes.json()

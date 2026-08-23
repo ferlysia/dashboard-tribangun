@@ -431,7 +431,12 @@ body {
     color: var(--color-hr-ink);
   }
   .hr-display-title em {
+    display: inline-block;
     font-style: italic;
+    /* Italic glyphs slant past their box on the right; without this the
+       gradient's text-clip mask cuts the last character off flush at the
+       container edge. */
+    padding-right: 0.08em;
     background: linear-gradient(135deg, #e8907f 0%, #c97269 50%, #a85e56 100%);
     -webkit-background-clip: text;
     background-clip: text;

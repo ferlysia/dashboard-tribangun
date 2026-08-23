@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const { gte, lt } = jakartaDayRangeUTC(date)
 
   const attendanceParams = new URLSearchParams()
-  attendanceParams.set("select", "employee_id")
+  attendanceParams.set("select", "employee_id,status")
   attendanceParams.append("recorded_at", `gte.${gte}`)
   attendanceParams.append("recorded_at", `lt.${lt}`)
 
@@ -43,24 +43,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Gagal memuat ringkasan kehadiran" }, { status: 500 })
   }
 
-  const attendanceRows = await attendanceRes.json() as { employee_id: string }[]
+  const attendanceRows = await attendanceRes.json() as { employee_id: string; status: string }[]
   const employeeRows = await employeesRes.json() as { employee_id: string }[]
 
-  const presentIds = new Set(attendanceRows.map(r => r.employee_id))
   const totalEmployees = employeeRows.length
-  const present = presentIds.size
-  const alpha = Math.max(totalEmployees - present, 0)
+  const present = attendanceRows.filter(r => r.status === "masuk").length
+  const sick = attendanceRows.filter(r => r.status === "sakit").length
+  const leave = attendanceRows.filter(r => r.status === "izin" || r.status === "cuti").length
+  // Anyone without a positive-status row today (including rows HR has
+  // explicitly marked "alpha") falls into this bucket — no separate
+  // no-show detection needed since it's just the remainder.
+  const alpha = Math.max(totalEmployees - present - sick - leave, 0)
 
-  return NextResponse.json({
-    date,
-    present,
-    alpha,
-    totalEmployees,
-    // Sick/Leave have no backing data model yet — Leave Management is a
-    // separate module not built in this step (per the explicit "managed
-    // centrally by HR in a separate dashboard" scoping decision). Stubbed
-    // at 0 rather than fabricated, so the skeleton never lies about real data.
-    sick: 0,
-    leave: 0,
-  })
+  return NextResponse.json({ date, present, alpha, totalEmployees, sick, leave })
 }
