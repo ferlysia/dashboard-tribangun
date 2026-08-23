@@ -177,7 +177,7 @@ export async function POST(request: Request) {
     if (dupes.length > 0) {
       if (uploadRes.ok) await deleteStorageObject(storagePath)
       return NextResponse.json(
-        { error: "Anda sudah melakukan clock-in di lokasi ini beberapa menit lalu" },
+        { error: "Anda sudah melakukan absen di lokasi ini beberapa menit lalu" },
         { status: 409 }
       )
     }
@@ -218,7 +218,7 @@ export async function POST(request: Request) {
       // today. The authoritative 1x/day guard; the dupeParams check above
       // only catches same-site rapid double-taps within the short window.
       if (dbErrText.includes("23505") || dbErrText.includes("attendance_logs_employee_date_unique")) {
-        return NextResponse.json({ error: "Anda sudah melakukan clock-in hari ini" }, { status: 409 })
+        return NextResponse.json({ error: "Anda sudah melakukan absen hari ini" }, { status: 409 })
       }
       throw new Error(dbErrText)
     }
@@ -227,7 +227,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data })
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Gagal melakukan clock-in" },
+      { error: error instanceof Error ? error.message : "Gagal melakukan absen" },
       { status: 500 }
     )
   }

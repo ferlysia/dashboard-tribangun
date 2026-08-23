@@ -2,11 +2,12 @@
 
 import * as React from "react"
 import Script from "next/script"
-import { Camera, CheckCircle2, Clock, Loader2, MapPin, ShieldAlert } from "lucide-react"
+import { Camera, CheckCircle2, Clock, Loader2, MapPin, ShieldAlert, X } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useClockIn } from "../_hooks/use-clock-in"
+import { AttendanceHistory } from "./attendance-history"
 import { EmployeeCombobox, type Employee } from "./employee-combobox"
 import { LiveCameraCapture } from "./live-camera-capture"
 
@@ -144,17 +145,15 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
     }
   }, [])
 
-  // Big, unmissable success state — the small toast this replaces was
-  // easy to miss at the bottom of the screen, which for a clock-in app is
-  // exactly the moment a field tech most needs certainty. Auto-dismisses
-  // (and resets the form for the next person) after a couple seconds, or
-  // immediately on tap.
-  const [successInfo, setSuccessInfo] = React.useState<{ name: string; time: string } | null>(null)
-  const successTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Big, unmissable, screenshot-friendly success state — the small toast
+  // this replaces was easy to miss at the bottom of the screen, and field
+  // techs want proof they can screenshot. Deliberately persistent: it
+  // stays up (and the form stays untouched underneath) until the tech
+  // explicitly closes it, rather than auto-dismissing out from under them
+  // mid-screenshot.
+  const [successInfo, setSuccessInfo] = React.useState<{ name: string; time: string; dateLabel: string } | null>(null)
 
   const dismissSuccess = React.useCallback(() => {
-    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
-    successTimeoutRef.current = null
     setSuccessInfo(null)
     setEmployee(null)
     setSite("")
@@ -163,12 +162,6 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
       previewUrlRef.current = null
     }
     setPreviewUrl(null)
-  }, [])
-
-  React.useEffect(() => {
-    return () => {
-      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
-    }
   }, [])
 
   // Background geo-lock acquisition: fired on mount instead of on button
@@ -290,18 +283,25 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
           turnstileToken: turnstileTokenRef.current,
         })
 
-        const clockTime = new Date().toLocaleTimeString("id-ID", {
+        const now = new Date()
+        const clockTime = now.toLocaleTimeString("id-ID", {
           hour:     "2-digit",
           minute:   "2-digit",
           timeZone: "Asia/Jakarta",
         })
-        setSuccessInfo({ name: employee.full_name, time: clockTime })
-        successTimeoutRef.current = setTimeout(dismissSuccess, 2200)
+        const dateLabel = now.toLocaleDateString("id-ID", {
+          weekday:  "long",
+          day:      "numeric",
+          month:    "long",
+          year:     "numeric",
+          timeZone: "Asia/Jakarta",
+        })
+        setSuccessInfo({ name: employee.full_name, time: clockTime, dateLabel })
       } catch (err) {
         // No manual-location fallback on failure — that would defeat the
         // geo-lock's anti-fraud purpose. Surface a retry action instead.
         setFailed(true)
-        toast.error(err instanceof Error ? err.message : "Gagal melakukan clock-in.")
+        toast.error(err instanceof Error ? err.message : "Gagal melakukan absen.")
       } finally {
         setStatusText(null)
         if (turnstileWidgetIdRef.current) window.turnstile?.reset(turnstileWidgetIdRef.current)
@@ -347,7 +347,7 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
               <p className="truncate font-hr-sans text-[11px] font-semibold uppercase tracking-hr-wide text-hr-text-2">
                 PT Tri Bangun Usaha Persada
               </p>
-              <h1 className="font-hr-display text-lg font-black leading-tight text-hr-ink">Clock In</h1>
+              <h1 className="font-hr-display text-lg font-black leading-tight text-hr-ink">Absen</h1>
             </div>
           </header>
 
@@ -361,8 +361,8 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
                 <p className="font-hr-sans text-xs text-hr-text-2">
                   {geoStatus === "unsupported"
                     ? "Perangkat/browser ini tidak mendukung layanan lokasi."
-                    : "Aktifkan izin lokasi di pengaturan browser untuk melakukan clock-in."}
-                  {" "}Tanpa GPS, clock-in tidak dapat dilakukan.
+                    : "Aktifkan izin lokasi di pengaturan browser untuk melakukan absen."}
+                  {" "}Tanpa GPS, absen tidak dapat dilakukan.
                 </p>
                 <button
                   type="button"
@@ -399,6 +399,12 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
               </div>
             </div>
 
+            {/* Lazy: only mounts (and only fires its own network request)
+                once an employee is picked — never blocks or delays the
+                capture form's initial render or the geolocation/Turnstile
+                warm-up above. */}
+            {employee && <AttendanceHistory employeeId={employee.employee_id} />}
+
             {previewUrl && (
               <div className="relative mt-4 overflow-hidden rounded-hr-3xl border border-hr-hairline bg-white shadow-hr-card">
                 <img src={previewUrl} alt="Foto selfie" className="aspect-[4/3] w-full object-cover" />
@@ -425,32 +431,49 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
               className="flex h-14 w-full items-center justify-center gap-2 rounded-hr-2xl bg-hr-brand font-hr-sans text-base font-semibold text-white shadow-hr-brand transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-              {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Clock In"}
+              {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Absen"}
             </button>
           </div>
         </div>
       )}
 
-      {/* Large, unmissable success state — see dismissSuccess for the
-          auto-reset. Sits above everything, including the camera phase
-          (which has already been switched back to "idle" by the time
-          this renders), so there's zero ambiguity that the clock-in
-          landed. */}
+      {/* Large, screenshot-friendly success state. Persistent by design —
+          stays up until the tech explicitly closes it (see dismissSuccess)
+          rather than auto-dismissing out from under a screenshot attempt.
+          Sits above everything, including the camera phase (which has
+          already been switched back to "idle" by the time this renders),
+          so there's zero ambiguity that the absen landed. */}
       {successInfo && (
         <div
           role="status"
-          onClick={dismissSuccess}
-          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-hr-cream-100/98 px-6 backdrop-blur-sm animate-hr-fade-up"
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-hr-cream-100 px-6 animate-hr-fade-up"
         >
+          <button
+            type="button"
+            onClick={dismissSuccess}
+            aria-label="Tutup"
+            className="absolute right-5 top-[max(1.25rem,env(safe-area-inset-top))] flex h-10 w-10 items-center justify-center rounded-full bg-white text-hr-text-2 shadow-hr-card active:scale-95"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
           <span className="grid h-24 w-24 place-items-center rounded-full bg-hr-success-grad shadow-hr-success animate-hr-badge-pop">
             <CheckCircle2 className="h-14 w-14 text-white" strokeWidth={2.5} />
           </span>
-          <div className="flex flex-col items-center gap-1 text-center">
-            <p className="font-hr-display text-2xl font-black text-hr-ink">Clock-in Berhasil!</p>
+          <div className="flex flex-col items-center gap-1.5 text-center">
+            <p className="font-hr-display text-2xl font-black text-hr-ink">Absen Berhasil!</p>
             <p className="font-hr-sans text-sm font-medium text-hr-text-2">{successInfo.name}</p>
+            <p className="font-hr-sans text-sm font-semibold capitalize text-hr-ink">{successInfo.dateLabel}</p>
             <p className="font-hr-sans text-xs text-hr-text-3">Tercatat pukul {successInfo.time} WIB</p>
           </div>
-          <p className="mt-2 font-hr-sans text-[11px] text-hr-text-3">Ketuk di mana saja untuk lanjut</p>
+
+          <button
+            type="button"
+            onClick={dismissSuccess}
+            className="mt-4 rounded-hr-2xl bg-hr-brand px-8 py-3 font-hr-sans text-sm font-semibold text-white shadow-hr-brand active:scale-[0.98]"
+          >
+            Tutup
+          </button>
         </div>
       )}
     </div>
