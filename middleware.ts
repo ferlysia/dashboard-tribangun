@@ -67,6 +67,10 @@ export async function middleware(req: NextRequest) {
       // window check, not session auth.
       pathname.startsWith("/clock-in")                  ||
       pathname.startsWith("/api/attendance")             ||
+      // The PWA manifest (app/manifest.ts) must be fetchable without a
+      // session — browsers request it while evaluating installability
+      // for /clock-in, which field techs open with no dashboard account.
+      pathname === "/manifest.webmanifest"               ||
       /\.(png|jpe?g|ico|svg|webp|gif|woff2?)$/i.test(pathname)
     ) {
       return NextResponse.next()

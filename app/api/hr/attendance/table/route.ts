@@ -25,7 +25,10 @@ export async function GET(request: Request) {
   const { gte, lt } = jakartaDayRangeUTC(date)
 
   const logParams = new URLSearchParams()
-  logParams.set("select", "id,employee_id,site_name,recorded_at,status,remarks,employees(full_name)")
+  logParams.set(
+    "select",
+    "id,employee_id,site_name,recorded_at,status,remarks,latitude,longitude,location_flagged,location_flag_reason,updated_by,updated_at,employees(full_name)"
+  )
   logParams.append("recorded_at", `gte.${gte}`)
   logParams.append("recorded_at", `lt.${lt}`)
   logParams.set("order", "recorded_at.desc")
@@ -43,13 +46,19 @@ export async function GET(request: Request) {
   }
 
   const logRows = await logsRes.json() as {
-    id:          string
-    employee_id: string
-    site_name:   string | null
-    recorded_at: string
-    status:      string
-    remarks:     string | null
-    employees:   { full_name: string } | null
+    id:                   string
+    employee_id:          string
+    site_name:            string | null
+    recorded_at:          string
+    status:                string
+    remarks:               string | null
+    latitude:              number | null
+    longitude:             number | null
+    location_flagged:      boolean
+    location_flag_reason:  string | null
+    updated_by:            string | null
+    updated_at:            string | null
+    employees:             { full_name: string } | null
   }[]
   const employeeRows = await employeesRes.json() as { employee_id: string; full_name: string; time_off: number | null }[]
 
@@ -59,23 +68,35 @@ export async function GET(request: Request) {
     const log = logByEmployeeId.get(emp.employee_id)
     if (log) {
       return {
-        employeeId: emp.employee_id,
-        fullName:   log.employees?.full_name ?? emp.full_name,
-        siteName:   log.site_name,
-        recordedAt: log.recorded_at,
-        status:     log.status,
-        remarks:    log.remarks,
-        timeOff:    emp.time_off,
+        employeeId:         emp.employee_id,
+        fullName:           log.employees?.full_name ?? emp.full_name,
+        siteName:           log.site_name,
+        recordedAt:         log.recorded_at,
+        status:             log.status,
+        remarks:            log.remarks,
+        timeOff:            emp.time_off,
+        latitude:           log.latitude,
+        longitude:          log.longitude,
+        locationFlagged:    log.location_flagged,
+        locationFlagReason: log.location_flag_reason,
+        updatedBy:          log.updated_by,
+        updatedAt:          log.updated_at,
       }
     }
     return {
-      employeeId: emp.employee_id,
-      fullName:   emp.full_name,
-      siteName:   null,
-      recordedAt: null,
-      status:     "alpha",
-      remarks:    null,
-      timeOff:    emp.time_off,
+      employeeId:         emp.employee_id,
+      fullName:           emp.full_name,
+      siteName:           null,
+      recordedAt:         null,
+      status:             "alpha",
+      remarks:            null,
+      timeOff:            emp.time_off,
+      latitude:           null,
+      longitude:          null,
+      locationFlagged:    false,
+      locationFlagReason: null,
+      updatedBy:          null,
+      updatedAt:          null,
     }
   })
 

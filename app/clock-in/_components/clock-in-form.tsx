@@ -2,12 +2,13 @@
 
 import * as React from "react"
 import Script from "next/script"
-import { Camera, Loader2, MapPin } from "lucide-react"
+import { Camera, Loader2, MapPin, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useClockIn } from "../_hooks/use-clock-in"
 import { EmployeeCombobox, type Employee } from "./employee-combobox"
+import { LiveCameraCapture } from "./live-camera-capture"
 
 // How long a cached geolocation fix is trusted before submit re-acquires
 // one. Kept short — this is an anti-fraud lock, not a convenience cache.
@@ -72,6 +73,8 @@ async function getPosition(onSearching?: (stage: "fast" | "precise") => void): P
   }
 }
 
+type GeoStatus = "checking" | "granted" | "prompt" | "denied" | "unsupported"
+
 export function ClockInForm({ employees }: { employees: Employee[] }) {
   const clockIn = useClockIn()
   const [isPending, startTransition] = React.useTransition()
@@ -83,7 +86,11 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
   const turnstileTokenRef = React.useRef<string>("")
   const turnstileContainerRef = React.useRef<HTMLDivElement>(null)
   const turnstileWidgetIdRef = React.useRef<string | null>(null)
-  const inputRef = React.useRef<HTMLInputElement>(null)
+
+  // Camera is now a live in-page viewfinder (see LiveCameraCapture), not
+  // an OS file picker — "camera" phase takes over the screen; the normal
+  // form (and the preview/processing overlay below) render otherwise.
+  const [phase, setPhase] = React.useState<"idle" | "camera">("idle")
 
   // Presentational only — shows the captured selfie while it uploads, so
   // the flow feels like a native camera app instead of a silent black
@@ -123,6 +130,44 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
   React.useEffect(() => {
     acquirePosition().catch(() => { /* retried at submit time; silent here */ })
   }, [acquirePosition])
+
+  // Strict GPS guard: proactively checks permission state so a denied/
+  // unavailable location blocks the capture button up front, instead of
+  // only failing after the user has already taken (and compressed) a
+  // photo. The Permissions API's "geolocation" query isn't supported
+  // everywhere (older Safari) — falls back to a direct probe there.
+  const [geoStatus, setGeoStatus] = React.useState<GeoStatus>("checking")
+
+  React.useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      setGeoStatus("unsupported")
+      return
+    }
+    let cancelled = false
+    const settle = (next: GeoStatus) => { if (!cancelled) setGeoStatus(next) }
+
+    const permissions = navigator.permissions
+    if (permissions?.query) {
+      permissions.query({ name: "geolocation" as PermissionName })
+        .then(status => {
+          const sync = () => settle(status.state === "granted" ? "granted" : status.state === "denied" ? "denied" : "prompt")
+          sync()
+          status.onchange = sync
+        })
+        .catch(() => {
+          acquirePosition().then(() => settle("granted")).catch(() => settle("denied"))
+        })
+    } else {
+      acquirePosition().then(() => settle("granted")).catch(() => settle("denied"))
+    }
+
+    return () => { cancelled = true }
+  }, [acquirePosition])
+
+  const retryGeo = () => {
+    setGeoStatus("checking")
+    acquirePosition().then(() => setGeoStatus("granted")).catch(() => setGeoStatus("denied"))
+  }
 
   // Explicit rendering (not the implicit data-attribute API) so the
   // callback can write straight into a ref instead of needing a global
@@ -171,6 +216,9 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
           accuracy: position.coords.accuracy,
+          altitude: position.coords.altitude,
+          altitudeAccuracy: position.coords.altitudeAccuracy,
+          speed: position.coords.speed,
           deviceReportedAt: new Date().toISOString(),
           turnstileToken: turnstileTokenRef.current,
         })
@@ -190,100 +238,127 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
         toast.error(err instanceof Error ? err.message : "Gagal melakukan clock-in.")
       } finally {
         setStatusText(null)
-        if (inputRef.current) inputRef.current.value = ""
         if (turnstileWidgetIdRef.current) window.turnstile?.reset(turnstileWidgetIdRef.current)
       }
     })
   }
 
-  const canCapture = !isPending && !!employee && !!site.trim()
+  const handleFrameCaptured = (blob: Blob) => {
+    setPhase("idle")
+    handleCapture(new File([blob], "capture.jpg", { type: "image/jpeg", lastModified: Date.now() }))
+  }
+
+  const geoBlocked = geoStatus === "denied" || geoStatus === "unsupported"
+  const canCapture = !isPending && !!employee && !!site.trim() && !geoBlocked
 
   return (
-    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-muted/30">
+    <>
       <Script
         src="https://challenges.cloudflare.com/turnstile/v0/api.js"
         strategy="afterInteractive"
         onLoad={() => setTurnstileReady(true)}
       />
-
-      <header className="flex shrink-0 items-center gap-3 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
-        <img
-          src="/logo pt.jpg"
-          alt="PT Tri Bangun Usaha Persada"
-          className="h-10 w-10 shrink-0 rounded-lg object-contain"
-        />
-        <div className="min-w-0">
-          <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            PT Tri Bangun Usaha Persada
-          </p>
-          <h1 className="text-lg font-bold leading-tight">Clock In</h1>
-        </div>
-      </header>
-
-      <main className="min-h-0 flex-1 overflow-y-auto px-5">
-        <div className="flex flex-col gap-4 rounded-2xl border bg-background p-4 shadow-sm">
-          <EmployeeCombobox
-            employees={employees}
-            value={employee}
-            onChange={setEmployee}
-            disabled={isPending}
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="site" className="text-xs text-muted-foreground">Lokasi / Site</Label>
-            <div className="relative">
-              <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="site"
-                value={site}
-                onChange={e => setSite(e.target.value)}
-                placeholder="mis. Site Bekasi"
-                disabled={isPending}
-                className="h-14 pl-9 text-base"
-              />
-            </div>
-          </div>
-        </div>
-
-        {previewUrl && (
-          <div className="relative mt-4 overflow-hidden rounded-2xl border bg-background shadow-sm">
-            <img src={previewUrl} alt="Foto selfie" className="aspect-[4/3] w-full object-cover" />
-            {isPending && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <p className="text-sm font-medium">{statusText ?? "Memproses..."}</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="mt-4 pb-4 text-center text-xs text-muted-foreground">
-          Pastikan wajah terlihat jelas dan GPS aktif sebelum mengambil foto.
-        </p>
-      </main>
-
-      {/* Invisible Turnstile widget — no user interaction, just proof-of-browser
-          before the API route does any Storage/DB work. */}
+      {/* Invisible Turnstile widget — kept mounted across both phases (not
+          inside either branch below) so switching into camera mode never
+          unmounts the container the widget was rendered into; doing so
+          would silently orphan it and break subsequent submits. */}
       <div ref={turnstileContainerRef} />
 
-      <div className="shrink-0 border-t bg-background px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-        <label
-          aria-disabled={!canCapture}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg transition active:scale-[0.98] aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
-        >
-          {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-          {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Clock In"}
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            capture="user"
-            className="hidden"
-            disabled={!canCapture}
-            onChange={e => handleCapture(e.target.files?.[0] ?? null)}
-          />
-        </label>
-      </div>
-    </div>
+      {phase === "camera" ? (
+        <div className="flex min-h-dvh flex-col justify-center overflow-x-hidden bg-black px-4 py-[max(1rem,env(safe-area-inset-top))]">
+          <LiveCameraCapture onCapture={handleFrameCaptured} onCancel={() => setPhase("idle")} />
+        </div>
+      ) : (
+        <div className="flex min-h-dvh flex-col overflow-x-hidden bg-muted/30">
+          <header className="flex shrink-0 items-center gap-3 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
+            <img
+              src="/logo pt.jpg"
+              alt="PT Tri Bangun Usaha Persada"
+              className="h-10 w-10 shrink-0 rounded-lg object-contain"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                PT Tri Bangun Usaha Persada
+              </p>
+              <h1 className="text-lg font-bold leading-tight">Clock In</h1>
+            </div>
+          </header>
+
+          <main className="min-h-0 flex-1 overflow-y-auto px-5">
+            {geoBlocked && (
+              <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-center">
+                <ShieldAlert className="h-5 w-5 text-destructive" />
+                <p className="text-sm font-semibold text-destructive">Lokasi (GPS) tidak aktif</p>
+                <p className="text-xs text-muted-foreground">
+                  {geoStatus === "unsupported"
+                    ? "Perangkat/browser ini tidak mendukung layanan lokasi."
+                    : "Aktifkan izin lokasi di pengaturan browser untuk melakukan clock-in."}
+                  {" "}Tanpa GPS, clock-in tidak dapat dilakukan.
+                </p>
+                <button
+                  type="button"
+                  onClick={retryGeo}
+                  className="mt-1 rounded-lg border px-3 py-1.5 text-xs font-semibold active:scale-95"
+                >
+                  Coba Lagi
+                </button>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-4 rounded-2xl border bg-background p-4 shadow-sm">
+              <EmployeeCombobox
+                employees={employees}
+                value={employee}
+                onChange={setEmployee}
+                disabled={isPending}
+              />
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="site" className="text-xs text-muted-foreground">Lokasi / Site</Label>
+                <div className="relative">
+                  <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="site"
+                    value={site}
+                    onChange={e => setSite(e.target.value)}
+                    disabled={isPending}
+                    className="h-14 pl-9 text-base"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {previewUrl && (
+              <div className="relative mt-4 overflow-hidden rounded-2xl border bg-background shadow-sm">
+                <img src={previewUrl} alt="Foto selfie" className="aspect-[4/3] w-full object-cover" />
+                {isPending && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <p className="text-sm font-medium">{statusText ?? "Memproses..."}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="mt-4 pb-4 text-center text-xs text-muted-foreground">
+              Pastikan wajah terlihat jelas dan GPS aktif sebelum mengambil foto.
+            </p>
+          </main>
+
+          <div className="shrink-0 border-t bg-background px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+            <button
+              type="button"
+              onClick={() => setPhase("camera")}
+              disabled={!canCapture}
+              aria-disabled={!canCapture}
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+              {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Clock In"}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

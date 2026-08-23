@@ -25,11 +25,12 @@ function initials(name: string) {
 
 // HR's 1-door action: one click on a status pill in the table opens this
 // straight away (no dropdown detour), a chip picker replaces the old
-// plain <select>, and the leave balance panel (employees.time_off, the
-// only leave data this app tracks — no accrual ledger exists yet) gives
-// HR the context they need before approving Cuti. Backed by
-// useUpdateAttendanceStatus's optimistic cache patch, so the KPI cards
-// and table update before the request even resolves.
+// plain <select>, and the leave balance panel (employees.time_off) gives
+// HR the context they need before approving Cuti — setting Cuti here
+// actually deducts 1 day from that balance server-side (restored if
+// later changed away from Cuti; see /api/hr/attendance/status). Backed
+// by useUpdateAttendanceStatus's optimistic cache patch, so the KPI
+// cards and table update before the request even resolves.
 export function StatusEditDialog({
   row,
   date,
@@ -55,8 +56,13 @@ export function StatusEditDialog({
     mutation.mutate(
       { employeeId: row.employeeId, date, status, remarks: remarks.trim() || null },
       {
-        onSuccess: () => {
+        onSuccess: result => {
           toast.success(`Status ${row.fullName} diperbarui.`)
+          if (result.leaveBalanceSkipped) {
+            toast.warning("Saldo cuti karyawan ini belum diatur di data induk — status tetap disimpan.")
+          } else if (result.timeOff != null && result.timeOff < 0) {
+            toast.warning(`Sisa cuti ${row.fullName} menjadi minus (${result.timeOff} hari) setelah perubahan ini.`)
+          }
           onClose()
         },
         onError: err => {
@@ -65,6 +71,8 @@ export function StatusEditDialog({
       }
     )
   }
+
+  const insufficientBalance = status === "cuti" && row?.status !== "cuti" && row?.timeOff != null && row.timeOff <= 0
 
   return (
     <Dialog open={row !== null} onOpenChange={open => !open && onClose()}>
@@ -84,11 +92,18 @@ export function StatusEditDialog({
         </div>
 
         <div className="flex flex-col gap-5 p-6 pt-5">
-          <div className="flex items-center justify-between rounded-hr-xl border border-hr-hairline-brand bg-hr-blush-50 px-4 py-3">
-            <span className="font-hr-sans text-xs font-semibold text-hr-text-2">Sisa Cuti</span>
-            <span className="font-hr-display text-lg font-black text-hr-rose-deep">
-              {row?.timeOff != null ? `${row.timeOff} hari` : "—"}
-            </span>
+          <div className="flex flex-col gap-1.5 rounded-hr-xl border border-hr-hairline-brand bg-hr-blush-50 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="font-hr-sans text-xs font-semibold text-hr-text-2">Sisa Cuti</span>
+              <span className="font-hr-display text-lg font-black text-hr-rose-deep">
+                {row?.timeOff != null ? `${row.timeOff} hari` : "—"}
+              </span>
+            </div>
+            {insufficientBalance && (
+              <p className="font-hr-sans text-[11px] font-medium text-hr-danger-deep">
+                Saldo cuti sudah habis — menyimpan sebagai Cuti akan membuatnya minus.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -125,6 +140,13 @@ export function StatusEditDialog({
               className="rounded-hr-lg border-hr-hairline font-hr-sans"
             />
           </div>
+
+          {row?.updatedBy && row.updatedAt && (
+            <p className="font-hr-sans text-[11px] text-hr-text-3">
+              Terakhir diubah oleh {row.updatedBy} ·{" "}
+              {new Date(row.updatedAt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" })}
+            </p>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <Button

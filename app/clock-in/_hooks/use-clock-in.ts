@@ -16,6 +16,13 @@ interface ClockInInput {
   latitude:         number
   longitude:        number
   accuracy:         number
+  // Raw GeolocationPosition.coords fields beyond lat/lng/accuracy — sent
+  // purely for the server-side mock-GPS heuristic (see
+  // app/api/attendance/route.ts). Frequently null on real devices; that's
+  // expected and not itself suspicious.
+  altitude:         number | null
+  altitudeAccuracy: number | null
+  speed:            number | null
   deviceReportedAt: string
   turnstileToken:   string
 }
@@ -40,6 +47,9 @@ export function useClockIn() {
       formData.append("latitude", String(input.latitude))
       formData.append("longitude", String(input.longitude))
       formData.append("accuracy", String(input.accuracy))
+      if (input.altitude != null) formData.append("altitude", String(input.altitude))
+      if (input.altitudeAccuracy != null) formData.append("altitude_accuracy", String(input.altitudeAccuracy))
+      if (input.speed != null) formData.append("speed", String(input.speed))
       formData.append("device_reported_at", input.deviceReportedAt)
       formData.append("turnstile_token", input.turnstileToken)
       return fetchJson<{ data: AttendanceLog }>("/api/attendance", {

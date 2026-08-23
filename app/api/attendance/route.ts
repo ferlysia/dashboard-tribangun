@@ -37,6 +37,37 @@ function sanitizePathSegment(value: string) {
   return value.trim().replace(/[^a-zA-Z0-9_-]/g, "-")
 }
 
+// Best-effort, non-blocking mock-GPS heuristic. Client-reported location
+// can never be cryptographically verified from a web PWA — a spoofing
+// app controls what the Geolocation API itself reports, so nothing here
+// is proof. These are just patterns real hardware essentially never
+// produces but several known mock-location tools default to, kept
+// deliberately conservative (no check on speed/heading alone — a
+// stationary real user reporting speed 0 is completely normal and would
+// otherwise flood HR with false positives) so a flag is a "worth a
+// glance" signal for HR, not an accusation.
+const SUSPICIOUS_ROUND_ACCURACIES = new Set([1, 5, 10, 15, 20, 25, 50, 100, 150, 200])
+
+function assessLocationSuspicion(params: {
+  latitude: number
+  longitude: number
+  accuracy: number | null
+  altitude: number | null
+  altitudeAccuracy: number | null
+}): string[] {
+  const reasons: string[] = []
+  if (params.latitude === 0 && params.longitude === 0) {
+    reasons.push("Koordinat (0,0) — kemungkinan lokasi palsu")
+  }
+  if (params.accuracy != null && Number.isInteger(params.accuracy) && SUSPICIOUS_ROUND_ACCURACIES.has(params.accuracy)) {
+    reasons.push("Akurasi GPS berupa angka bulat yang umum dipakai aplikasi mock GPS")
+  }
+  if (params.altitude === 0 && params.altitudeAccuracy === 0) {
+    reasons.push("Altitude dan akurasi altitude bernilai nol — pola umum mock GPS")
+  }
+  return reasons
+}
+
 // Fails closed in production if Turnstile isn't configured (that's the
 // entire point of this gate), but fails open in development so the flow is
 // testable locally before real Cloudflare keys are provisioned.
@@ -79,6 +110,12 @@ export async function POST(request: Request) {
     const longitude = Number(formData.get("longitude"))
     const rawAccuracy = formData.get("accuracy") as string | null
     const accuracy = rawAccuracy ? Number(rawAccuracy) : null
+    const rawAltitude = formData.get("altitude") as string | null
+    const altitude = rawAltitude ? Number(rawAltitude) : null
+    const rawAltitudeAccuracy = formData.get("altitude_accuracy") as string | null
+    const altitudeAccuracy = rawAltitudeAccuracy ? Number(rawAltitudeAccuracy) : null
+    const rawSpeed = formData.get("speed") as string | null
+    const speed = rawSpeed ? Number(rawSpeed) : null
     const deviceReportedAt = formData.get("device_reported_at") as string | null
     const turnstileToken = (formData.get("turnstile_token") as string | null) ?? ""
 
@@ -146,18 +183,25 @@ export async function POST(request: Request) {
     }
     if (!uploadRes.ok) throw new Error(`Storage error: ${await uploadRes.text()}`)
 
+    const suspicionReasons = assessLocationSuspicion({ latitude, longitude, accuracy, altitude, altitudeAccuracy })
+
     const dbRes = await fetch(`${supabaseConfig.url}/rest/v1/attendance_logs`, {
       method:  "POST",
       headers: { ...headers(), Prefer: "return=representation" },
       body: JSON.stringify({
-        employee_id:         employeeId,
-        site_name:           site,
-        selfie_storage_path: storagePath,
+        employee_id:          employeeId,
+        site_name:            site,
+        selfie_storage_path:  storagePath,
         latitude,
         longitude,
-        location_accuracy_m: accuracy,
-        device_reported_at:  deviceReportedAt,
-        user_agent:          request.headers.get("user-agent"),
+        location_accuracy_m:  accuracy,
+        altitude,
+        altitude_accuracy:    altitudeAccuracy,
+        speed,
+        location_flagged:     suspicionReasons.length > 0,
+        location_flag_reason: suspicionReasons.length > 0 ? suspicionReasons.join("; ") : null,
+        device_reported_at:   deviceReportedAt,
+        user_agent:           request.headers.get("user-agent"),
       }),
     })
     if (!dbRes.ok) {

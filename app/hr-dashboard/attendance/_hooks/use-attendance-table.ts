@@ -11,10 +11,17 @@ export interface AttendanceTableRow {
   recordedAt: string | null
   status:     AttendanceStatus
   remarks:    string | null
-  // Remaining leave/PTO days, straight from employees.time_off (Employee
-  // Master Data import) — there's no accrual/deduction ledger yet, so
-  // this is the raw imported balance, not "minus Cuti taken this year".
+  // Remaining leave/PTO days — employees.time_off, decremented by 1 when
+  // HR sets a day's status to Cuti and restored when it's changed away
+  // from Cuti (see /api/hr/attendance/status). Null means the employee's
+  // balance was never configured, not that it's zero.
   timeOff:    number | null
+  latitude:           number | null
+  longitude:          number | null
+  locationFlagged:    boolean
+  locationFlagReason: string | null
+  updatedBy:          string | null
+  updatedAt:          string | null
 }
 
 async function fetchTable(date: string): Promise<{ data: AttendanceTableRow[] }> {

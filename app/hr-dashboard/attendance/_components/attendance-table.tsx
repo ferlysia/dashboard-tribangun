@@ -9,7 +9,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 import * as XLSX from "xlsx"
-import { Download, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pencil, Search } from "lucide-react"
+import { Download, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pencil, Search, MapPin, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -112,7 +112,30 @@ export function AttendanceTable({
     {
       accessorKey: "siteName",
       header:      "Site",
-      cell:        ({ row }) => <span className="font-hr-sans text-hr-text-2">{row.original.siteName ?? "—"}</span>,
+      cell: ({ row }) => {
+        const { siteName, latitude, longitude, locationFlagged, locationFlagReason } = row.original
+        return (
+          <div className="flex items-center gap-1.5">
+            <span className="font-hr-sans text-hr-text-2">{siteName ?? "—"}</span>
+            {latitude != null && longitude != null && (
+              <a
+                href={`https://www.google.com/maps?q=${latitude},${longitude}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Lihat lokasi di Google Maps"
+                className="text-hr-rose transition-colors hover:text-hr-rose-deep"
+              >
+                <MapPin className="h-3.5 w-3.5" />
+              </a>
+            )}
+            {locationFlagged && (
+              <span title={locationFlagReason ?? "Lokasi ditandai untuk ditinjau"}>
+                <ShieldAlert className="h-3.5 w-3.5 text-hr-warning-deep" />
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       accessorKey: "recordedAt",
