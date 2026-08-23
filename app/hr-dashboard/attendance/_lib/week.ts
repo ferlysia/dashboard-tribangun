@@ -7,6 +7,24 @@
 
 const JAKARTA_OFFSET = "+07:00"
 
+// "Today" as HR's Jakarta wall-clock day sees it, expressed as a Date
+// whose *local* (browser) year/month/day components already read as the
+// correct Jakarta calendar date — matching how toDateKey/getWeekDays
+// below read Date objects (via getFullYear/getMonth/getDate), regardless
+// of what timezone the viewer's own device is actually in.
+export function getJakartaToday(): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jakarta",
+    year:     "numeric",
+    month:    "2-digit",
+    day:      "2-digit",
+  }).formatToParts(new Date())
+  const y = Number(parts.find(p => p.type === "year")?.value)
+  const m = Number(parts.find(p => p.type === "month")?.value)
+  const d = Number(parts.find(p => p.type === "day")?.value)
+  return new Date(y, m - 1, d)
+}
+
 export function toDateKey(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")

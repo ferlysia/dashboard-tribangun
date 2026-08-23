@@ -11,6 +11,10 @@ export interface AttendanceTableRow {
   recordedAt: string | null
   status:     AttendanceStatus
   remarks:    string | null
+  // Remaining leave/PTO days, straight from employees.time_off (Employee
+  // Master Data import) — there's no accrual/deduction ledger yet, so
+  // this is the raw imported balance, not "minus Cuti taken this year".
+  timeOff:    number | null
 }
 
 async function fetchTable(date: string): Promise<{ data: AttendanceTableRow[] }> {

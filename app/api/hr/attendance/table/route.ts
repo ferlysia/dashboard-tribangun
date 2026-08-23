@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
   const [logsRes, employeesRes] = await Promise.all([
     fetch(`${supabaseConfig.url}/rest/v1/attendance_logs?${logParams}`, { headers: headers(), cache: "no-store" }),
-    fetch(`${supabaseConfig.url}/rest/v1/employees?select=employee_id,full_name&employee_id=not.is.null`, {
+    fetch(`${supabaseConfig.url}/rest/v1/employees?select=employee_id,full_name,time_off&employee_id=not.is.null`, {
       headers: headers(),
       cache: "no-store",
     }),
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
     remarks:     string | null
     employees:   { full_name: string } | null
   }[]
-  const employeeRows = await employeesRes.json() as { employee_id: string; full_name: string }[]
+  const employeeRows = await employeesRes.json() as { employee_id: string; full_name: string; time_off: number | null }[]
 
   const logByEmployeeId = new Map(logRows.map(row => [row.employee_id, row]))
 
@@ -65,6 +65,7 @@ export async function GET(request: Request) {
         recordedAt: log.recorded_at,
         status:     log.status,
         remarks:    log.remarks,
+        timeOff:    emp.time_off,
       }
     }
     return {
@@ -74,6 +75,7 @@ export async function GET(request: Request) {
       recordedAt: null,
       status:     "alpha",
       remarks:    null,
+      timeOff:    emp.time_off,
     }
   })
 

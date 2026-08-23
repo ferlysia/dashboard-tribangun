@@ -8,11 +8,8 @@ import { AttendanceTable } from "./attendance-table"
 import { useAttendanceSummary } from "../_hooks/use-attendance-summary"
 import { useAttendanceTable } from "../_hooks/use-attendance-table"
 import { useAttendanceRealtime } from "../_hooks/use-attendance-realtime"
-import { toDateKey } from "../_lib/week"
+import { toDateKey, getJakartaToday } from "../_lib/week"
 import { cn } from "@/lib/utils"
-
-// Default active view: week of August 24, 2026.
-const DEFAULT_DATE = new Date(2026, 7, 24)
 
 // Polling fallback interval — only kicks in if the SSE stream is down
 // (e.g. a host that doesn't support long-lived streaming responses). While
@@ -21,8 +18,11 @@ const DEFAULT_DATE = new Date(2026, 7, 24)
 const FALLBACK_POLL_MS = 5_000
 
 export function AttendanceShell() {
-  const [selected, setSelected] = React.useState(DEFAULT_DATE)
+  // Lazy initializer so "today" is read fresh on every visit/mount
+  // (Jakarta wall-clock day), not frozen at module-evaluation time.
+  const [selected, setSelected] = React.useState(() => getJakartaToday())
   const [filter, setFilter] = React.useState<StatusFilter>("all")
+  const [search, setSearch] = React.useState("")
   const dateKey = toDateKey(selected)
   const queryClient = useQueryClient()
 
@@ -59,7 +59,14 @@ export function AttendanceShell() {
 
       <WeekNavigator selected={selected} onSelect={setSelected} />
       <KpiCards summary={summaryQuery.data} isLoading={summaryQuery.isLoading} filter={filter} onFilterChange={setFilter} />
-      <AttendanceTable rows={tableQuery.data?.data} isLoading={tableQuery.isLoading} date={dateKey} filter={filter} />
+      <AttendanceTable
+        rows={tableQuery.data?.data}
+        isLoading={tableQuery.isLoading}
+        date={dateKey}
+        filter={filter}
+        search={search}
+        onSearchChange={setSearch}
+      />
     </div>
   )
 }
