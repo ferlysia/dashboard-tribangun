@@ -215,3 +215,252 @@ body {
   }
 }
 
+/* ════════════════════════════════════════════════════════════════
+   HR Leave Management & Attendance Dashboard — scoped design system
+   (Playfair Display + DM Sans, rose/cream brand palette)
+
+   Every token below is namespaced under `hr-` so it never overrides the
+   app's existing shadcn tokens (--primary, --card, --popover, etc.) or
+   Tailwind's own defaults — notably its built-in `rose-*` palette, which
+   app/lifecycle and app/dashboard/ap-invoices already use for unrelated
+   styling. Nothing here is applied anywhere by default; it only takes
+   effect where HR module components explicitly use these utilities/
+   classes (bg-hr-rose, font-hr-display, .shell-bg-hr-admin, etc.).
+   ════════════════════════════════════════════════════════════════ */
+
+@theme {
+  /* Rose brand ramp */
+  --color-hr-rose-light: #e8907f;
+  --color-hr-rose-mid: #d6867c;
+  --color-hr-rose: #c97269;
+  --color-hr-rose-600: #c4706a;
+  --color-hr-rose-700: #b85f58;
+  --color-hr-rose-800: #b05a52;
+  --color-hr-rose-deep: #a85850;
+  --color-hr-rose-900: #c0605a;
+  --color-hr-ink: #4a2018;
+
+  /* Cream / blush surfaces */
+  --color-hr-cream: #fdf6f5;
+  --color-hr-cream-50: #fffaf9;
+  --color-hr-cream-100: #fef8f6;
+  --color-hr-cream-200: #faf6f5;
+  --color-hr-cream-300: #f5eeec;
+  --color-hr-blush-50: #fdf0ef;
+  --color-hr-blush-100: #fce9e6;
+  --color-hr-blush-200: #fde4e0;
+  --color-hr-blush-300: #f9d4cf;
+  --color-hr-blush-400: #f4c8c4;
+  --color-hr-blush-500: #e8b8b3;
+  --color-hr-blush-600: #e0b0ac;
+
+  /* Borders */
+  --color-hr-hairline: #f0e0de;
+  --color-hr-hairline-brand: #f0d5d2;
+  --color-hr-hairline-soft: #ecd6d2;
+
+  /* Text */
+  --color-hr-text: #2d2d2d;
+  --color-hr-text-2: #7a7a7a;
+  --color-hr-text-3: #b0a8a6;
+  --color-hr-text-soft: #8f7e7a;
+  --color-hr-text-root: #171717;
+
+  /* Footer / dark canvas */
+  --color-hr-footer: #2a1614;
+  --color-hr-footer-mid: #3a1d1a;
+  --color-hr-footer-text: #d8c4c1;
+  --color-hr-footer-landing: #1a0b08;
+
+  /* Semantic */
+  --color-hr-success-light: #34d399;
+  --color-hr-success: #22c55e;
+  --color-hr-success-deep: #16a34a;
+  --color-hr-success-dark: #15803d;
+  --color-hr-danger-light: #f87171;
+  --color-hr-danger: #ef4444;
+  --color-hr-danger-deep: #dc2626;
+  --color-hr-danger-soft: #c85f58;
+  --color-hr-warning: #fbbf24;
+  --color-hr-warning-deep: #e09a3a;
+  --color-hr-info-light: #60b8e8;
+  --color-hr-info: #4a9fd4;
+
+  /* Fonts — wired to the next/font variables registered in app/layout.tsx */
+  --font-hr-display: var(--font-playfair), Georgia, "Times New Roman", serif;
+  --font-hr-sans: var(--font-dm-sans), "DM Sans", system-ui, sans-serif;
+
+  /* Radius vocabulary — its own scale, never touches rounded-sm/md/lg/xl/2xl/3xl */
+  --radius-hr-sm: 8px;
+  --radius-hr-md: 10px;
+  --radius-hr-lg: 12px;
+  --radius-hr-xl: 14px;
+  --radius-hr-2xl: 16px;
+  --radius-hr-3xl: 18px; /* canonical card radius */
+  --radius-hr-4xl: 22px;
+  --radius-hr-5xl: 24px;
+  --radius-hr-6xl: 28px;
+  --radius-hr-pill: 50px;
+
+  /* Shadows — every elevation tinted with the brand rose, never neutral gray */
+  --shadow-hr-brand-xs: 0 2px 12px rgba(201, 114, 105, 0.09);
+  --shadow-hr-brand-sm: 0 4px 12px rgba(201, 114, 105, 0.30);
+  --shadow-hr-brand: 0 4px 14px rgba(201, 114, 105, 0.30);
+  --shadow-hr-brand-md: 0 8px 20px rgba(201, 114, 105, 0.40);
+  --shadow-hr-brand-lg: 0 10px 24px rgba(214, 134, 124, 0.30);
+  --shadow-hr-brand-xl: 0 18px 32px rgba(214, 134, 124, 0.28);
+  --shadow-hr-card: 0 1px 3px rgba(120, 60, 56, 0.08), 0 10px 28px rgba(120, 60, 56, 0.10);
+  --shadow-hr-card-lg: 0 1px 2px rgba(0, 0, 0, 0.03), 0 12px 38px rgba(201, 114, 105, 0.09);
+  --shadow-hr-card-xl: 0 6px 18px rgba(201, 114, 105, 0.13), 0 24px 48px rgba(201, 114, 105, 0.12);
+  --shadow-hr-modal: 0 24px 72px rgba(45, 45, 45, 0.26);
+  --shadow-hr-modal-warm: 0 26px 80px rgba(106, 51, 50, 0.26);
+  --shadow-hr-ring-brand: 0 0 0 4px rgba(214, 134, 124, 0.12);
+  --shadow-hr-ring-brand-thin: 0 0 0 3px rgba(201, 114, 105, 0.12);
+  --shadow-hr-ring-brand-strong: 0 0 0 5px rgba(214, 134, 124, 0.20), 0 4px 12px rgba(184, 95, 88, 0.30);
+  --shadow-hr-navbar: 0 1px 0 #f0e0de, 0 4px 24px rgba(214, 134, 124, 0.07);
+  --shadow-hr-success: 0 4px 12px rgba(34, 197, 94, 0.28);
+
+  /* Gradients */
+  --background-image-hr-brand: linear-gradient(135deg, #e8907f, #c97269);
+  --background-image-hr-brand-h: linear-gradient(90deg, #e8907f, #c97269);
+  --background-image-hr-brand-v: linear-gradient(180deg, #e8907f, #c97269);
+  --background-image-hr-brand-deep: linear-gradient(135deg, #d6867c 0%, #b85f58 100%);
+  --background-image-hr-brand-tri: linear-gradient(135deg, #e8907f 0%, #c97269 55%, #b05a52 100%);
+  --background-image-hr-brand-aside: linear-gradient(160deg, #d6867c 0%, #c4706a 55%, #b35f5f 100%);
+  --background-image-hr-brand-soft: linear-gradient(135deg, #d6867c 0%, #c0605a 100%);
+  --background-image-hr-brand-145: linear-gradient(145deg, #d6867c 0%, #bb6560 100%);
+  --background-image-hr-surface: linear-gradient(180deg, #ffffff 0%, #fffaf9 100%);
+  --background-image-hr-surface-warm: linear-gradient(135deg, #fffaf9, #fdf5f3);
+  --background-image-hr-surface-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 249, 248, 0.94));
+  --background-image-hr-surface-blush: linear-gradient(135deg, #fde4e0, #fdf0ef);
+  --background-image-hr-success-grad: linear-gradient(135deg, #34d399, #16a34a);
+  --background-image-hr-danger-grad: linear-gradient(135deg, #f87171, #ef4444);
+  --background-image-hr-warning-grad: linear-gradient(135deg, #fbbf24, #e09a3a);
+  --background-image-hr-info-grad: linear-gradient(135deg, #60b8e8, #4a9fd4);
+  --background-image-hr-hairline-glow: linear-gradient(90deg, transparent 0%, #e8907f 25%, #f5c4bc 50%, #e8907f 75%, transparent 100%);
+  --background-image-hr-navbar-rule: linear-gradient(90deg, transparent 0%, #f0ceca 20%, #d6867c 50%, #f0ceca 80%, transparent 100%);
+  --background-image-hr-sheen: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  --background-image-hr-footer-grad: linear-gradient(160deg, #2a1614 0%, #3a1d1a 55%, #2a1614 100%);
+
+  /* Letter-spacing — its own scale, never touches tracking-tight/wide/wider/widest */
+  --tracking-hr-tightest: -1.6px;
+  --tracking-hr-tighter: -0.6px;
+  --tracking-hr-tight: -0.3px;
+  --tracking-hr-wide: 0.3px;
+  --tracking-hr-wider: 0.5px;
+  --tracking-hr-widest: 0.8px;
+  --tracking-hr-eyebrow: 1.8px;
+  --tracking-hr-caps: 2.5px;
+
+  /* Easing */
+  --ease-hr-reveal: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-hr-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-hr-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Animations (keyframes declared below) */
+  --animate-hr-fade-up: hr-fadeUp 0.45s ease both;
+  --animate-hr-fade-up-lg: hr-fadeUpLg 0.7s ease forwards;
+  --animate-hr-float: hr-float 6s ease-in-out infinite;
+  --animate-hr-chip-float: hr-chipFloat 3s ease-in-out infinite alternate;
+  --animate-hr-shimmer: hr-shimmer 3s linear infinite;
+  --animate-hr-sweep: hr-sweep 1.2s ease-out;
+  --animate-hr-blob-drift: hr-blobDrift 12s ease-in-out infinite alternate;
+  --animate-hr-ring-pulse: hr-ringPulse 3s ease-in-out infinite;
+  --animate-hr-sparkle: hr-sparkle 2.5s ease-in-out infinite;
+  --animate-hr-chevron-pulse: hr-chevronPulse 2s ease-in-out infinite;
+  --animate-hr-dot-slide: hr-dotSlide 2s ease-in-out infinite;
+  --animate-hr-toast-in: hr-toastIn 0.25s ease both;
+  --animate-hr-badge-pop: hr-badgePop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-hr-cart-bump: hr-cartBump 0.4s ease;
+  --animate-hr-item-in: hr-itemIn 0.3s ease both;
+  --animate-hr-scan-line: hr-scanLine 2.4s ease-in-out infinite;
+  --animate-hr-spin-slow: hr-spin360 1s linear infinite;
+}
+
+@keyframes hr-fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hr-fadeUpLg { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hr-reveal { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hr-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+@keyframes hr-chipFloat { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+@keyframes hr-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@keyframes hr-sweep { 0% { left: -100%; } 60% { left: 150%; } 100% { left: 150%; } }
+@keyframes hr-blobDrift { 0% { transform: translate(0, 0) scale(1); } 100% { transform: translate(30px, 20px) scale(1.08); } }
+@keyframes hr-ringPulse { 0%, 100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes hr-sparkle { 0%, 100% { opacity: 0.4; transform: scale(0.85) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(20deg); } }
+@keyframes hr-chevronPulse { 0%, 100% { opacity: 0.25; transform: translateY(-3px); } 50% { opacity: 1; transform: translateY(3px); } }
+@keyframes hr-dotSlide { 0% { top: -10px; opacity: 0; } 30% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+@keyframes hr-toastIn { from { opacity: 0; transform: translate(-50%, -12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes hr-badgePop { 0% { transform: scale(0); } 70% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes hr-cartBump { 0% { transform: scale(1); } 40% { transform: scale(1.55); } 100% { transform: scale(1); } }
+@keyframes hr-itemIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes hr-scanLine { 0% { top: 10%; } 50% { top: 86%; } 100% { top: 10%; } }
+@keyframes hr-spin360 { to { transform: rotate(360deg); } }
+
+@layer components {
+  /* Full-page shell backgrounds: cream base + stacked radial rose washes,
+     background-attachment: fixed. Apply to the HR module's own root
+     container — never to html/body, which stay owned by the rest of the app. */
+  .shell-bg-hr-admin {
+    background-color: #fef8f6;
+    background-image:
+      linear-gradient(145deg, rgba(214, 134, 124, 0.16) 0%, transparent 42%),
+      radial-gradient(ellipse 75% 60% at 100% 0%, rgba(196, 112, 106, 0.58) 0%, rgba(214, 134, 124, 0.26) 40%, transparent 65%),
+      radial-gradient(ellipse 55% 65% at 0% 100%, rgba(244, 195, 188, 0.44) 0%, transparent 58%),
+      radial-gradient(ellipse 52% 48% at 50% 50%, rgba(253, 240, 238, 0.55) 0%, transparent 75%);
+    background-attachment: fixed;
+  }
+
+  .shell-bg-hr-customer {
+    background-color: #fef8f6;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 95% 5%, rgba(232, 144, 127, 0.22) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 65% at 0% 95%, rgba(244, 165, 138, 0.16) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 55% at 90% 88%, rgba(249, 212, 207, 0.20) 0%, transparent 50%),
+      radial-gradient(ellipse 55% 50% at 10% 12%, rgba(253, 232, 226, 0.38) 0%, transparent 50%),
+      radial-gradient(ellipse 90% 40% at 50% 0%, rgba(250, 220, 212, 0.14) 0%, transparent 45%);
+    background-attachment: fixed;
+  }
+
+  /* Display headings: Playfair 900, tight negative tracking, deep ink.
+     Italic spans get a rose gradient clipped to the text. */
+  .hr-display-title {
+    font-family: var(--font-hr-display);
+    font-weight: 900;
+    line-height: 1.08;
+    letter-spacing: -1.6px;
+    color: var(--color-hr-ink);
+  }
+  .hr-display-title em {
+    font-style: italic;
+    background: linear-gradient(135deg, #e8907f 0%, #c97269 50%, #a85e56 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Eyebrow / label chip — white pill, brand border, wide uppercase tracking */
+  .hr-eyebrow {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--color-hr-rose);
+    background: #fff;
+    border: 1.5px solid var(--color-hr-hairline-brand);
+    padding: 5px 16px;
+    border-radius: 50px;
+    box-shadow: 0 2px 12px rgba(201, 114, 105, 0.09);
+  }
+
+  /* Scroll-reveal primitive */
+  .hr-reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s var(--ease-hr-reveal), transform 0.7s var(--ease-hr-reveal);
+  }
+  .hr-reveal--visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

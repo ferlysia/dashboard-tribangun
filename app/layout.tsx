@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"; 
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Playfair_Display, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
 import { ActiveThemeProvider } from "@/components/ui/active-theme";
@@ -28,6 +28,24 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// HR Leave Management & Attendance Dashboard design system fonts. Loading
+// them here only registers the --font-playfair/--font-dm-sans CSS
+// variables app-wide — it does not change any existing page's rendered
+// font, since nothing outside the HR module's own scoped utilities
+// (font-hr-display / font-hr-sans, see globals.css) references them.
+const playfairDisplay = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+  style: ["normal", "italic"],
+});
+
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+});
+
 export const metadata: Metadata = {
   title: "TUP Dashboard — PT Tri Bangun Usaha Persada",
   description: "Internal Business Dashboard PT Tri Bangun Usaha Persada",
@@ -51,8 +69,10 @@ export default async function RootLayout({
           activeThemeValue ? `theme-${activeThemeValue}` : "",
           isScaled ? "theme-scaled" : "",
           geistSans.variable,
-          geistMono.variable
-        )}      
+          geistMono.variable,
+          playfairDisplay.variable,
+          dmSans.variable
+        )}
       >
         <ThemeProvider
           attribute="class"
