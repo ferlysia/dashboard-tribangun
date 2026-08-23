@@ -40,26 +40,28 @@ export function EmployeeCombobox({ employees, value, onChange, disabled }: {
   return (
     <Drawer open={open} onOpenChange={next => { setOpen(next); if (!next) setQuery("") }}>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="employee-trigger" className="text-xs text-muted-foreground">Nama Karyawan</Label>
+        <Label htmlFor="employee-trigger" className="font-hr-sans text-[11px] font-semibold uppercase tracking-hr-wide text-hr-text-2">
+          Nama Karyawan
+        </Label>
         <button
           id="employee-trigger"
           type="button"
           disabled={disabled}
           onClick={() => setOpen(true)}
-          className="flex h-14 w-full items-center justify-between gap-2 rounded-xl border bg-background px-4 text-left shadow-xs transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex h-14 w-full items-center justify-between gap-2 rounded-hr-xl border border-hr-hairline bg-white px-4 text-left transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span className="flex min-w-0 items-center gap-3">
             <span className={cn(
-              "grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-semibold",
-              value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+              "grid h-8 w-8 shrink-0 place-items-center rounded-full font-hr-sans text-xs font-semibold",
+              value ? "bg-hr-brand text-white" : "bg-hr-blush-100 text-hr-rose-deep"
             )}>
               {value ? initials(value.full_name) : <User className="h-4 w-4" />}
             </span>
-            <span className={cn("truncate text-base", value ? "font-medium" : "text-muted-foreground")}>
+            <span className={cn("truncate font-hr-sans text-base", value ? "font-medium text-hr-ink" : "text-hr-text-3")}>
               {value?.full_name ?? "Pilih nama..."}
             </span>
           </span>
-          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+          <ChevronRight className="h-5 w-5 shrink-0 text-hr-text-3" />
         </button>
       </div>
 
@@ -90,12 +92,12 @@ export function EmployeeCombobox({ employees, value, onChange, disabled }: {
                   <button
                     type="button"
                     onClick={() => onChange(employee)}
-                    className="flex h-14 w-full shrink-0 items-center gap-3 rounded-lg px-3 text-left active:bg-accent"
+                    className="flex h-14 w-full shrink-0 items-center gap-3 rounded-hr-lg px-3 text-left active:bg-hr-blush-50"
                   >
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-hr-blush-100 font-hr-sans text-xs font-semibold text-hr-rose-deep">
                       {initials(employee.full_name)}
                     </span>
-                    <span className="truncate text-base font-medium">{employee.full_name}</span>
+                    <span className="truncate font-hr-sans text-base font-medium text-hr-ink">{employee.full_name}</span>
                   </button>
                 </DrawerClose>
               ))}

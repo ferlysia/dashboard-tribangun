@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Script from "next/script"
-import { Camera, Loader2, MapPin, ShieldAlert } from "lucide-react"
+import { Camera, CheckCircle2, Clock, Loader2, MapPin, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -75,6 +75,46 @@ async function getPosition(onSearching?: (stage: "fast" | "precise") => void): P
 
 type GeoStatus = "checking" | "granted" | "prompt" | "denied" | "unsupported"
 
+// Isolated into its own component so the once-a-second re-render this
+// causes never touches the parent form's tree (geolocation banner,
+// employee/site state, submit pipeline) — ticking a clock must not cost
+// anything against the zero-lag capture path.
+function LiveClock() {
+  const [now, setNow] = React.useState<Date | null>(null)
+
+  React.useEffect(() => {
+    setNow(new Date())
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const dateLabel = now?.toLocaleDateString("id-ID", {
+    weekday:  "long",
+    day:      "numeric",
+    month:    "long",
+    year:     "numeric",
+    timeZone: "Asia/Jakarta",
+  })
+  const timeLabel = now?.toLocaleTimeString("id-ID", {
+    hour:     "2-digit",
+    minute:   "2-digit",
+    second:   "2-digit",
+    timeZone: "Asia/Jakarta",
+  })
+
+  return (
+    <div className="mx-5 mt-3 flex shrink-0 items-center justify-between gap-3 rounded-hr-2xl border border-hr-hairline bg-white px-4 py-3 shadow-hr-card">
+      <div className="min-w-0">
+        <p className="truncate font-hr-sans text-[11px] font-semibold capitalize text-hr-text-2">{dateLabel ?? "—"}</p>
+        <p className="font-hr-display text-2xl font-black tabular-nums text-hr-ink">{timeLabel ?? "--:--:--"}</p>
+      </div>
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-hr-blush-100 text-hr-rose-deep">
+        <Clock className="h-5 w-5" />
+      </span>
+    </div>
+  )
+}
+
 export function ClockInForm({ employees }: { employees: Employee[] }) {
   const clockIn = useClockIn()
   const [isPending, startTransition] = React.useTransition()
@@ -101,6 +141,33 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
   React.useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
+  // Big, unmissable success state — the small toast this replaces was
+  // easy to miss at the bottom of the screen, which for a clock-in app is
+  // exactly the moment a field tech most needs certainty. Auto-dismisses
+  // (and resets the form for the next person) after a couple seconds, or
+  // immediately on tap.
+  const [successInfo, setSuccessInfo] = React.useState<{ name: string; time: string } | null>(null)
+  const successTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const dismissSuccess = React.useCallback(() => {
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
+    successTimeoutRef.current = null
+    setSuccessInfo(null)
+    setEmployee(null)
+    setSite("")
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+    setPreviewUrl(null)
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current)
     }
   }, [])
 
@@ -223,14 +290,13 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
           turnstileToken: turnstileTokenRef.current,
         })
 
-        toast.success("Clock-in berhasil.")
-        setEmployee(null)
-        setSite("")
-        if (previewUrlRef.current) {
-          URL.revokeObjectURL(previewUrlRef.current)
-          previewUrlRef.current = null
-        }
-        setPreviewUrl(null)
+        const clockTime = new Date().toLocaleTimeString("id-ID", {
+          hour:     "2-digit",
+          minute:   "2-digit",
+          timeZone: "Asia/Jakarta",
+        })
+        setSuccessInfo({ name: employee.full_name, time: clockTime })
+        successTimeoutRef.current = setTimeout(dismissSuccess, 2200)
       } catch (err) {
         // No manual-location fallback on failure — that would defeat the
         // geo-lock's anti-fraud purpose. Surface a retry action instead.
@@ -252,7 +318,10 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
   const canCapture = !isPending && !!employee && !!site.trim() && !geoBlocked
 
   return (
-    <>
+    // .clockin-light strictly pins this page to the light shadcn tokens
+    // regardless of the device's OS theme — see globals.css for why a
+    // scoped class beats fighting next-themes globally.
+    <div className="clockin-light">
       <Script
         src="https://challenges.cloudflare.com/turnstile/v0/api.js"
         strategy="afterInteractive"
@@ -265,31 +334,31 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
       <div ref={turnstileContainerRef} />
 
       {phase === "camera" ? (
-        <div className="flex min-h-dvh flex-col justify-center overflow-x-hidden bg-black px-4 py-[max(1rem,env(safe-area-inset-top))]">
-          <LiveCameraCapture onCapture={handleFrameCaptured} onCancel={() => setPhase("idle")} />
-        </div>
+        <LiveCameraCapture onCapture={handleFrameCaptured} onCancel={() => setPhase("idle")} />
       ) : (
-        <div className="flex min-h-dvh flex-col overflow-x-hidden bg-muted/30">
-          <header className="flex shrink-0 items-center gap-3 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <div className="flex min-h-dvh flex-col overflow-x-hidden bg-hr-surface">
+          <header className="flex shrink-0 items-center gap-3 px-5 pb-1 pt-[max(1.25rem,env(safe-area-inset-top))]">
             <img
               src="/logo pt.jpg"
               alt="PT Tri Bangun Usaha Persada"
               className="h-10 w-10 shrink-0 rounded-lg object-contain"
             />
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <p className="truncate font-hr-sans text-[11px] font-semibold uppercase tracking-hr-wide text-hr-text-2">
                 PT Tri Bangun Usaha Persada
               </p>
-              <h1 className="text-lg font-bold leading-tight">Clock In</h1>
+              <h1 className="font-hr-display text-lg font-black leading-tight text-hr-ink">Clock In</h1>
             </div>
           </header>
 
+          <LiveClock />
+
           <main className="min-h-0 flex-1 overflow-y-auto px-5">
             {geoBlocked && (
-              <div className="mb-4 flex flex-col items-center gap-2 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-center">
-                <ShieldAlert className="h-5 w-5 text-destructive" />
-                <p className="text-sm font-semibold text-destructive">Lokasi (GPS) tidak aktif</p>
-                <p className="text-xs text-muted-foreground">
+              <div className="mb-4 mt-4 flex flex-col items-center gap-2 rounded-hr-2xl border border-hr-danger/30 bg-hr-danger/5 p-4 text-center">
+                <ShieldAlert className="h-5 w-5 text-hr-danger-deep" />
+                <p className="font-hr-sans text-sm font-semibold text-hr-danger-deep">Lokasi (GPS) tidak aktif</p>
+                <p className="font-hr-sans text-xs text-hr-text-2">
                   {geoStatus === "unsupported"
                     ? "Perangkat/browser ini tidak mendukung layanan lokasi."
                     : "Aktifkan izin lokasi di pengaturan browser untuk melakukan clock-in."}
@@ -298,14 +367,14 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
                 <button
                   type="button"
                   onClick={retryGeo}
-                  className="mt-1 rounded-lg border px-3 py-1.5 text-xs font-semibold active:scale-95"
+                  className="mt-1 rounded-hr-lg border border-hr-hairline px-3 py-1.5 font-hr-sans text-xs font-semibold active:scale-95"
                 >
                   Coba Lagi
                 </button>
               </div>
             )}
 
-            <div className="flex flex-col gap-4 rounded-2xl border bg-background p-4 shadow-sm">
+            <div className="mt-4 flex flex-col gap-4 rounded-hr-3xl border border-hr-hairline bg-white p-4 shadow-hr-card">
               <EmployeeCombobox
                 employees={employees}
                 value={employee}
@@ -314,44 +383,46 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
               />
 
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="site" className="text-xs text-muted-foreground">Lokasi / Site</Label>
+                <Label htmlFor="site" className="font-hr-sans text-[11px] font-semibold uppercase tracking-hr-wide text-hr-text-2">
+                  Lokasi / Site
+                </Label>
                 <div className="relative">
-                  <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-hr-text-3" />
                   <Input
                     id="site"
                     value={site}
                     onChange={e => setSite(e.target.value)}
                     disabled={isPending}
-                    className="h-14 pl-9 text-base"
+                    className="h-14 rounded-hr-xl border-hr-hairline pl-9 font-hr-sans text-base"
                   />
                 </div>
               </div>
             </div>
 
             {previewUrl && (
-              <div className="relative mt-4 overflow-hidden rounded-2xl border bg-background shadow-sm">
+              <div className="relative mt-4 overflow-hidden rounded-hr-3xl border border-hr-hairline bg-white shadow-hr-card">
                 <img src={previewUrl} alt="Foto selfie" className="aspect-[4/3] w-full object-cover" />
                 {isPending && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-white">
                     <Loader2 className="h-6 w-6 animate-spin" />
-                    <p className="text-sm font-medium">{statusText ?? "Memproses..."}</p>
+                    <p className="font-hr-sans text-sm font-medium">{statusText ?? "Memproses..."}</p>
                   </div>
                 )}
               </div>
             )}
 
-            <p className="mt-4 pb-4 text-center text-xs text-muted-foreground">
+            <p className="mt-4 pb-4 text-center font-hr-sans text-xs text-hr-text-3">
               Pastikan wajah terlihat jelas dan GPS aktif sebelum mengambil foto.
             </p>
           </main>
 
-          <div className="shrink-0 border-t bg-background px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="shrink-0 border-t border-hr-hairline bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
             <button
               type="button"
               onClick={() => setPhase("camera")}
               disabled={!canCapture}
               aria-disabled={!canCapture}
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-semibold text-primary-foreground shadow-lg transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-hr-2xl bg-hr-brand font-hr-sans text-base font-semibold text-white shadow-hr-brand transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
               {isPending ? (statusText ?? "Memproses...") : failed ? "Coba Lagi" : "Ambil Foto & Clock In"}
@@ -359,6 +430,29 @@ export function ClockInForm({ employees }: { employees: Employee[] }) {
           </div>
         </div>
       )}
-    </>
+
+      {/* Large, unmissable success state — see dismissSuccess for the
+          auto-reset. Sits above everything, including the camera phase
+          (which has already been switched back to "idle" by the time
+          this renders), so there's zero ambiguity that the clock-in
+          landed. */}
+      {successInfo && (
+        <div
+          role="status"
+          onClick={dismissSuccess}
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-hr-cream-100/98 px-6 backdrop-blur-sm animate-hr-fade-up"
+        >
+          <span className="grid h-24 w-24 place-items-center rounded-full bg-hr-success-grad shadow-hr-success animate-hr-badge-pop">
+            <CheckCircle2 className="h-14 w-14 text-white" strokeWidth={2.5} />
+          </span>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <p className="font-hr-display text-2xl font-black text-hr-ink">Clock-in Berhasil!</p>
+            <p className="font-hr-sans text-sm font-medium text-hr-text-2">{successInfo.name}</p>
+            <p className="font-hr-sans text-xs text-hr-text-3">Tercatat pukul {successInfo.time} WIB</p>
+          </div>
+          <p className="mt-2 font-hr-sans text-[11px] text-hr-text-3">Ketuk di mana saja untuk lanjut</p>
+        </div>
+      )}
+    </div>
   )
 }

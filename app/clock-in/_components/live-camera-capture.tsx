@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Camera, X, Loader2 } from "lucide-react"
+import { X, Loader2 } from "lucide-react"
 
 // Anti-spoofing: renders our own in-page camera viewfinder via
 // getUserMedia + a canvas snapshot, instead of an <input type="file"
@@ -12,6 +12,10 @@ import { Camera, X, Loader2 } from "lucide-react"
 // picker anywhere in this flow at all, so there is nothing to pick a
 // gallery image from — the only pixels that can ever reach onCapture
 // are ones the live sensor produced at the moment of the tap.
+//
+// Full-bleed `fixed inset-0` layout (rather than a bounded card) so this
+// reads as a native OS camera app, not an embedded widget — the single
+// biggest ask behind this redesign.
 export function LiveCameraCapture({
   onCapture,
   onCancel,
@@ -30,7 +34,7 @@ export function LiveCameraCapture({
     async function start() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } },
+          video: { facingMode: "user", width: { ideal: 1080 }, height: { ideal: 1080 } },
           audio: false,
         })
         if (cancelled) {
@@ -84,45 +88,71 @@ export function LiveCameraCapture({
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="relative overflow-hidden rounded-2xl border bg-black shadow-sm">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          className="aspect-[4/3] w-full scale-x-[-1] object-cover"
-        />
-        {status === "starting" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <p className="text-sm font-medium">Membuka kamera...</p>
-          </div>
-        )}
-        {status === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/85 p-4 text-center text-white">
-            <p className="text-sm font-medium">Tidak dapat mengakses kamera.</p>
-            <p className="text-xs text-white/70">Pastikan izin kamera diaktifkan di pengaturan browser, lalu coba lagi.</p>
-          </div>
-        )}
-      </div>
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black">
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        className="absolute inset-0 h-full w-full scale-x-[-1] object-cover"
+      />
 
-      <div className="flex items-center justify-center gap-6">
+      {/* Framing guide — decorative, mirrors the oval face outline native
+          camera selfie modes show, purely to help technicians center
+          themselves at a glance. */}
+      {status === "ready" && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div className="aspect-[3/4] h-[52%] rounded-[50%] border-2 border-white/40" />
+        </div>
+      )}
+
+      {status === "starting" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black text-white">
+          <Loader2 className="h-7 w-7 animate-spin" />
+          <p className="text-sm font-medium">Membuka kamera...</p>
+        </div>
+      )}
+      {status === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black p-6 text-center text-white">
+          <p className="text-sm font-medium">Tidak dapat mengakses kamera.</p>
+          <p className="text-xs text-white/70">Pastikan izin kamera diaktifkan di pengaturan browser, lalu coba lagi.</p>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-3 rounded-full border border-white/30 px-4 py-2 text-xs font-semibold"
+          >
+            Kembali
+          </button>
+        </div>
+      )}
+
+      {/* Top bar — cancel only; kept minimal so the viewfinder stays the focus. */}
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent px-4 pb-8 pt-[max(1rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onCancel}
-          className="flex h-11 w-11 items-center justify-center rounded-full border text-muted-foreground"
+          aria-label="Batal"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm active:scale-95"
         >
           <X className="h-5 w-5" />
         </button>
+        <span className="text-sm font-medium text-white/90">Ambil Selfie</span>
+        <span className="h-10 w-10" />
+      </div>
+
+      {/* Bottom bar — large native-style shutter, scrim keeps it legible
+          over any background. */}
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-t from-black/70 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-10">
         <button
           type="button"
           onClick={handleSnap}
           disabled={status !== "ready" || capturing}
-          className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label="Ambil foto"
+          className="flex h-20 w-20 items-center justify-center rounded-full border-[3px] border-white bg-white/20 shadow-lg backdrop-blur-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {capturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
+          {capturing
+            ? <Loader2 className="h-7 w-7 animate-spin text-white" />
+            : <span className="h-14 w-14 rounded-full bg-white" />}
         </button>
-        <span className="h-11 w-11" />
       </div>
     </div>
   )
