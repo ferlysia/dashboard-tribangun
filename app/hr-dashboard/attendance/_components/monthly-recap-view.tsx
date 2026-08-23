@@ -9,13 +9,13 @@ import {
   getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { Download, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, CalendarDays } from "lucide-react"
+import { Download, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search, CalendarDays, Target } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useMonthlyRecap, type MonthlyRecap, type MonthlyRecapEmployee } from "../_hooks/use-monthly-recap"
-import { getJakartaToday } from "../_lib/week"
+import { getJakartaToday, getCurrentPayrollPeriod } from "../_lib/week"
 
 const PAGE_SIZE = 10
 const MONTH_NAMES = [
@@ -24,19 +24,23 @@ const MONTH_NAMES = [
 ]
 
 function buildExport(recap: MonthlyRecap, rows: MonthlyRecapEmployee[]) {
-  const summaryHeaders = ["Hadir (Reguler)", "Shift Weekend", "Cuti", "Sakit", "Izin", "Alpha", "Keterangan"]
-  const totalCols = 2 + recap.daysInMonth + summaryHeaders.length
+  const summaryHeaders = ["Target HK", "Hadir (Reguler)", "Shift Weekend", "Cuti", "Sakit", "Izin", "Alpha", "Keterangan"]
+  const totalCols = 2 + recap.daysInPeriod + summaryHeaders.length
 
   const titleRow = new Array(totalCols).fill("")
-  titleRow[0] = `Rekap Kehadiran Bulan ${recap.monthLabel}`
+  titleRow[0] = `Rekap Kehadiran Periode ${recap.periodLabel}`
 
-  const headerRow1 = ["No", "Nama Karyawan", ...recap.dayHeaders.map(d => d.day), ...summaryHeaders]
-  const headerRow2 = ["", "", ...recap.dayHeaders.map(d => d.label), ...summaryHeaders.map(() => "")]
+  const subtitleRow = new Array(totalCols).fill("")
+  subtitleRow[0] = `Target Hari Kerja Efektif: ${recap.expectedWorkdays} hari (Senin-Jumat dalam periode ini)`
+
+  const headerRow1 = ["No", "Nama Karyawan", ...recap.dayHeaders.map(d => d.dateLabel), ...summaryHeaders]
+  const headerRow2 = ["", "", ...recap.dayHeaders.map(d => d.dowLabel), ...summaryHeaders.map(() => "")]
 
   const dataRows = rows.map((emp, idx) => [
     idx + 1,
     emp.fullName,
     ...emp.cells,
+    recap.expectedWorkdays,
     emp.totals.weekdayMasuk,
     emp.totals.weekendShifts,
     emp.totals.cuti,
@@ -46,14 +50,15 @@ function buildExport(recap: MonthlyRecap, rows: MonthlyRecapEmployee[]) {
     emp.keterangan,
   ])
 
-  const worksheet = XLSX.utils.aoa_to_sheet([titleRow, headerRow1, headerRow2, ...dataRows])
+  const worksheet = XLSX.utils.aoa_to_sheet([titleRow, subtitleRow, headerRow1, headerRow2, ...dataRows])
 
-  const summaryColStart = 2 + recap.daysInMonth
+  const summaryColStart = 2 + recap.daysInPeriod
   worksheet["!merges"] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
-    { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
-    { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } },
-    ...summaryHeaders.map((_, i) => ({ s: { r: 1, c: summaryColStart + i }, e: { r: 2, c: summaryColStart + i } })),
+    { s: { r: 1, c: 0 }, e: { r: 1, c: totalCols - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 3, c: 0 } },
+    { s: { r: 2, c: 1 }, e: { r: 3, c: 1 } },
+    ...summaryHeaders.map((_, i) => ({ s: { r: 2, c: summaryColStart + i }, e: { r: 3, c: summaryColStart + i } })),
   ]
 
   worksheet["!cols"] = [
@@ -64,25 +69,29 @@ function buildExport(recap: MonthlyRecap, rows: MonthlyRecapEmployee[]) {
   ]
 
   const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Rekap Bulanan")
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Rekap Payroll")
   XLSX.writeFile(workbook, `rekap-kehadiran-${recap.year}-${String(recap.month).padStart(2, "0")}.xlsx`)
 }
 
 export function MonthlyRecapView() {
   const today = React.useMemo(() => getJakartaToday(), [])
-  const [year, setYear] = React.useState(today.getFullYear())
-  const [month, setMonth] = React.useState(today.getMonth() + 1)
+  const currentPeriod = React.useMemo(() => getCurrentPayrollPeriod(today), [today])
+  const [year, setYear] = React.useState(currentPeriod.year)
+  const [month, setMonth] = React.useState(currentPeriod.month)
   const [search, setSearch] = React.useState("")
 
   const recapQuery = useMonthlyRecap(year, month)
   const recap = recapQuery.data
 
-  const isCurrentYear = year === today.getFullYear()
-  const maxMonth = isCurrentYear ? today.getMonth() + 1 : 12
+  // A period is selectable once it has actually started — capped at the
+  // period containing today, per the 26th-cutoff cycle (not the
+  // calendar month), so HR can't pick a period that hasn't opened yet.
+  const isCurrentYear = year === currentPeriod.year
+  const maxMonth = isCurrentYear ? currentPeriod.month : 12
   const years = React.useMemo(() => {
-    const current = today.getFullYear()
+    const current = currentPeriod.year
     return [current - 2, current - 1, current]
-  }, [today])
+  }, [currentPeriod])
 
   const filteredEmployees = React.useMemo(() => {
     if (!recap) return []
@@ -102,9 +111,21 @@ export function MonthlyRecapView() {
       cell:        ({ row }) => <span className="font-hr-sans font-semibold text-hr-text">{row.original.fullName}</span>,
     },
     {
+      id:     "targetHk",
+      header: "Target HK",
+      cell:   () => <span className="font-hr-sans text-hr-text-3">{recap?.expectedWorkdays ?? "—"}</span>,
+    },
+    {
       id:     "weekdayMasuk",
       header: "Hadir",
-      cell:   ({ row }) => <span className="font-hr-sans font-semibold text-hr-success-deep">{row.original.totals.weekdayMasuk}</span>,
+      cell: ({ row }) => {
+        const short = recap && row.original.totals.weekdayMasuk < recap.expectedWorkdays
+        return (
+          <span className={short ? "font-hr-sans font-semibold text-hr-warning-deep" : "font-hr-sans font-semibold text-hr-success-deep"}>
+            {row.original.totals.weekdayMasuk}
+          </span>
+        )
+      },
     },
     {
       id:     "weekendShifts",
@@ -140,7 +161,7 @@ export function MonthlyRecapView() {
         </span>
       ),
     },
-  ], [])
+  ], [recap])
 
   const table = useReactTable({
     data:                  filteredEmployees,
@@ -165,8 +186,10 @@ export function MonthlyRecapView() {
             <CalendarDays className="h-4 w-4" />
           </span>
           <div>
-            <h2 className="font-hr-display text-lg font-black text-hr-ink">Rekap Bulanan</h2>
-            <p className="font-hr-sans text-xs text-hr-text-3">Untuk kebutuhan payroll — export lengkap tersedia di Excel</p>
+            <h2 className="font-hr-display text-lg font-black text-hr-ink">Rekap Payroll</h2>
+            <p className="font-hr-sans text-xs text-hr-text-3">
+              {recap ? `Periode ${recap.periodLabel}` : "Periode 26 - 25, sesuai siklus payroll"}
+            </p>
           </div>
         </div>
 
@@ -185,7 +208,7 @@ export function MonthlyRecapView() {
           <Select value={String(year)} onValueChange={v => {
             const nextYear = Number(v)
             setYear(nextYear)
-            if (nextYear === today.getFullYear() && month > today.getMonth() + 1) setMonth(today.getMonth() + 1)
+            if (nextYear === currentPeriod.year && month > currentPeriod.month) setMonth(currentPeriod.month)
           }}>
             <SelectTrigger className="h-9 w-24 rounded-hr-xl border-hr-hairline font-hr-sans text-sm">
               <SelectValue />
@@ -217,10 +240,20 @@ export function MonthlyRecapView() {
         </div>
       </div>
 
-      {recapQuery.isLoading && <p className="font-hr-sans text-sm text-hr-text-2">Memuat rekap bulanan...</p>}
+      {recap && (
+        <div className="mb-4 flex items-center gap-2 rounded-hr-xl border border-hr-hairline-brand bg-hr-blush-50 px-4 py-2.5 w-fit">
+          <Target className="h-4 w-4 shrink-0 text-hr-rose-deep" />
+          <span className="font-hr-sans text-xs font-semibold text-hr-text-2">
+            Target Hari Kerja (Senin-Jumat, {recap.periodLabel}):
+          </span>
+          <span className="font-hr-display text-sm font-black text-hr-rose-deep">{recap.expectedWorkdays} hari</span>
+        </div>
+      )}
+
+      {recapQuery.isLoading && <p className="font-hr-sans text-sm text-hr-text-2">Memuat rekap periode...</p>}
       {recapQuery.isError && (
         <p className="font-hr-sans text-sm text-hr-danger-deep">
-          {recapQuery.error instanceof Error ? recapQuery.error.message : "Gagal memuat rekap bulanan"}
+          {recapQuery.error instanceof Error ? recapQuery.error.message : "Gagal memuat rekap periode"}
         </p>
       )}
       {!recapQuery.isLoading && recap && filteredEmployees.length === 0 && (
