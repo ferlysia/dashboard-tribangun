@@ -11,9 +11,9 @@
  * derives its behavior from this one table.
  */
 
-export type AppRole = "ADMIN" | "BOSS" | "PR" | "PROJECT" | "STAFF"
+export type AppRole = "ADMIN" | "BOSS" | "PR" | "PROJECT" | "HR" | "STAFF"
 
-export const APP_ROLES: readonly AppRole[] = ["ADMIN", "BOSS", "PR", "PROJECT", "STAFF"]
+export const APP_ROLES: readonly AppRole[] = ["ADMIN", "BOSS", "PR", "PROJECT", "HR", "STAFF"]
 
 interface RouteRule {
   pattern: RegExp
@@ -47,6 +47,9 @@ const ROUTE_RULES: readonly RouteRule[] = [
   // Catch-all for the Dashboard home + any un-enumerated /dashboard/* page
   // (e.g. project detail views). Must stay LAST among /dashboard rules.
   { pattern: /^\/dashboard(\/|$)/,                  roles: ["BOSS"] },
+
+  // ── HR ──
+  { pattern: /^\/hr-dashboard(\/|$)/,               roles: ["HR"] },
 ]
 
 /** Full nav catalogue, keyed by URL, used to drive the sidebar + ⌘K search. */
@@ -61,8 +64,10 @@ export interface NavPage {
 // can actually open (after login, or when bounced off /login while already
 // signed in).
 const ROLE_HOME: Readonly<Partial<Record<AppRole, string>>> = {
-  PR:      "/dashboard/maintenance-assets",
+  BOSS:    "/dashboard",
+  PR:      "/dashboard/purchasing-request",
   PROJECT: "/dashboard/doc-con",
+  HR:      "/hr-dashboard/attendance",
 }
 
 export function getRoleHome(role: AppRole | undefined): string {

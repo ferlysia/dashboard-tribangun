@@ -62,7 +62,7 @@ export function sessionCookieOpts(maxAge = 12 * 3_600) {
 
 // ─── Role normalisation ───────────────────────────────────────────────────────
 
-const VALID_ROLES = new Set<string>(["ADMIN", "BOSS", "PR", "PROJECT"])
+const VALID_ROLES = new Set<string>(["ADMIN", "BOSS", "PR", "PROJECT", "HR"])
 
 export function normaliseRole(raw: unknown): AppRole {
   if (typeof raw === "string" && VALID_ROLES.has(raw)) return raw as AppRole
