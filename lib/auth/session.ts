@@ -1,10 +1,11 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose"
+import type { AppRole } from "@/lib/rbac/access-control"
+
+export type { AppRole }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const COOKIE_NAME = "__tup_session"
-
-export type AppRole = "ADMIN" | "DOC_CON" | "COST_CONTROL" | "FINANCE" | "STAFF"
 
 export type SessionPayload = JWTPayload & {
   email: string
@@ -61,7 +62,7 @@ export function sessionCookieOpts(maxAge = 12 * 3_600) {
 
 // ─── Role normalisation ───────────────────────────────────────────────────────
 
-const VALID_ROLES = new Set<string>(["ADMIN", "DOC_CON", "COST_CONTROL", "FINANCE"])
+const VALID_ROLES = new Set<string>(["ADMIN", "BOSS", "PR", "PROJECT"])
 
 export function normaliseRole(raw: unknown): AppRole {
   if (typeof raw === "string" && VALID_ROLES.has(raw)) return raw as AppRole

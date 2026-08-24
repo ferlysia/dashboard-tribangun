@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
+import type { AppRole } from "@/lib/rbac/access-control"
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type AppRole = "ADMIN" | "DOC_CON" | "COST_CONTROL" | "FINANCE" | "STAFF"
+export type { AppRole }
 
 type CurrentUser = {
   name:      string

@@ -8,11 +8,13 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { jwtVerify }                 from "jose"
+import { isRouteAllowed, getRoleHome, type AppRole } from "@/lib/rbac/access-control"
 
 // Inlined — do NOT import from @/lib/auth/session here.
 // Pulling session.ts into the edge bundle (even for a string constant) drags
 // in its full import chain which can trigger unhandled errors on cold start
 // inside Netlify's Deno-based edge runtime.
+// (lib/rbac/access-control.ts is safe to import: pure types/data, zero deps.)
 const COOKIE_NAME = "__tup_session"
 
 // ─── JWT key ─────────────────────────────────────────────────────────────────
@@ -22,16 +24,6 @@ function edgeKey(): Uint8Array | null {
   if (!s) return null
   return new TextEncoder().encode(s)
 }
-
-// ─── Role → protected path matrix ────────────────────────────────────────────
-
-const ROLE_GUARDS: ReadonlyArray<{ pattern: RegExp; allowed: ReadonlyArray<string> }> = [
-  { pattern: /^\/dashboard\/doc-con(\/|$)/,      allowed: ["ADMIN", "DOC_CON"]       },
-  { pattern: /^\/dashboard\/cost-control(\/|$)/, allowed: ["ADMIN", "COST_CONTROL"]  },
-  { pattern: /^\/dashboard\/finance(\/|$)/,      allowed: ["ADMIN", "FINANCE"]       },
-  { pattern: /^\/dashboard\/pnl(\/|$)/,          allowed: ["ADMIN", "FINANCE"]       },
-  { pattern: /^\/input-invoice(\/|$)/,           allowed: ["ADMIN", "FINANCE"]       },
-]
 
 // ─── Session reader ───────────────────────────────────────────────────────────
 
@@ -80,7 +72,10 @@ export async function middleware(req: NextRequest) {
 
     // ── 2. Redirect authenticated users away from /login ─────────────────────
     if (pathname === "/login") {
-      if (session) return NextResponse.redirect(new URL("/dashboard", req.url))
+      if (session) {
+        const home = getRoleHome((session.role as AppRole | undefined) ?? undefined)
+        return NextResponse.redirect(new URL(home, req.url))
+      }
       return NextResponse.next()
     }
 
@@ -93,13 +88,11 @@ export async function middleware(req: NextRequest) {
       return res
     }
 
-    const role = (session.role as string | undefined) ?? "STAFF"
+    const role = (session.role as AppRole | undefined) ?? "STAFF"
 
-    // ── 4. RBAC path guards ──────────────────────────────────────────────────
-    for (const guard of ROLE_GUARDS) {
-      if (guard.pattern.test(pathname) && !guard.allowed.includes(role)) {
-        return NextResponse.redirect(new URL("/403", req.url))
-      }
+    // ── 4. RBAC path guard — config-driven, see lib/rbac/access-control.ts ───
+    if (!isRouteAllowed(pathname, role)) {
+      return NextResponse.redirect(new URL("/403", req.url))
     }
 
     // ── 5. Forward user identity to downstream handlers ──────────────────────

@@ -7,6 +7,7 @@ import {
   ShieldCheck, QrCode, ChevronLeft,
 } from "lucide-react"
 import { useCurrentUser, type AppRole } from "@/components/providers/current-user-provider"
+import { getRoleHome } from "@/lib/rbac/access-control"
 
 // ─── Logo ─────────────────────────────────────────────────────────────────────
 
@@ -277,9 +278,9 @@ export default function LoginPage() {
 
   const finalise = (name: string, email: string, role?: AppRole) => {
     setUser({ name, firstName: name.split(" ")[0], email, role })
-    // Finance users land directly on their invoice queue unless a specific
-    // deep link (?next=) was requested, e.g. from an auth-redirected page.
-    const target = !nextUrlExplicit && role === "FINANCE" ? "/dashboard/ap-invoices" : nextUrl
+    // /dashboard itself is Boss-only under the RBAC matrix, so PR/Project
+    // roles must land on the first page they're actually allowed to open.
+    const target = !nextUrlExplicit && role ? getRoleHome(role) : nextUrl
     router.push(target)
   }
 

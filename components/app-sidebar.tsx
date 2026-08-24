@@ -49,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useCurrentUser } from "@/components/providers/current-user-provider"
+import { isRouteAllowed } from "@/lib/rbac/access-control"
 
 // ── Nav items ─────────────────────────────────────────────────────────────────
 const NAV_MAIN = [
@@ -411,6 +412,7 @@ const APP_SIDEBAR_STYLES = `
 
 // ── Search Modal ──────────────────────────────────────────────────────────────
 function SearchModal({ onClose }: { onClose: () => void }) {
+  const { user } = useCurrentUser()
   const [query, setQuery] = React.useState("")
   const inputRef = React.useRef<HTMLInputElement>(null)
 
@@ -442,11 +444,13 @@ function SearchModal({ onClose }: { onClose: () => void }) {
     { title: "Activity History",       url: "/activity-history",      icon: History,         desc: "Audit trail of user actions" },
   ]
 
+  const visiblePages = ALL_PAGES.filter(p => isRouteAllowed(p.url, user.role))
+
   const results = query.trim()
-    ? ALL_PAGES.filter(p =>
+    ? visiblePages.filter(p =>
         p.title.toLowerCase().includes(query.toLowerCase()) ||
         p.desc.toLowerCase().includes(query.toLowerCase()))
-    : ALL_PAGES
+    : visiblePages
 
   return (
     <div className="search-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -488,6 +492,14 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { user, clearUser } = useCurrentUser()
   const [showSearch, setShowSearch] = React.useState(false)
+  const visibleNavMain = React.useMemo(
+    () => NAV_MAIN.filter(item => isRouteAllowed(item.url, user.role)),
+    [user.role]
+  )
+  const visibleNavDocs = React.useMemo(
+    () => NAV_DOCS.filter(item => isRouteAllowed(item.url, user.role)),
+    [user.role]
+  )
   const isQuickCreateActive = pathname === "/input-invoice" || pathname?.startsWith("/input-invoice/")
   const initials = React.useMemo(() => {
     const parts = user.name.split(" ").filter(Boolean).slice(0, 2)
@@ -578,7 +590,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroupLabel>Menu</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV_MAIN.map(item => {
+                {visibleNavMain.map(item => {
                   const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
                   return (
                     <SidebarMenuItem key={item.title}>
@@ -602,7 +614,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarGroupLabel>Documents</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV_DOCS.map(item => {
+                {visibleNavDocs.map(item => {
                   const isActive = pathname === item.url || pathname?.startsWith(item.url + "/")
                   return (
                     <SidebarMenuItem key={item.title}>
