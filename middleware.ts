@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server"
 import { jwtVerify }                 from "jose"
-import { isRouteAllowed, getRoleHome, type AppRole } from "@/lib/rbac/access-control"
+import { isRouteAllowed, getRoleHome, normaliseAppRole } from "@/lib/rbac/access-control"
 
 // Inlined — do NOT import from @/lib/auth/session here.
 // Pulling session.ts into the edge bundle (even for a string constant) drags
@@ -73,7 +73,7 @@ export async function middleware(req: NextRequest) {
     // ── 2. Redirect authenticated users away from /login ─────────────────────
     if (pathname === "/login") {
       if (session) {
-        const home = getRoleHome((session.role as AppRole | undefined) ?? undefined)
+        const home = getRoleHome(normaliseAppRole(session.role))
         return NextResponse.redirect(new URL(home, req.url))
       }
       return NextResponse.next()
@@ -88,7 +88,7 @@ export async function middleware(req: NextRequest) {
       return res
     }
 
-    const role = (session.role as AppRole | undefined) ?? "STAFF"
+    const role = normaliseAppRole(session.role)
 
     // ── 4. RBAC path guard — config-driven, see lib/rbac/access-control.ts ───
     if (!isRouteAllowed(pathname, role)) {

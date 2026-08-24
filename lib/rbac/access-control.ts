@@ -75,6 +75,24 @@ export function getRoleHome(role: AppRole | undefined): string {
   return ROLE_HOME[role] ?? "/dashboard"
 }
 
+/**
+ * Turn a raw, untrusted value (DB column, JWT payload field — anything
+ * that isn't already known to be a clean AppRole) into a canonical AppRole.
+ *
+ * This is the ONE place role values get parsed. Trims whitespace and
+ * upper-cases before matching so a role typed as "boss", "Pr", or
+ * "project " (e.g. hand-edited in the Supabase table editor) still resolves
+ * correctly instead of silently falling through to STAFF (zero access) —
+ * root cause of a prior bug where every non-ADMIN role got 403'd uniformly.
+ */
+export function normaliseAppRole(raw: unknown): AppRole {
+  if (typeof raw !== "string") return "STAFF"
+  const cleaned = raw.trim().toUpperCase()
+  return (APP_ROLES as readonly string[]).includes(cleaned)
+    ? (cleaned as AppRole)
+    : "STAFF"
+}
+
 export function isRouteAllowed(pathname: string, role: AppRole | undefined): boolean {
   if (!role) return false
   if (role === "ADMIN") return true

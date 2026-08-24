@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose"
-import type { AppRole } from "@/lib/rbac/access-control"
+import { normaliseAppRole, type AppRole } from "@/lib/rbac/access-control"
 
 export type { AppRole }
 
@@ -62,9 +62,7 @@ export function sessionCookieOpts(maxAge = 12 * 3_600) {
 
 // ─── Role normalisation ───────────────────────────────────────────────────────
 
-const VALID_ROLES = new Set<string>(["ADMIN", "BOSS", "PR", "PROJECT", "HR"])
-
-export function normaliseRole(raw: unknown): AppRole {
-  if (typeof raw === "string" && VALID_ROLES.has(raw)) return raw as AppRole
-  return "STAFF"
-}
+// Re-exported for call-site continuity (login/totp routes import this name).
+// Actual logic lives in lib/rbac/access-control.ts — the single source of
+// truth for turning a raw DB/JWT value into a canonical AppRole.
+export const normaliseRole = normaliseAppRole
