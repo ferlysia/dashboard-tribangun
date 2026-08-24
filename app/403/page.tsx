@@ -2,10 +2,27 @@
 
 import * as React       from "react"
 import { useRouter }    from "next/navigation"
-import { ShieldX, ArrowLeft, Home, Lock } from "lucide-react"
+import { ShieldX, ArrowLeft, Home, Lock, LogOut } from "lucide-react"
+import { useCurrentUser } from "@/components/providers/current-user-provider"
+import { getRoleHome }    from "@/lib/rbac/access-control"
 
 export default function ForbiddenPage() {
   const router = useRouter()
+  const { user, clearUser } = useCurrentUser()
+  const [loggingOut, setLoggingOut] = React.useState(false)
+
+  // A stale/invalid session (e.g. a role that no longer resolves to any
+  // page) can turn "Ke Dashboard" into another 403 — logging out is the
+  // one action guaranteed to break that loop, so it clears the session
+  // cookie itself rather than relying on the user finding it in the sidebar.
+  const handleLogout = async () => {
+    if (loggingOut) return
+    setLoggingOut(true)
+    await clearUser()
+    // Hard navigation (not router.push) so middleware re-evaluates from a
+    // clean slate — no stale client-side state left over from the 403 hit.
+    window.location.href = "/login"
+  }
 
   return (
     <div style={{
@@ -94,7 +111,7 @@ export default function ForbiddenPage() {
 
           <button
             type="button"
-            onClick={() => router.push("/dashboard")}
+            onClick={() => router.push(getRoleHome(user.role))}
             style={{
               display: "flex", alignItems: "center", gap: 8,
               padding: "10px 22px", borderRadius: 10,
@@ -106,7 +123,33 @@ export default function ForbiddenPage() {
           >
             <Home size={14} /> Ke Dashboard
           </button>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "10px 22px", borderRadius: 10,
+              background: loggingOut ? "#fca5a5" : "#dc2626", border: "none",
+              cursor: loggingOut ? "default" : "pointer",
+              fontSize: 13, fontWeight: 700, color: "#fff",
+              boxShadow: "0 4px 14px rgba(220,38,38,.35)",
+              transition: ".15s", opacity: loggingOut ? 0.85 : 1,
+            }}
+          >
+            <LogOut size={14} /> {loggingOut ? "Keluar…" : "Log Out"}
+          </button>
         </div>
+
+        {/* Stuck-in-a-loop hint */}
+        <p style={{
+          fontSize: 11.5, color: "#9ca3af", lineHeight: 1.6,
+          margin: "20px 0 0", maxWidth: 360, marginLeft: "auto", marginRight: "auto",
+        }}>
+          Masih terus diarahkan ke halaman ini? Sesi Anda mungkin sudah kedaluwarsa —
+          klik <strong>Log Out</strong> lalu masuk kembali.
+        </p>
 
         {/* Footer */}
         <div style={{
