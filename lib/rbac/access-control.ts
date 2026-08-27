@@ -35,7 +35,7 @@ const ROUTE_RULES: readonly RouteRule[] = [
 
   // ── Boss (Executive) ──
   { pattern: /^\/dashboard\/new-project(\/|$)/,     roles: ["BOSS"] },
-  { pattern: /^\/dashboard\/cost-control(\/|$)/,    roles: ["BOSS"] },
+  { pattern: /^\/dashboard\/cost-control(\/|$)/,    roles: ["BOSS", "PROJECT"] },
   { pattern: /^\/dashboard\/finance(\/|$)/,         roles: ["BOSS"] },
   { pattern: /^\/dashboard\/pnl(\/|$)/,             roles: ["BOSS"] },
   { pattern: /^\/input-invoice(\/|$)/,              roles: ["BOSS"] },
