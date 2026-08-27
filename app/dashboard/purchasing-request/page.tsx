@@ -29,7 +29,7 @@ import {
 import { PurchaseRequestsQueryProvider } from "./_lib/query-client"
 import {
   usePurchaseRequestsInfinite, usePurchaseRequestItemsInfinite, usePurchaseRequestCounts,
-  useBulkMarkPurchasedMutation, useDeletePrMutation,
+  useBulkMarkPurchasedMutation, useDeletePrMutation, useAddItemsMutation,
   applyUpdateToCache, prCountsQueryKey,
 } from "./_hooks/use-purchase-requests"
 
@@ -794,12 +794,13 @@ function WarehouseTable({ items, interactive, selectedItemIds, onToggleSelect, o
 
 // ─── ItemEditGrid (shared add/remove/edit item rows — create dialog + drawer) ─
 
-function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
+function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId, minRows = 1 }: {
   items:      ItemDraft[]
   onAdd:      () => void
   onRemove:   (tempId: string) => void
   onUpdate:   (tempId: string, patch: Partial<ItemDraft>) => void
   datalistId: string
+  minRows?:   number
 }) {
   return (
     <div>
@@ -880,7 +881,7 @@ function ItemEditGrid({ items, onAdd, onRemove, onUpdate, datalistId }: {
                     type="button"
                     aria-label="Hapus baris"
                     onClick={() => onRemove(item.tempId)}
-                    disabled={items.length === 1}
+                    disabled={items.length <= minRows}
                     className="text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="h-3.5 w-3.5 inline" />
@@ -1074,7 +1075,9 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
   const [editMode, setEditMode]             = React.useState(false)
   const [editUnitDraft, setEditUnitDraft]   = React.useState("")
   const [editItemDrafts, setEditItemDrafts] = React.useState<Record<string, { qty: string; satuan: string; nama_barang: string }>>({})
+  const [newItemDrafts, setNewItemDrafts]   = React.useState<ItemDraft[]>([])
   const [savingEditMode, setSavingEditMode] = React.useState(false)
+  const addItemsMutation = useAddItemsMutation()
 
   // ── Surat Jalan upload — checkboxes live inline in WarehouseTable (per-item,
   // one checkbox per checkoff-eligible row, only ever rendered in the
@@ -1159,16 +1162,32 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
     setEditItemDrafts(Object.fromEntries(
       pr.items.map(it => [it.id, { qty: String(it.qty), satuan: it.satuan, nama_barang: it.nama_barang }])
     ))
+    setNewItemDrafts([])
     setEditMode(true)
   }
 
   const updateEditItemDraft = (itemId: string, patch: Partial<{ qty: string; satuan: string; nama_barang: string }>) =>
     setEditItemDrafts(prev => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
 
-  // Typo-fix save: Unit (header) and Qty/Satuan/Nama Barang (items) only —
-  // no add/remove rows, no other fields. Applied optimistically before the
-  // network round trip; a deep-cloned snapshot lets us roll back the whole
-  // record atomically if any of the parallel PATCHes fails.
+  // Additional-request handling: append brand-new lines to this PR instead of
+  // spinning up a new PR number for them. Kept separate from editItemDrafts
+  // (which only ever corrects existing rows) since a new line has no server
+  // id yet and posts through its own endpoint (POST .../items) rather than
+  // the per-item PATCH used for typo fixes.
+  const addNewItemRow    = () => setNewItemDrafts(prev => [...prev, blankItem()])
+  const removeNewItemRow = (tempId: string) => setNewItemDrafts(prev => prev.filter(i => i.tempId !== tempId))
+  const updateNewItemRow = (tempId: string, patch: Partial<ItemDraft>) =>
+    setNewItemDrafts(prev => prev.map(i => i.tempId === tempId ? { ...i, ...patch } : i))
+
+  // Typo-fix + add-item save. Unit/Qty/Satuan/Nama Barang corrections on
+  // existing rows are applied optimistically before the network round trip
+  // (a deep-cloned snapshot lets us roll back the whole record atomically if
+  // any of the parallel PATCHes fails), exactly as before. Brand-new rows are
+  // NOT faked into that optimistic blob — they need a server-assigned id and
+  // fulfillment_source (trigger-derived from item_type), plus a possible
+  // status re-derivation, so they're only reflected once the add-items
+  // endpoint actually responds; that call runs after the PATCHes settle so it
+  // reads back the just-committed qty/satuan/nama_barang, not stale values.
   const handleSaveEditMode = async () => {
     if (savingEditMode) return
 
@@ -1191,22 +1210,35 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
       }
     }
 
-    if (!unitChanged && changedItems.length === 0) {
+    // A new row only counts once it has all three fields — a still-blank
+    // trailing row (left over from clicking "Tambah Item" then changing
+    // one's mind) is silently dropped rather than blocking Save.
+    const newItems = newItemDrafts.filter(i => i.qty.trim() || i.satuan.trim() || i.nama_barang.trim())
+    for (const i of newItems) {
+      if (!(Number(i.qty) > 0) || !i.satuan.trim() || !i.nama_barang.trim()) {
+        toast.error("Item baru memerlukan Qty > 0, Satuan, dan Nama Barang.")
+        return
+      }
+    }
+
+    if (!unitChanged && changedItems.length === 0 && newItems.length === 0) {
       setEditMode(false)
       return
     }
 
     const snapshot: PurchaseRequestRecord = JSON.parse(JSON.stringify(pr))
     setSavingEditMode(true)
-    onUpdated({
-      ...pr,
-      unit: unitChanged ? editUnitDraft.trim() : pr.unit,
-      items: pr.items.map(it => {
-        const d = editItemDrafts[it.id]
-        if (!d) return it
-        return { ...it, qty: Number(d.qty), satuan: d.satuan.trim(), nama_barang: d.nama_barang.trim() }
-      }),
-    })
+    if (unitChanged || changedItems.length > 0) {
+      onUpdated({
+        ...pr,
+        unit: unitChanged ? editUnitDraft.trim() : pr.unit,
+        items: pr.items.map(it => {
+          const d = editItemDrafts[it.id]
+          if (!d) return it
+          return { ...it, qty: Number(d.qty), satuan: d.satuan.trim(), nama_barang: d.nama_barang.trim() }
+        }),
+      })
+    }
 
     try {
       const requests: Promise<void>[] = []
@@ -1236,6 +1268,21 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
         )
       }
       await Promise.all(requests)
+
+      if (newItems.length > 0) {
+        const { data } = await addItemsMutation.mutateAsync({
+          prId:  pr.id,
+          items: newItems.map(i => ({
+            qty:         Number(i.qty),
+            satuan:      i.satuan.trim(),
+            nama_barang: i.nama_barang.trim(),
+            item_type:   i.item_type,
+          })),
+          actor_email: user.email || undefined,
+        })
+        onUpdated(data)
+      }
+
       toast.success("Perubahan berhasil disimpan.")
       setEditMode(false)
     } catch (err) {
@@ -1655,6 +1702,31 @@ function PRDetailSheet({ pr, open, onClose, onUpdated, onDelete }: {
                     {uploadingSj ? "Menyimpan…" : `Simpan Link (${selectedItemIds.size} item)`}
                   </Button>
                 </div>
+              )}
+            </div>
+          )}
+
+          {editMode && (
+            <div>
+              <Separator className="mb-5" />
+              <p className="text-xs text-muted-foreground mb-3">
+                Item baru masuk sebagai request tambahan pada PR ini (nomor PR tidak berubah) — Tipe menentukan
+                apakah item ini butuh validasi stok Gudang terlebih dahulu (Material) atau langsung ke Purchasing
+                (Non-Material).
+              </p>
+              {newItemDrafts.length === 0 ? (
+                <Button type="button" variant="outline" size="sm" onClick={addNewItemRow} className="h-7 text-xs gap-1.5">
+                  <Plus className="h-3.5 w-3.5" /> Tambah Item Baru
+                </Button>
+              ) : (
+                <ItemEditGrid
+                  items={newItemDrafts}
+                  onAdd={addNewItemRow}
+                  onRemove={removeNewItemRow}
+                  onUpdate={updateNewItemRow}
+                  datalistId="satuan-options-edit"
+                  minRows={0}
+                />
               )}
             </div>
           )}

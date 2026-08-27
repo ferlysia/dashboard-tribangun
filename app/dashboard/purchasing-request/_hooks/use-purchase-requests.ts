@@ -206,6 +206,23 @@ export function useUpdateItemMutation() {
   })
 }
 
+export function useAddItemsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ prId, items, actor_email }: {
+      prId: string
+      items: { qty: number; satuan: string; nama_barang: string; item_type: string }[]
+      actor_email?: string
+    }) =>
+      fetchJson<{ data: PurchaseRequestRecord }>(`/api/purchase-requests/${prId}/items`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ items, actor_email }),
+      }),
+    onSuccess: ({ data }) => applyUpdateToCache(queryClient, data),
+  })
+}
+
 export function useBulkMarkPurchasedMutation() {
   const queryClient = useQueryClient()
   return useMutation({
