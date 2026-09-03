@@ -11,9 +11,9 @@
  * derives its behavior from this one table.
  */
 
-export type AppRole = "ADMIN" | "BOSS" | "PR" | "PROJECT" | "HR" | "STAFF"
+export type AppRole = "ADMIN" | "BOSS" | "PR" | "PROJECT" | "HR" | "FINANCE" | "STAFF"
 
-export const APP_ROLES: readonly AppRole[] = ["ADMIN", "BOSS", "PR", "PROJECT", "HR", "STAFF"]
+export const APP_ROLES: readonly AppRole[] = ["ADMIN", "BOSS", "PR", "PROJECT", "HR", "FINANCE", "STAFF"]
 
 interface RouteRule {
   pattern: RegExp
@@ -38,6 +38,7 @@ const ROUTE_RULES: readonly RouteRule[] = [
   { pattern: /^\/dashboard\/cost-control(\/|$)/,    roles: ["BOSS", "PROJECT"] },
   { pattern: /^\/dashboard\/finance(\/|$)/,         roles: ["BOSS"] },
   { pattern: /^\/dashboard\/pnl(\/|$)/,             roles: ["BOSS"] },
+  { pattern: /^\/dashboard\/ap-invoices(\/|$)/,     roles: ["FINANCE"] },
   { pattern: /^\/input-invoice(\/|$)/,              roles: ["BOSS"] },
   { pattern: /^\/analytics(\/|$)/,                  roles: ["BOSS"] },
   { pattern: /^\/clients(\/|$)/,                    roles: ["BOSS"] },
@@ -68,6 +69,7 @@ const ROLE_HOME: Readonly<Partial<Record<AppRole, string>>> = {
   PR:      "/dashboard/purchasing-request",
   PROJECT: "/dashboard/doc-con",
   HR:      "/hr-dashboard/attendance",
+  FINANCE: "/dashboard/ap-invoices",
 }
 
 export function getRoleHome(role: AppRole | undefined): string {
